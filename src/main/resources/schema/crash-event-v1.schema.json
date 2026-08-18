@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://apm.example.com/schema/crash-event-v1.json",
+  "title": "JVM Crash event v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "eventId",
+    "eventType",
+    "occurredAt",
+    "sessionId",
+    "anonymousDeviceId",
+    "appVersion",
+    "versionCode",
+    "buildId",
+    "environment",
+    "channel",
+    "osVersion",
+    "deviceModel",
+    "crash"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "eventId": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "eventType": { "const": "crash" },
+    "occurredAt": { "type": "integer", "minimum": 0 },
+    "sessionId": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "anonymousDeviceId": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "appId": { "type": "string", "maxLength": 128 },
+    "appVersion": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "versionCode": { "type": "integer", "minimum": 0 },
+    "buildId": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "environment": { "type": "string", "minLength": 1, "maxLength": 64 },
+    "channel": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "osVersion": { "type": "string", "minLength": 1, "maxLength": 64 },
+    "deviceModel": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "networkType": { "type": "string", "maxLength": 32 },
+    "measurements": { "type": "object" },
+    "attributes": { "type": "object" },
+    "crash": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "fatal", "throwableChain"],
+      "properties": {
+        "kind": { "const": "jvm" },
+        "fatal": { "const": true },
+        "throwableChain": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 16,
+          "items": { "$ref": "#/$defs/throwable" }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "throwable": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "frames"],
+      "properties": {
+        "type": { "type": "string", "minLength": 1, "maxLength": 512 },
+        "message": { "type": "string", "maxLength": 4096 },
+        "frames": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 200,
+          "items": { "$ref": "#/$defs/frame" }
+        }
+      }
+    },
+    "frame": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["className", "methodName"],
+      "properties": {
+        "className": { "type": "string", "minLength": 1, "maxLength": 512 },
+        "methodName": { "type": "string", "minLength": 1, "maxLength": 512 },
+        "fileName": { "type": "string", "maxLength": 512 },
+        "lineNumber": { "type": "integer", "minimum": -1, "maximum": 1000000000 },
+        "applicationFrame": { "type": "boolean" }
+      }
+    }
+  }
+}

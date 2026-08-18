@@ -1,5 +1,6 @@
 HELP.md
 .gradle
+.gradle-local/
 build/
 !gradle/wrapper/gradle-wrapper.jar
 !**/src/main/**/build/
@@ -35,3 +36,10 @@ out/
 
 ### VS Code ###
 .vscode/
+
+### 本地敏感配置 ###
+.env.local
+.env.*.local
+
+### Codex 本地配置 ###
+.codex/

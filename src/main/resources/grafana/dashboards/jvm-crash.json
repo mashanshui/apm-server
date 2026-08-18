@@ -1,0 +1,93 @@
+{
+  "__inputs": [
+    {"name": "DS_CLICKHOUSE_APM", "label": "ClickHouse APM", "type": "datasource", "pluginId": "vertamedia-clickhouse-datasource", "pluginName": "ClickHouse"}
+  ],
+  "annotations": {"list": []},
+  "editable": true,
+  "graphTooltip": 1,
+  "panels": [
+    {
+      "type": "stat",
+      "title": "启动会话数",
+      "id": 1,
+      "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
+      "datasource": {"type": "vertamedia-clickhouse-datasource", "uid": "${DS_CLICKHOUSE_APM}"},
+      "targets": [{"format": "table", "query": "SELECT uniqExact(session_id) AS started_sessions FROM apm_event_raw FINAL WHERE project_id = '$project_id' AND event_type = 'app_start' AND event_time BETWEEN toDateTime($from) AND toDateTime($to) AND (has([$app_version], 'All') OR app_version IN ($app_version)) AND (has([$channel], 'All') OR channel IN ($channel)) AND (has([$environment], 'All') OR environment IN ($environment)) AND (has([$os_version], 'All') OR os_version IN ($os_version)) AND (has([$device_model], 'All') OR device_model IN ($device_model))"}],
+      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []}
+    },
+    {
+      "type": "stat",
+      "title": "每千会话崩溃率",
+      "id": 2,
+      "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0},
+      "datasource": {"type": "vertamedia-clickhouse-datasource", "uid": "${DS_CLICKHOUSE_APM}"},
+      "targets": [{"format": "table", "query": "SELECT if(started_sessions = 0, NULL, crashed_sessions / started_sessions * 1000) AS crash_rate_per_1000_sessions FROM (SELECT uniqExactIf(session_id, event_type = 'app_start') AS started_sessions, uniqExactIf(session_id, event_type = 'crash') AS crashed_sessions FROM apm_event_raw FINAL WHERE project_id = '$project_id' AND event_time BETWEEN toDateTime($from) AND toDateTime($to) AND (has([$app_version], 'All') OR app_version IN ($app_version)) AND (has([$channel], 'All') OR channel IN ($channel)) AND (has([$environment], 'All') OR environment IN ($environment)) AND (has([$os_version], 'All') OR os_version IN ($os_version)) AND (has([$device_model], 'All') OR device_model IN ($device_model)))"}],
+      "fieldConfig": {"defaults": {"unit": "short", "decimals": 2}, "overrides": []}
+    },
+    {
+      "type": "stat",
+      "title": "受影响设备数",
+      "id": 3,
+      "gridPos": {"h": 4, "w": 6, "x": 12, "y": 0},
+      "datasource": {"type": "vertamedia-clickhouse-datasource", "uid": "${DS_CLICKHOUSE_APM}"},
+      "targets": [{"format": "table", "query": "SELECT uniqExactIf(anonymous_device_id, event_type = 'crash') AS affected_devices FROM apm_event_raw FINAL WHERE project_id = '$project_id' AND event_time BETWEEN toDateTime($from) AND toDateTime($to) AND (has([$app_version], 'All') OR app_version IN ($app_version)) AND (has([$channel], 'All') OR channel IN ($channel)) AND (has([$environment], 'All') OR environment IN ($environment)) AND (has([$os_version], 'All') OR os_version IN ($os_version)) AND (has([$device_model], 'All') OR device_model IN ($device_model))"}],
+      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []}
+    },
+    {
+      "type": "stat",
+      "title": "无崩溃会话率",
+      "id": 4,
+      "gridPos": {"h": 4, "w": 6, "x": 18, "y": 0},
+      "datasource": {"type": "vertamedia-clickhouse-datasource", "uid": "${DS_CLICKHOUSE_APM}"},
+      "targets": [{"format": "table", "query": "SELECT if(started_sessions = 0, NULL, 1 - crashed_sessions / started_sessions) AS crash_free_session_rate FROM (SELECT uniqExactIf(session_id, event_type = 'app_start') AS started_sessions, uniqExactIf(session_id, event_type = 'crash') AS crashed_sessions FROM apm_event_raw FINAL WHERE project_id = '$project_id' AND event_time BETWEEN toDateTime($from) AND toDateTime($to) AND (has([$app_version], 'All') OR app_version IN ($app_version)) AND (has([$channel], 'All') OR channel IN ($channel)) AND (has([$environment], 'All') OR environment IN ($environment)) AND (has([$os_version], 'All') OR os_version IN ($os_version)) AND (has([$device_model], 'All') OR device_model IN ($device_model)))"}],
+      "fieldConfig": {"defaults": {"unit": "percentunit", "decimals": 4}, "overrides": []}
+    },
+    {
+      "type": "timeseries",
+      "title": "Crash 小时趋势",
+      "id": 5,
+      "gridPos": {"h": 8, "w": 16, "x": 0, "y": 4},
+      "datasource": {"type": "vertamedia-clickhouse-datasource", "uid": "${DS_CLICKHOUSE_APM}"},
+      "targets": [{"format": "time_series", "query": "SELECT toStartOfHour(event_time) AS time, uniqExactIf(session_id, event_type = 'app_start') AS started_sessions, uniqExactIf(session_id, event_type = 'crash') AS crashed_sessions, if(started_sessions = 0, NULL, crashed_sessions / started_sessions * 1000) AS crash_rate_per_1000_sessions FROM apm_event_raw FINAL WHERE project_id = '$project_id' AND event_time BETWEEN toDateTime($from) AND toDateTime($to) AND (has([$app_version], 'All') OR app_version IN ($app_version)) AND (has([$channel], 'All') OR channel IN ($channel)) AND (has([$environment], 'All') OR environment IN ($environment)) AND (has([$os_version], 'All') OR os_version IN ($os_version)) AND (has([$device_model], 'All') OR device_model IN ($device_model)) GROUP BY time ORDER BY time"}]
+    },
+    {
+      "type": "table",
+      "title": "Crash 问题排行",
+      "id": 6,
+      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 4},
+      "datasource": {"type": "vertamedia-clickhouse-datasource", "uid": "${DS_CLICKHOUSE_APM}"},
+      "targets": [{"format": "table", "query": "SELECT crash_fingerprint AS fingerprint, any(crash_exception_type) AS exception_type, uniqExact(event_id) AS event_count, uniqExact(session_id) AS crashed_sessions, uniqExact(anonymous_device_id) AS affected_devices, min(event_time) AS first_seen_at, max(event_time) AS last_seen_at FROM apm_event_raw FINAL WHERE project_id = '$project_id' AND event_type = 'crash' AND event_time BETWEEN toDateTime($from) AND toDateTime($to) AND (has([$app_version], 'All') OR app_version IN ($app_version)) AND (has([$channel], 'All') OR channel IN ($channel)) AND (has([$environment], 'All') OR environment IN ($environment)) AND (has([$os_version], 'All') OR os_version IN ($os_version)) AND (has([$device_model], 'All') OR device_model IN ($device_model)) AND (has([$fingerprint], 'All') OR crash_fingerprint IN ($fingerprint)) GROUP BY crash_fingerprint ORDER BY event_count DESC LIMIT 50"}],
+      "fieldConfig": {"defaults": {"custom": {"inspect": {"hidden": false}}}, "overrides": [{"matcher": {"id": "byName", "options": "fingerprint"}, "properties": [{"id": "links", "value": [{"title": "查看该问题事件", "url": "http://localhost:8080/api/v1/projects/${project_id}/crashes/issues/${__value.text}/events", "targetBlank": true}]}]}]}
+    },
+    {
+      "type": "table",
+      "title": "版本对比",
+      "id": 7,
+      "gridPos": {"h": 7, "w": 24, "x": 0, "y": 12},
+      "datasource": {"type": "vertamedia-clickhouse-datasource", "uid": "${DS_CLICKHOUSE_APM}"},
+      "targets": [{"format": "table", "query": "SELECT app_version, uniqExactIf(session_id, event_type = 'app_start') AS started_sessions, uniqExactIf(session_id, event_type = 'crash') AS crashed_sessions, uniqExactIf(anonymous_device_id, event_type = 'crash') AS affected_devices, if(started_sessions = 0, NULL, crashed_sessions / started_sessions * 1000) AS crash_rate_per_1000_sessions FROM apm_event_raw FINAL WHERE project_id = '$project_id' AND event_time BETWEEN toDateTime($from) AND toDateTime($to) AND (has([$app_version], 'All') OR app_version IN ($app_version)) AND (has([$channel], 'All') OR channel IN ($channel)) AND (has([$environment], 'All') OR environment IN ($environment)) AND (has([$os_version], 'All') OR os_version IN ($os_version)) AND (has([$device_model], 'All') OR device_model IN ($device_model)) GROUP BY app_version ORDER BY app_version"}]
+    },
+    {
+      "type": "text",
+      "title": "数据状态与堆栈下钻",
+      "id": 8,
+      "gridPos": {"h": 4, "w": 24, "x": 0, "y": 19},
+      "options": {"mode": "markdown", "content": "当启动会话数为 0 时，崩溃率显示为空并标记为分母不足；没有 Crash 行时显示为 0 仅在存在有效启动分母的情况下成立。问题排行链接进入后端事件列表，单事件详情接口会显示原始异常链、堆栈和 symbolicationStatus。"}
+    }
+  ],
+  "templating": {
+    "list": [
+      {"name": "project_id", "type": "custom", "label": "项目", "query": "demo-project", "current": {"text": "demo-project", "value": "demo-project"}},
+      {"name": "app_version", "type": "custom", "label": "版本", "query": "All", "includeAll": true, "multi": true, "current": {"text": "All", "value": "$__all"}},
+      {"name": "channel", "type": "custom", "label": "渠道", "query": "All", "includeAll": true, "multi": true, "current": {"text": "All", "value": "$__all"}},
+      {"name": "environment", "type": "custom", "label": "环境", "query": "All", "includeAll": true, "multi": true, "current": {"text": "All", "value": "$__all"}},
+      {"name": "os_version", "type": "custom", "label": "Android 版本", "query": "All", "includeAll": true, "multi": true, "current": {"text": "All", "value": "$__all"}},
+      {"name": "device_model", "type": "custom", "label": "设备型号", "query": "All", "includeAll": true, "multi": true, "current": {"text": "All", "value": "$__all"}},
+      {"name": "fingerprint", "type": "custom", "label": "问题指纹", "query": "All", "includeAll": true, "multi": true, "current": {"text": "All", "value": "$__all"}}
+    ]
+  },
+  "time": {"from": "now-24h", "to": "now"},
+  "title": "JVM Crash 统计与堆栈下钻",
+  "uid": "jvm-crash-v1",
+  "version": 1
+}
