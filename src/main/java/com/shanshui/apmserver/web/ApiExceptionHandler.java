@@ -4,12 +4,24 @@ import com.shanshui.apmserver.domain.ApiErrorResponse;
 import com.shanshui.apmserver.domain.EventError;
 import com.shanshui.apmserver.service.EventValidationException;
 import com.shanshui.apmserver.service.InvalidBatchException;
-import com.shanshui.apmserver.service.InvalidProjectKeyException;
+import com.shanshui.apmserver.service.InvalidAppKeyException;
+import com.shanshui.apmserver.service.InvalidStackArtifactException;
+import com.shanshui.apmserver.service.InvalidStackArtifactRequestException;
 import com.shanshui.apmserver.service.PayloadTooLargeException;
-import com.shanshui.apmserver.service.ProjectAccessDeniedException;
+import com.shanshui.apmserver.service.AppNotFoundException;
+import com.shanshui.apmserver.service.PackageNameConflictException;
+import com.shanshui.apmserver.service.AppRoleDeniedException;
+import com.shanshui.apmserver.service.AppCredentialCreationException;
+import com.shanshui.apmserver.service.AppCredentialDecryptionException;
+import com.shanshui.apmserver.service.AppAuthenticationUnavailableException;
+import com.shanshui.apmserver.service.PackageNameMismatchException;
+import com.shanshui.apmserver.service.InvalidCredentialsException;
+import com.shanshui.apmserver.service.InvalidAppInputException;
+import com.shanshui.apmserver.service.UnauthenticatedException;
 import com.shanshui.apmserver.service.QueryValidationException;
 import com.shanshui.apmserver.service.UnsupportedMediaTypeException;
 import com.shanshui.apmserver.service.UnsupportedSchemaVersionException;
+import com.shanshui.apmserver.service.StackParserBusyException;
 import com.shanshui.apmserver.repository.EventStoreUnavailableException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -22,9 +34,9 @@ import java.util.UUID;
 @RestControllerAdvice
 public class ApiExceptionHandler {
 
-    @ExceptionHandler(InvalidProjectKeyException.class)
-    public ResponseEntity<ApiErrorResponse> invalidProjectKey(InvalidProjectKeyException ex) {
-        return response(HttpStatus.UNAUTHORIZED, ApiErrorResponse.of("INVALID_PROJECT_KEY", ex.getMessage(), false, null));
+    @ExceptionHandler(InvalidAppKeyException.class)
+    public ResponseEntity<ApiErrorResponse> invalidAppKey(InvalidAppKeyException ex) {
+        return response(HttpStatus.UNAUTHORIZED, ApiErrorResponse.of("INVALID_APP_KEY", ex.getMessage(), false, null));
     }
 
     @ExceptionHandler(InvalidBatchException.class)
@@ -47,6 +59,25 @@ public class ApiExceptionHandler {
         return response(HttpStatus.BAD_REQUEST, ApiErrorResponse.of("UNSUPPORTED_SCHEMA_VERSION", ex.getMessage(), false, null));
     }
 
+    @ExceptionHandler(InvalidStackArtifactRequestException.class)
+    public ResponseEntity<ApiErrorResponse> invalidStackArtifactRequest(InvalidStackArtifactRequestException ex) {
+        return response(HttpStatus.BAD_REQUEST,
+                ApiErrorResponse.of(ex.getCode(), ex.getMessage(), false, null));
+    }
+
+    @ExceptionHandler(InvalidStackArtifactException.class)
+    public ResponseEntity<ApiErrorResponse> invalidStackArtifact(InvalidStackArtifactException ex) {
+        return response(HttpStatus.UNPROCESSABLE_ENTITY,
+                ApiErrorResponse.of(ex.getCode(), ex.getMessage(), false, null));
+    }
+
+    @ExceptionHandler(StackParserBusyException.class)
+    public ResponseEntity<ApiErrorResponse> stackParserBusy(StackParserBusyException ex) {
+        return response(ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .header("Retry-After", "1")
+                .body(ApiErrorResponse.of("STACK_PARSER_BUSY", ex.getMessage(), true, null)));
+    }
+
     @ExceptionHandler(EventStoreUnavailableException.class)
     public ResponseEntity<ApiErrorResponse> eventStoreUnavailable(EventStoreUnavailableException ex) {
         return response(ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
@@ -63,9 +94,54 @@ public class ApiExceptionHandler {
                 new ApiErrorResponse("INVALID_EVENT", "事件校验失败", false, UUID.randomUUID().toString(), errors, java.time.Instant.now()));
     }
 
-    @ExceptionHandler(ProjectAccessDeniedException.class)
-    public ResponseEntity<ApiErrorResponse> projectAccessDenied(ProjectAccessDeniedException ex) {
-        return response(HttpStatus.NOT_FOUND, ApiErrorResponse.of("PROJECT_NOT_FOUND", ex.getMessage(), false, null));
+    @ExceptionHandler(AppNotFoundException.class)
+    public ResponseEntity<ApiErrorResponse> appAccessDenied(AppNotFoundException ex) {
+        return response(HttpStatus.NOT_FOUND, ApiErrorResponse.of("APP_NOT_FOUND", ex.getMessage(), false, null));
+    }
+
+    @ExceptionHandler(AppRoleDeniedException.class)
+    public ResponseEntity<ApiErrorResponse> appRoleDenied(AppRoleDeniedException ex) {
+        return response(HttpStatus.FORBIDDEN, ApiErrorResponse.of("FORBIDDEN", ex.getMessage(), false, null));
+    }
+
+    @ExceptionHandler(PackageNameConflictException.class)
+    public ResponseEntity<ApiErrorResponse> packageNameConflict(PackageNameConflictException ex) {
+        return response(HttpStatus.CONFLICT, ApiErrorResponse.of("PACKAGE_NAME_CONFLICT", ex.getMessage(), false, null));
+    }
+
+    @ExceptionHandler({AppCredentialCreationException.class, AppCredentialDecryptionException.class})
+    public ResponseEntity<ApiErrorResponse> appCredentialUnavailable(RuntimeException ex) {
+        return response(ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .header("Retry-After", "30")
+                .body(ApiErrorResponse.of("APP_AUTH_UNAVAILABLE", ex.getMessage(), true, null)));
+    }
+
+    @ExceptionHandler(AppAuthenticationUnavailableException.class)
+    public ResponseEntity<ApiErrorResponse> appAuthenticationUnavailable(AppAuthenticationUnavailableException ex) {
+        return response(ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .header("Retry-After", "30")
+                .body(ApiErrorResponse.of("APP_AUTH_UNAVAILABLE", ex.getMessage(), true, null)));
+    }
+
+    @ExceptionHandler(PackageNameMismatchException.class)
+    public ResponseEntity<ApiErrorResponse> packageNameMismatch(PackageNameMismatchException ex) {
+        return response(HttpStatus.FORBIDDEN,
+                ApiErrorResponse.of("PACKAGE_NAME_MISMATCH", ex.getMessage(), false, null));
+    }
+
+    @ExceptionHandler(InvalidAppInputException.class)
+    public ResponseEntity<ApiErrorResponse> invalidAppInput(InvalidAppInputException ex) {
+        return response(HttpStatus.BAD_REQUEST, ApiErrorResponse.of(ex.getCode(), ex.getMessage(), false, null));
+    }
+
+    @ExceptionHandler(InvalidCredentialsException.class)
+    public ResponseEntity<ApiErrorResponse> invalidCredentials(InvalidCredentialsException ex) {
+        return response(HttpStatus.UNAUTHORIZED, ApiErrorResponse.of("INVALID_CREDENTIALS", ex.getMessage(), false, null));
+    }
+
+    @ExceptionHandler(UnauthenticatedException.class)
+    public ResponseEntity<ApiErrorResponse> unauthenticated(UnauthenticatedException ex) {
+        return response(HttpStatus.UNAUTHORIZED, ApiErrorResponse.of("AUTH_REQUIRED", ex.getMessage(), false, null));
     }
 
     @ExceptionHandler(QueryValidationException.class)

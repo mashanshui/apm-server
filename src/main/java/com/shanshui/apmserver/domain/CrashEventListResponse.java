@@ -4,7 +4,7 @@ import java.time.Instant;
 import java.util.List;
 
 public record CrashEventListResponse(
-        String projectId,
+        java.util.UUID appId,
         String fingerprint,
         Instant from,
         Instant to,

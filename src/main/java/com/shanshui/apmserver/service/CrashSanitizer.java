@@ -3,6 +3,10 @@ package com.shanshui.apmserver.service;
 import com.shanshui.apmserver.config.IngestProperties;
 import com.shanshui.apmserver.domain.CrashPayload;
 import com.shanshui.apmserver.domain.EventEnvelope;
+import com.shanshui.apmserver.domain.FrameSceneSummaryPayload;
+import com.shanshui.apmserver.domain.ForegroundSuspensionSummaryPayload;
+import com.shanshui.apmserver.domain.JankPayload;
+import com.shanshui.apmserver.domain.JankSample;
 import com.shanshui.apmserver.domain.StackFrame;
 import com.shanshui.apmserver.domain.ThrowableNode;
 import org.springframework.stereotype.Service;
@@ -40,7 +44,7 @@ public class CrashSanitizer {
                 event.occurredAt(),
                 sanitizeIdentifier(event.sessionId(), 128),
                 hashDeviceId(event.anonymousDeviceId()),
-                sanitizeIdentifier(defaultIfBlank(event.appId(), properties.getDefaultAppId()), 128),
+                sanitizeIdentifier(event.packageName(), 255),
                 sanitizeText(event.appVersion(), 128),
                 event.versionCode(),
                 sanitizeText(event.buildId(), 256),
@@ -51,7 +55,11 @@ public class CrashSanitizer {
                 sanitizeIdentifier(event.networkType(), 32),
                 sanitizeMap(event.measurements(), false, true),
                 sanitizeMap(event.attributes(), true, false),
-                crash);
+                crash,
+                event.jank() == null ? null : sanitizeJank(event.jank()),
+                event.frameSceneSummary() == null ? null : sanitizeFrameScene(event.frameSceneSummary()),
+                event.foregroundSuspensionSummary() == null
+                        ? null : sanitizeSuspension(event.foregroundSuspensionSummary()));
     }
 
     public CrashPayload sanitizeCrash(CrashPayload crash) {
@@ -64,6 +72,60 @@ public class CrashSanitizer {
         return new CrashPayload(sanitizeIdentifier(crash.kind(), 32), crash.fatal(), chain);
     }
 
+    public JankPayload sanitizeJank(JankPayload jank) {
+        Map<String, List<StackFrame>> dictionary = new LinkedHashMap<>();
+        if (jank.stackDictionary() != null) {
+            jank.stackDictionary().entrySet().stream().limit(properties.getMaxJankStackDictionary()).forEach(entry -> {
+                String stackId = sanitizeIdentifier(entry.getKey(), 128);
+                if (stackId == null || entry.getValue() == null) {
+                    return;
+                }
+                List<StackFrame> frames = entry.getValue().stream()
+                        .limit(properties.getMaxJankStackDepth())
+                        .filter(frame -> frame != null)
+                        .map(this::sanitizeFrame)
+                        .toList();
+                dictionary.put(stackId, frames);
+            });
+        }
+        List<JankSample> samples = jank.samples() == null ? List.of() : jank.samples().stream()
+                .filter(sample -> sample != null)
+                .limit(properties.getMaxJankSamples())
+                .map(sample -> new JankSample(sample.offsetNs(), sanitizeIdentifier(sample.stackId(), 128)))
+                .toList();
+        return new JankPayload(
+                sanitizeText(jank.scene(), properties.getMaxSceneLength()),
+                sanitizeIdentifier(jank.algorithmVersion(), 64),
+                jank.messageDurationNs(),
+                jank.thresholdNs(),
+                jank.samplingIntervalNs(),
+                samples,
+                Map.copyOf(dictionary),
+                jank.expectedSampleCount(),
+                jank.parsedSampleCount(),
+                jank.missingSampleCount());
+    }
+
+    public FrameSceneSummaryPayload sanitizeFrameScene(FrameSceneSummaryPayload payload) {
+        return new FrameSceneSummaryPayload(
+                sanitizeText(payload.scene(), properties.getMaxSceneLength()),
+                sanitizeIdentifier(payload.algorithmVersion(), 64),
+                payload.activeDurationMs(),
+                payload.uiRefreshFrameCount(),
+                payload.refreshRateHz(),
+                payload.normalizedFps60(),
+                payload.frameDurationHistogram() == null ? Map.of() : sanitizeHistogram(payload.frameDurationHistogram()));
+    }
+
+    public ForegroundSuspensionSummaryPayload sanitizeSuspension(ForegroundSuspensionSummaryPayload payload) {
+        return new ForegroundSuspensionSummaryPayload(
+                sanitizeIdentifier(payload.algorithmVersion(), 64),
+                payload.foregroundDurationMs(),
+                payload.suspensionDurationMs(),
+                payload.suspensionCount(),
+                payload.thresholdMs());
+    }
+
     public String sanitizeText(String value, int maxLength) {
         if (value == null) {
             return null;
@@ -74,8 +136,8 @@ public class CrashSanitizer {
         sanitized = HOME_PATH.matcher(sanitized).replaceAll("[path]");
         sanitized = URL.matcher(sanitized).replaceAll("[url]");
         sanitized = EMAIL.matcher(sanitized).replaceAll("[email]");
-        sanitized = PHONE.matcher(sanitized).replaceAll("[phone]");
         sanitized = UUID.matcher(sanitized).replaceAll("[id]");
+        sanitized = PHONE.matcher(sanitized).replaceAll("[phone]");
         return truncate(sanitized, maxLength);
     }
 
@@ -93,6 +155,18 @@ public class CrashSanitizer {
                 sanitizeText(frame.fileName(), 512),
                 frame.lineNumber(),
                 Boolean.TRUE.equals(frame.applicationFrame()));
+    }
+
+    private Map<String, Integer> sanitizeHistogram(Map<String, Integer> values) {
+        Map<String, Integer> result = new LinkedHashMap<>();
+        values.entrySet().stream().limit(properties.getMaxFrameHistogramBuckets()).forEach(entry -> {
+            String key = entry.getKey();
+            Integer value = entry.getValue();
+            if (key != null && key.matches("[A-Za-z0-9_.-]{1,64}") && value != null && value >= 0) {
+                result.put(key, value);
+            }
+        });
+        return Map.copyOf(result);
     }
 
     private Map<String, Object> sanitizeMap(Map<String, Object> values, boolean redact, boolean numericOnly) {
@@ -119,12 +193,8 @@ public class CrashSanitizer {
         return Map.copyOf(result);
     }
 
-    private String sanitizeIdentifier(String value, int maxLength) {
+    public String sanitizeIdentifier(String value, int maxLength) {
         return value == null ? null : truncate(value.trim().replaceAll("[\\r\\n\\t]", "?"), maxLength);
-    }
-
-    private String defaultIfBlank(String value, String fallback) {
-        return value == null || value.isBlank() ? fallback : value;
     }
 
     private String truncate(String value, int maxLength) {

@@ -56,8 +56,8 @@ final class CrashTestSupport {
 
     static EventEnvelope event(String eventId, String eventType, String sessionId,
                                String deviceId, String version, long occurredAt, CrashPayload crash) {
-        return new EventEnvelope(1, eventId, eventType, occurredAt, sessionId, deviceId,
-                "demo-app", version, version.startsWith("3.2") ? 320 : 330,
+        return new EventEnvelope(2, eventId, eventType, occurredAt, sessionId, deviceId,
+                "com.example.app", version, version.startsWith("3.2") ? 320 : 330,
                 version.startsWith("3.2") ? "build-320" : "build-330", "production", "official",
                 "16", "Pixel-8", "wifi", null, null, crash);
     }

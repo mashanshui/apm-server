@@ -10,7 +10,6 @@ public class QueryProperties {
     private int maxLimit = 500;
     private long defaultTimeoutMs = 2000;
     private long maxTimeoutMs = 5000;
-    private boolean requireProjectHeader = true;
 
     public int getMaxRangeDays() {
         return maxRangeDays;
@@ -52,11 +51,4 @@ public class QueryProperties {
         this.maxTimeoutMs = maxTimeoutMs;
     }
 
-    public boolean isRequireProjectHeader() {
-        return requireProjectHeader;
-    }
-
-    public void setRequireProjectHeader(boolean requireProjectHeader) {
-        this.requireProjectHeader = requireProjectHeader;
-    }
 }

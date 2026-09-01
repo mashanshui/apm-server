@@ -177,7 +177,7 @@ FROM apm.apm_event_raw;
 1. 进入 `Dashboards` → `New` → `Import`。
 2. 选择 `Upload dashboard JSON file`，上传 `src/main/resources/grafana/dashboards/jvm-crash.json`。
 3. 在数据源映射下拉框中选择刚创建的 ClickHouse 数据源。
-4. 导入后把 `项目` 变量设置为 `demo-project`，并选择合适的时间范围。
+4. 导入后把 `应用` 变量设置为目标应用的 UUID `appId`，并选择合适的时间范围。
 5. 通过 `Explore` 或接口上报一批测试事件后，再查看总览、小时趋势、问题排行和版本对比。
 
 ### 官方 Grafana ClickHouse 插件的选择
@@ -223,7 +223,7 @@ docker exec apm-clickhouse clickhouse-client `
   --query "SELECT count() FROM apm.apm_event_raw"
 ```
 
-如果数量仍为 `0`，先确认客户端确实请求成功，再检查应用日志、项目 Key、请求项目 ID 和时间范围。Grafana Dashboard 默认变量是 `demo-project`。
+如果数量仍为 `0`，先确认客户端确实请求成功，再检查应用日志、App Key、请求应用 UUID 和时间范围。Grafana Dashboard 不再内置默认应用。
 
 ## 八、常见问题
 

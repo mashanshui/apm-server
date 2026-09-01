@@ -12,7 +12,7 @@
       "id": 1,
       "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
       "datasource": {"type": "vertamedia-clickhouse-datasource", "uid": "${DS_CLICKHOUSE_APM}"},
-      "targets": [{"format": "table", "query": "SELECT uniqExact(session_id) AS started_sessions FROM apm_event_raw FINAL WHERE project_id = '$project_id' AND event_type = 'app_start' AND event_time BETWEEN toDateTime($from) AND toDateTime($to) AND (has([$app_version], 'All') OR app_version IN ($app_version)) AND (has([$channel], 'All') OR channel IN ($channel)) AND (has([$environment], 'All') OR environment IN ($environment)) AND (has([$os_version], 'All') OR os_version IN ($os_version)) AND (has([$device_model], 'All') OR device_model IN ($device_model))"}],
+      "targets": [{"format": "table", "query": "SELECT uniqExact(session_id) AS started_sessions FROM apm_event_raw FINAL WHERE app_id = '$app_id' AND event_type = 'app_start' AND event_time BETWEEN toDateTime($from) AND toDateTime($to) AND (has([$app_version], 'All') OR app_version IN ($app_version)) AND (has([$channel], 'All') OR channel IN ($channel)) AND (has([$environment], 'All') OR environment IN ($environment)) AND (has([$os_version], 'All') OR os_version IN ($os_version)) AND (has([$device_model], 'All') OR device_model IN ($device_model))"}],
       "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []}
     },
     {
@@ -21,7 +21,7 @@
       "id": 2,
       "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0},
       "datasource": {"type": "vertamedia-clickhouse-datasource", "uid": "${DS_CLICKHOUSE_APM}"},
-      "targets": [{"format": "table", "query": "SELECT if(started_sessions = 0, NULL, crashed_sessions / started_sessions * 1000) AS crash_rate_per_1000_sessions FROM (SELECT uniqExactIf(session_id, event_type = 'app_start') AS started_sessions, uniqExactIf(session_id, event_type = 'crash') AS crashed_sessions FROM apm_event_raw FINAL WHERE project_id = '$project_id' AND event_time BETWEEN toDateTime($from) AND toDateTime($to) AND (has([$app_version], 'All') OR app_version IN ($app_version)) AND (has([$channel], 'All') OR channel IN ($channel)) AND (has([$environment], 'All') OR environment IN ($environment)) AND (has([$os_version], 'All') OR os_version IN ($os_version)) AND (has([$device_model], 'All') OR device_model IN ($device_model)))"}],
+      "targets": [{"format": "table", "query": "SELECT if(started_sessions = 0, NULL, crashed_sessions / started_sessions * 1000) AS crash_rate_per_1000_sessions FROM (SELECT uniqExactIf(session_id, event_type = 'app_start') AS started_sessions, uniqExactIf(session_id, event_type = 'crash') AS crashed_sessions FROM apm_event_raw FINAL WHERE app_id = '$app_id' AND event_time BETWEEN toDateTime($from) AND toDateTime($to) AND (has([$app_version], 'All') OR app_version IN ($app_version)) AND (has([$channel], 'All') OR channel IN ($channel)) AND (has([$environment], 'All') OR environment IN ($environment)) AND (has([$os_version], 'All') OR os_version IN ($os_version)) AND (has([$device_model], 'All') OR device_model IN ($device_model)))"}],
       "fieldConfig": {"defaults": {"unit": "short", "decimals": 2}, "overrides": []}
     },
     {
@@ -30,7 +30,7 @@
       "id": 3,
       "gridPos": {"h": 4, "w": 6, "x": 12, "y": 0},
       "datasource": {"type": "vertamedia-clickhouse-datasource", "uid": "${DS_CLICKHOUSE_APM}"},
-      "targets": [{"format": "table", "query": "SELECT uniqExactIf(anonymous_device_id, event_type = 'crash') AS affected_devices FROM apm_event_raw FINAL WHERE project_id = '$project_id' AND event_time BETWEEN toDateTime($from) AND toDateTime($to) AND (has([$app_version], 'All') OR app_version IN ($app_version)) AND (has([$channel], 'All') OR channel IN ($channel)) AND (has([$environment], 'All') OR environment IN ($environment)) AND (has([$os_version], 'All') OR os_version IN ($os_version)) AND (has([$device_model], 'All') OR device_model IN ($device_model))"}],
+      "targets": [{"format": "table", "query": "SELECT uniqExactIf(anonymous_device_id, event_type = 'crash') AS affected_devices FROM apm_event_raw FINAL WHERE app_id = '$app_id' AND event_time BETWEEN toDateTime($from) AND toDateTime($to) AND (has([$app_version], 'All') OR app_version IN ($app_version)) AND (has([$channel], 'All') OR channel IN ($channel)) AND (has([$environment], 'All') OR environment IN ($environment)) AND (has([$os_version], 'All') OR os_version IN ($os_version)) AND (has([$device_model], 'All') OR device_model IN ($device_model))"}],
       "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []}
     },
     {
@@ -39,7 +39,7 @@
       "id": 4,
       "gridPos": {"h": 4, "w": 6, "x": 18, "y": 0},
       "datasource": {"type": "vertamedia-clickhouse-datasource", "uid": "${DS_CLICKHOUSE_APM}"},
-      "targets": [{"format": "table", "query": "SELECT if(started_sessions = 0, NULL, 1 - crashed_sessions / started_sessions) AS crash_free_session_rate FROM (SELECT uniqExactIf(session_id, event_type = 'app_start') AS started_sessions, uniqExactIf(session_id, event_type = 'crash') AS crashed_sessions FROM apm_event_raw FINAL WHERE project_id = '$project_id' AND event_time BETWEEN toDateTime($from) AND toDateTime($to) AND (has([$app_version], 'All') OR app_version IN ($app_version)) AND (has([$channel], 'All') OR channel IN ($channel)) AND (has([$environment], 'All') OR environment IN ($environment)) AND (has([$os_version], 'All') OR os_version IN ($os_version)) AND (has([$device_model], 'All') OR device_model IN ($device_model)))"}],
+      "targets": [{"format": "table", "query": "SELECT if(started_sessions = 0, NULL, 1 - crashed_sessions / started_sessions) AS crash_free_session_rate FROM (SELECT uniqExactIf(session_id, event_type = 'app_start') AS started_sessions, uniqExactIf(session_id, event_type = 'crash') AS crashed_sessions FROM apm_event_raw FINAL WHERE app_id = '$app_id' AND event_time BETWEEN toDateTime($from) AND toDateTime($to) AND (has([$app_version], 'All') OR app_version IN ($app_version)) AND (has([$channel], 'All') OR channel IN ($channel)) AND (has([$environment], 'All') OR environment IN ($environment)) AND (has([$os_version], 'All') OR os_version IN ($os_version)) AND (has([$device_model], 'All') OR device_model IN ($device_model)))"}],
       "fieldConfig": {"defaults": {"unit": "percentunit", "decimals": 4}, "overrides": []}
     },
     {
@@ -48,7 +48,7 @@
       "id": 5,
       "gridPos": {"h": 8, "w": 16, "x": 0, "y": 4},
       "datasource": {"type": "vertamedia-clickhouse-datasource", "uid": "${DS_CLICKHOUSE_APM}"},
-      "targets": [{"format": "time_series", "query": "SELECT toStartOfHour(event_time) AS time, uniqExactIf(session_id, event_type = 'app_start') AS started_sessions, uniqExactIf(session_id, event_type = 'crash') AS crashed_sessions, if(started_sessions = 0, NULL, crashed_sessions / started_sessions * 1000) AS crash_rate_per_1000_sessions FROM apm_event_raw FINAL WHERE project_id = '$project_id' AND event_time BETWEEN toDateTime($from) AND toDateTime($to) AND (has([$app_version], 'All') OR app_version IN ($app_version)) AND (has([$channel], 'All') OR channel IN ($channel)) AND (has([$environment], 'All') OR environment IN ($environment)) AND (has([$os_version], 'All') OR os_version IN ($os_version)) AND (has([$device_model], 'All') OR device_model IN ($device_model)) GROUP BY time ORDER BY time"}]
+      "targets": [{"format": "time_series", "query": "SELECT toStartOfHour(event_time) AS time, uniqExactIf(session_id, event_type = 'app_start') AS started_sessions, uniqExactIf(session_id, event_type = 'crash') AS crashed_sessions, if(started_sessions = 0, NULL, crashed_sessions / started_sessions * 1000) AS crash_rate_per_1000_sessions FROM apm_event_raw FINAL WHERE app_id = '$app_id' AND event_time BETWEEN toDateTime($from) AND toDateTime($to) AND (has([$app_version], 'All') OR app_version IN ($app_version)) AND (has([$channel], 'All') OR channel IN ($channel)) AND (has([$environment], 'All') OR environment IN ($environment)) AND (has([$os_version], 'All') OR os_version IN ($os_version)) AND (has([$device_model], 'All') OR device_model IN ($device_model)) GROUP BY time ORDER BY time"}]
     },
     {
       "type": "table",
@@ -56,8 +56,8 @@
       "id": 6,
       "gridPos": {"h": 8, "w": 8, "x": 16, "y": 4},
       "datasource": {"type": "vertamedia-clickhouse-datasource", "uid": "${DS_CLICKHOUSE_APM}"},
-      "targets": [{"format": "table", "query": "SELECT crash_fingerprint AS fingerprint, any(crash_exception_type) AS exception_type, uniqExact(event_id) AS event_count, uniqExact(session_id) AS crashed_sessions, uniqExact(anonymous_device_id) AS affected_devices, min(event_time) AS first_seen_at, max(event_time) AS last_seen_at FROM apm_event_raw FINAL WHERE project_id = '$project_id' AND event_type = 'crash' AND event_time BETWEEN toDateTime($from) AND toDateTime($to) AND (has([$app_version], 'All') OR app_version IN ($app_version)) AND (has([$channel], 'All') OR channel IN ($channel)) AND (has([$environment], 'All') OR environment IN ($environment)) AND (has([$os_version], 'All') OR os_version IN ($os_version)) AND (has([$device_model], 'All') OR device_model IN ($device_model)) AND (has([$fingerprint], 'All') OR crash_fingerprint IN ($fingerprint)) GROUP BY crash_fingerprint ORDER BY event_count DESC LIMIT 50"}],
-      "fieldConfig": {"defaults": {"custom": {"inspect": {"hidden": false}}}, "overrides": [{"matcher": {"id": "byName", "options": "fingerprint"}, "properties": [{"id": "links", "value": [{"title": "查看该问题事件", "url": "http://localhost:8080/api/v1/projects/${project_id}/crashes/issues/${__value.text}/events", "targetBlank": true}]}]}]}
+      "targets": [{"format": "table", "query": "SELECT crash_fingerprint AS fingerprint, any(crash_exception_type) AS exception_type, uniqExact(event_id) AS event_count, uniqExact(session_id) AS crashed_sessions, uniqExact(anonymous_device_id) AS affected_devices, min(event_time) AS first_seen_at, max(event_time) AS last_seen_at FROM apm_event_raw FINAL WHERE app_id = '$app_id' AND event_type = 'crash' AND event_time BETWEEN toDateTime($from) AND toDateTime($to) AND (has([$app_version], 'All') OR app_version IN ($app_version)) AND (has([$channel], 'All') OR channel IN ($channel)) AND (has([$environment], 'All') OR environment IN ($environment)) AND (has([$os_version], 'All') OR os_version IN ($os_version)) AND (has([$device_model], 'All') OR device_model IN ($device_model)) AND (has([$fingerprint], 'All') OR crash_fingerprint IN ($fingerprint)) GROUP BY crash_fingerprint ORDER BY event_count DESC LIMIT 50"}],
+      "fieldConfig": {"defaults": {"custom": {"inspect": {"hidden": false}}}, "overrides": [{"matcher": {"id": "byName", "options": "fingerprint"}, "properties": [{"id": "links", "value": [{"title": "查看该问题事件", "url": "http://localhost:8080/api/v1/apps/${app_id}/crashes/issues/${__value.text}/events", "targetBlank": true}]}]}]}
     },
     {
       "type": "table",
@@ -65,7 +65,7 @@
       "id": 7,
       "gridPos": {"h": 7, "w": 24, "x": 0, "y": 12},
       "datasource": {"type": "vertamedia-clickhouse-datasource", "uid": "${DS_CLICKHOUSE_APM}"},
-      "targets": [{"format": "table", "query": "SELECT app_version, uniqExactIf(session_id, event_type = 'app_start') AS started_sessions, uniqExactIf(session_id, event_type = 'crash') AS crashed_sessions, uniqExactIf(anonymous_device_id, event_type = 'crash') AS affected_devices, if(started_sessions = 0, NULL, crashed_sessions / started_sessions * 1000) AS crash_rate_per_1000_sessions FROM apm_event_raw FINAL WHERE project_id = '$project_id' AND event_time BETWEEN toDateTime($from) AND toDateTime($to) AND (has([$app_version], 'All') OR app_version IN ($app_version)) AND (has([$channel], 'All') OR channel IN ($channel)) AND (has([$environment], 'All') OR environment IN ($environment)) AND (has([$os_version], 'All') OR os_version IN ($os_version)) AND (has([$device_model], 'All') OR device_model IN ($device_model)) GROUP BY app_version ORDER BY app_version"}]
+      "targets": [{"format": "table", "query": "SELECT app_version, uniqExactIf(session_id, event_type = 'app_start') AS started_sessions, uniqExactIf(session_id, event_type = 'crash') AS crashed_sessions, uniqExactIf(anonymous_device_id, event_type = 'crash') AS affected_devices, if(started_sessions = 0, NULL, crashed_sessions / started_sessions * 1000) AS crash_rate_per_1000_sessions FROM apm_event_raw FINAL WHERE app_id = '$app_id' AND event_time BETWEEN toDateTime($from) AND toDateTime($to) AND (has([$app_version], 'All') OR app_version IN ($app_version)) AND (has([$channel], 'All') OR channel IN ($channel)) AND (has([$environment], 'All') OR environment IN ($environment)) AND (has([$os_version], 'All') OR os_version IN ($os_version)) AND (has([$device_model], 'All') OR device_model IN ($device_model)) GROUP BY app_version ORDER BY app_version"}]
     },
     {
       "type": "text",
@@ -77,7 +77,7 @@
   ],
   "templating": {
     "list": [
-      {"name": "project_id", "type": "custom", "label": "项目", "query": "demo-project", "current": {"text": "demo-project", "value": "demo-project"}},
+      {"name": "app_id", "type": "custom", "label": "应用", "query": "00000000-0000-4000-8000-000000000000", "current": {"text": "00000000-0000-4000-8000-000000000000", "value": "00000000-0000-4000-8000-000000000000"}},
       {"name": "app_version", "type": "custom", "label": "版本", "query": "All", "includeAll": true, "multi": true, "current": {"text": "All", "value": "$__all"}},
       {"name": "channel", "type": "custom", "label": "渠道", "query": "All", "includeAll": true, "multi": true, "current": {"text": "All", "value": "$__all"}},
       {"name": "environment", "type": "custom", "label": "环境", "query": "All", "includeAll": true, "multi": true, "current": {"text": "All", "value": "$__all"}},

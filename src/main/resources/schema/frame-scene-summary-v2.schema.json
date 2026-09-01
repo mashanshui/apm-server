@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://apm.example.com/schema/frame-scene-summary-v2.json",
+  "title": "Android frame scene summary v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "eventId", "eventType", "occurredAt", "sessionId", "anonymousDeviceId", "packageName", "appVersion", "versionCode", "buildId", "environment", "channel", "osVersion", "deviceModel", "frameSceneSummary"],
+  "properties": {
+    "schemaVersion": {"const": 2}, "eventId": {"type": "string", "minLength": 1, "maxLength": 128}, "eventType": {"const": "frame_scene_summary"},
+    "occurredAt": {"type": "integer", "minimum": 0}, "sessionId": {"type": "string", "minLength": 1, "maxLength": 128}, "anonymousDeviceId": {"type": "string", "minLength": 1, "maxLength": 256},
+    "packageName": {"type": "string", "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$", "maxLength": 255}, "appVersion": {"type": "string", "minLength": 1, "maxLength": 128}, "versionCode": {"type": "integer", "minimum": 0},
+    "buildId": {"type": "string", "minLength": 1, "maxLength": 256}, "environment": {"type": "string", "minLength": 1, "maxLength": 64}, "channel": {"type": "string", "minLength": 1, "maxLength": 128},
+    "osVersion": {"type": "string", "minLength": 1, "maxLength": 64}, "deviceModel": {"type": "string", "minLength": 1, "maxLength": 256}, "networkType": {"type": "string", "maxLength": 32},
+    "measurements": {"type": "object"}, "attributes": {"type": "object"},
+    "frameSceneSummary": {
+      "type": "object", "additionalProperties": false,
+      "required": ["scene", "algorithmVersion", "activeDurationMs", "uiRefreshFrameCount", "refreshRateHz", "normalizedFps60"],
+      "properties": {
+        "scene": {"type": "string", "minLength": 1, "maxLength": 128}, "algorithmVersion": {"type": "string", "minLength": 1, "maxLength": 64},
+        "activeDurationMs": {"type": "integer", "minimum": 1}, "uiRefreshFrameCount": {"type": "integer", "minimum": 1},
+        "refreshRateHz": {"type": "number", "exclusiveMinimum": 0}, "normalizedFps60": {"type": "number", "minimum": 0},
+        "frameDurationHistogram": {"type": "object", "additionalProperties": {"type": "integer", "minimum": 0}}
+      }
+    }
+  }
+}

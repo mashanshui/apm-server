@@ -3,12 +3,14 @@ package com.shanshui.apmserver.web;
 import tools.jackson.databind.ObjectMapper;
 import com.shanshui.apmserver.config.IngestProperties;
 import com.shanshui.apmserver.domain.BatchIngestResponse;
+import com.shanshui.apmserver.domain.AuthenticatedApp;
 import com.shanshui.apmserver.domain.EventBatchRequest;
-import com.shanshui.apmserver.service.CrashIngestionService;
+import com.shanshui.apmserver.service.EventIngestionService;
+import com.shanshui.apmserver.service.EventSchemaValidator;
 import com.shanshui.apmserver.service.InvalidBatchException;
-import com.shanshui.apmserver.service.InvalidProjectKeyException;
+import com.shanshui.apmserver.service.InvalidAppKeyException;
 import com.shanshui.apmserver.service.PayloadTooLargeException;
-import com.shanshui.apmserver.service.ProjectKeyAuthenticator;
+import com.shanshui.apmserver.service.AppKeyAuthenticator;
 import com.shanshui.apmserver.service.UnsupportedMediaTypeException;
 import com.shanshui.apmserver.service.UnsupportedSchemaVersionException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -29,28 +31,31 @@ public class IngestController {
 
     private final ObjectMapper objectMapper;
     private final IngestProperties properties;
-    private final ProjectKeyAuthenticator authenticator;
-    private final CrashIngestionService ingestionService;
+    private final AppKeyAuthenticator authenticator;
+    private final EventIngestionService ingestionService;
+    private final EventSchemaValidator schemaValidator;
 
     public IngestController(ObjectMapper objectMapper,
                             IngestProperties properties,
-                            ProjectKeyAuthenticator authenticator,
-                            CrashIngestionService ingestionService) {
+                            AppKeyAuthenticator authenticator,
+                            EventIngestionService ingestionService,
+                            EventSchemaValidator schemaValidator) {
         this.objectMapper = objectMapper;
         this.properties = properties;
         this.authenticator = authenticator;
         this.ingestionService = ingestionService;
+        this.schemaValidator = schemaValidator;
     }
 
     @PostMapping("/batches")
     public ResponseEntity<BatchIngestResponse> ingest(
-            @RequestHeader(value = "X-Project-Key", required = false) String projectKey,
+            @RequestHeader(value = "X-App-Key", required = false) String appKey,
             @RequestHeader(value = "X-Schema-Version", required = false) String schemaVersion,
             HttpServletRequest request) {
-        String projectId = authenticator.authenticate(projectKey);
+        AuthenticatedApp app = authenticator.authenticate(appKey);
         validateHeaderSchema(schemaVersion);
         EventBatchRequest batch = parseBatch(request);
-        return ResponseEntity.ok(ingestionService.ingest(projectId, batch));
+        return ResponseEntity.ok(ingestionService.ingest(app, batch));
     }
 
     private EventBatchRequest parseBatch(HttpServletRequest request) {
@@ -70,7 +75,9 @@ public class IngestController {
                 throw new UnsupportedMediaTypeException("不支持的 Content-Encoding");
             }
             input = new LimitedInputStream(input, properties.getMaxDecompressedBytes());
-            return objectMapper.readValue(input, EventBatchRequest.class);
+            var root = objectMapper.readTree(input);
+            schemaValidator.validateBatch(root);
+            return objectMapper.readValue(objectMapper.writeValueAsString(root), EventBatchRequest.class);
         } catch (PayloadTooLargeException | UnsupportedMediaTypeException ex) {
             throw ex;
         } catch (IOException ex) {

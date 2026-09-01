@@ -3,7 +3,7 @@ package com.shanshui.apmserver.domain;
 import java.time.Instant;
 
 public record CrashQueryFilter(
-        String projectId,
+        java.util.UUID appId,
         Instant from,
         Instant to,
         String appVersion,

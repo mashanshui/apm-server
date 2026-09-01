@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://apm.example.com/schema/foreground-suspension-summary-v2.json",
+  "title": "Android foreground suspension summary v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "eventId", "eventType", "occurredAt", "sessionId", "anonymousDeviceId", "packageName", "appVersion", "versionCode", "buildId", "environment", "channel", "osVersion", "deviceModel", "foregroundSuspensionSummary"],
+  "properties": {
+    "schemaVersion": {"const": 2}, "eventId": {"type": "string", "minLength": 1, "maxLength": 128}, "eventType": {"const": "foreground_suspension_summary"},
+    "occurredAt": {"type": "integer", "minimum": 0}, "sessionId": {"type": "string", "minLength": 1, "maxLength": 128}, "anonymousDeviceId": {"type": "string", "minLength": 1, "maxLength": 256},
+    "packageName": {"type": "string", "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$", "maxLength": 255}, "appVersion": {"type": "string", "minLength": 1, "maxLength": 128}, "versionCode": {"type": "integer", "minimum": 0},
+    "buildId": {"type": "string", "minLength": 1, "maxLength": 256}, "environment": {"type": "string", "minLength": 1, "maxLength": 64}, "channel": {"type": "string", "minLength": 1, "maxLength": 128},
+    "osVersion": {"type": "string", "minLength": 1, "maxLength": 64}, "deviceModel": {"type": "string", "minLength": 1, "maxLength": 256}, "networkType": {"type": "string", "maxLength": 32},
+    "measurements": {"type": "object"}, "attributes": {"type": "object"},
+    "foregroundSuspensionSummary": {
+      "type": "object", "additionalProperties": false,
+      "required": ["algorithmVersion", "foregroundDurationMs", "suspensionDurationMs", "suspensionCount", "thresholdMs"],
+      "properties": {
+        "algorithmVersion": {"type": "string", "minLength": 1, "maxLength": 64}, "foregroundDurationMs": {"type": "integer", "minimum": 1},
+        "suspensionDurationMs": {"type": "integer", "minimum": 0}, "suspensionCount": {"type": "integer", "minimum": 0}, "thresholdMs": {"type": "integer", "minimum": 1}
+      }
+    }
+  }
+}

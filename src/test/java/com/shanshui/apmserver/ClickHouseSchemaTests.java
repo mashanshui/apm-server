@@ -10,7 +10,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class ClickHouseSchemaTests {
 
     @Test
-    void schemaIsIdempotentAndContainsRawDetailAndAggregates() throws Exception {
+    void legacyCrashSchemaRemainsAvailableForControlledV4Rebuild() throws Exception {
         try (InputStream input = getClass().getResourceAsStream("/db/clickhouse/001_crash_schema.sql")) {
             String sql = new String(input.readAllBytes(), StandardCharsets.UTF_8);
             assertTrue(sql.contains("CREATE TABLE IF NOT EXISTS apm.apm_event_raw"));
@@ -22,6 +22,44 @@ class ClickHouseSchemaTests {
             assertTrue(sql.contains("TTL event_time + INTERVAL 30 DAY"));
             assertTrue(sql.contains("uniqCombined64State(event_id)"));
             assertTrue(sql.contains("CREATE MATERIALIZED VIEW IF NOT EXISTS"));
+        }
+    }
+
+    @Test
+    void legacyJankSchemaRemainsVersionedAndSeparatesFactDetailAndMetrics() throws Exception {
+        try (InputStream input = getClass().getResourceAsStream("/db/clickhouse/002_jank_schema.sql")) {
+            String sql = new String(input.readAllBytes(), StandardCharsets.UTF_8);
+            assertTrue(sql.contains("CREATE TABLE IF NOT EXISTS apm.apm_jank_event"));
+            assertTrue(sql.contains("CREATE TABLE IF NOT EXISTS apm.apm_jank_detail"));
+            assertTrue(sql.contains("CREATE TABLE IF NOT EXISTS apm.apm_jank_issue_hourly"));
+            assertTrue(sql.contains("CREATE TABLE IF NOT EXISTS apm.apm_frame_scene_summary"));
+            assertTrue(sql.contains("CREATE TABLE IF NOT EXISTS apm.apm_device_suspension_segment"));
+            assertTrue(sql.contains("CREATE TABLE IF NOT EXISTS apm.apm_device_suspension_daily"));
+            assertTrue(sql.contains("ReplacingMergeTree(received_time)"));
+            assertTrue(sql.contains("PARTITION BY toYYYYMM(event_time)"));
+            assertTrue(sql.contains("TTL event_time + INTERVAL 30 DAY"));
+            assertTrue(sql.contains("quantilesTDigestState(0.5, 0.9, 0.99)"));
+            assertTrue(sql.contains("scene, algorithm_version)"));
+            assertTrue(sql.contains("CREATE MATERIALIZED VIEW IF NOT EXISTS apm.apm_jank_issue_hourly_mv"));
+        }
+        try (InputStream input = getClass().getResourceAsStream("/db/clickhouse/003_jank_sampling_quality.sql")) {
+            String sql = new String(input.readAllBytes(), StandardCharsets.UTF_8);
+            assertTrue(sql.contains("ADD COLUMN IF NOT EXISTS parsed_sample_count UInt32"));
+            assertTrue(sql.contains("ADD COLUMN IF NOT EXISTS missing_sample_count UInt32"));
+        }
+    }
+
+    @Test
+    void applicationIdentitySchemaRebuildsEmptyTablesWithUuidAndPackageName() throws Exception {
+        try (InputStream input = getClass().getResourceAsStream("/db/clickhouse/004_application_identity_schema.sql")) {
+            String sql = new String(input.readAllBytes(), StandardCharsets.UTF_8);
+            assertTrue(sql.contains("throwIf"));
+            assertTrue(sql.contains("CREATE TABLE apm.apm_event_raw"));
+            assertTrue(sql.contains("UUID"));
+            assertTrue(sql.contains("package_name"));
+            assertTrue(sql.contains("CREATE MATERIALIZED VIEW apm.apm_event_hourly_mv"));
+            assertTrue(sql.contains("CREATE MATERIALIZED VIEW apm.apm_jank_issue_hourly_mv"));
+            assertTrue(!sql.contains("project_id"));
         }
     }
 }

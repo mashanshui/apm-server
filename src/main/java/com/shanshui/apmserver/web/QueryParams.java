@@ -8,6 +8,8 @@ public class QueryParams {
     private String osVersion;
     private String deviceModel;
     private String fingerprint;
+    private String scene;
+    private String algorithmVersion;
     private Integer limit;
     private String cursor;
     private Long timeoutMs;
@@ -58,6 +60,22 @@ public class QueryParams {
 
     public void setFingerprint(String fingerprint) {
         this.fingerprint = fingerprint;
+    }
+
+    public String getScene() {
+        return scene;
+    }
+
+    public void setScene(String scene) {
+        this.scene = scene;
+    }
+
+    public String getAlgorithmVersion() {
+        return algorithmVersion;
+    }
+
+    public void setAlgorithmVersion(String algorithmVersion) {
+        this.algorithmVersion = algorithmVersion;
     }
 
     public Integer getLimit() {

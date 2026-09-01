@@ -43,3 +43,9 @@ out/
 
 ### Codex 本地配置 ###
 .codex/
+
+### 前端构建产物 ###
+frontend/node_modules/
+frontend/dist/
+frontend/coverage/
+frontend/*.log

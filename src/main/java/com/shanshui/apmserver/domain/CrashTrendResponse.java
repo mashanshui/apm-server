@@ -4,7 +4,7 @@ import java.time.Instant;
 import java.util.List;
 
 public record CrashTrendResponse(
-        String projectId,
+        java.util.UUID appId,
         Instant from,
         Instant to,
         String interval,

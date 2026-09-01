@@ -16,7 +16,7 @@ class DashboardResourceTests {
             assertTrue(dashboard.get("title").asText().contains("Crash"));
             assertTrue(dashboard.get("panels").size() >= 5);
             String json = dashboard.toString();
-            assertTrue(json.contains("project_id"));
+            assertTrue(json.contains("app_id"));
             assertTrue(json.contains("app_version"));
             assertTrue(json.contains("fingerprint"));
             assertTrue(json.contains("denominator") || json.contains("分母"));

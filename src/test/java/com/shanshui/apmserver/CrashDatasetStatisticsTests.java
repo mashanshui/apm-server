@@ -43,34 +43,34 @@ class CrashDatasetStatisticsTests {
     @Test
     void fixedDatasetProducesExpectedOverallVersionAndIssueStatistics() throws Exception {
         EventBatchRequest batch = fixture();
-        var response = ingestion.ingest("demo-project", batch);
+        var response = ingestion.ingest(TestAppIds.id("demo-app"), batch);
 
         assertEquals(12, response.accepted());
         assertEquals(0, response.rejected());
         assertEquals(1, response.duplicate());
 
-        CrashOverviewResponse overall = query.overview("demo-project", from, to, new QueryParams());
+        CrashOverviewResponse overall = query.overview(TestAppIds.id("demo-app"), from, to, new QueryParams());
         assertEquals(8, overall.stats().startedSessions());
         assertEquals(4, overall.stats().crashEvents());
         assertEquals(4, overall.stats().crashedSessions());
         assertEquals(4, overall.stats().affectedDevices());
         assertEquals(500.0, overall.stats().crashRatePer1000Sessions());
         assertEquals(0.5, overall.stats().crashFreeSessionRate());
-        var trend = query.trend("demo-project", from, to, "hour", new QueryParams());
+        var trend = query.trend(TestAppIds.id("demo-app"), from, to, "hour", new QueryParams());
         assertEquals(1, trend.points().size());
         assertEquals(8, trend.points().get(0).stats().startedSessions());
-        assertEquals(12, repository.findAll("demo-project").size());
+        assertEquals(12, repository.findAll(TestAppIds.id("demo-app")).size());
 
         QueryParams version = new QueryParams();
         version.setAppVersion("3.2.0");
-        assertEquals(400.0, query.overview("demo-project", from, to, version)
+        assertEquals(400.0, query.overview(TestAppIds.id("demo-app"), from, to, version)
                 .stats().crashRatePer1000Sessions());
 
         QueryParams versionTarget = new QueryParams();
         versionTarget.setAppVersion("3.3.0");
-        assertEquals(3, query.overview("demo-project", from, to, versionTarget).stats().startedSessions());
+        assertEquals(3, query.overview(TestAppIds.id("demo-app"), from, to, versionTarget).stats().startedSessions());
         assertEquals(666.6666666666666,
-                query.overview("demo-project", from, to, versionTarget).stats().crashRatePer1000Sessions());
+                query.overview(TestAppIds.id("demo-app"), from, to, versionTarget).stats().crashRatePer1000Sessions());
 
         QueryParams dimensions = new QueryParams();
         dimensions.setAppVersion("3.2.0");
@@ -78,22 +78,22 @@ class CrashDatasetStatisticsTests {
         dimensions.setEnvironment("production");
         dimensions.setOsVersion("16");
         dimensions.setDeviceModel("Pixel-8");
-        assertEquals(1, query.overview("demo-project", from, to, dimensions).stats().crashEvents());
+        assertEquals(1, query.overview(TestAppIds.id("demo-app"), from, to, dimensions).stats().crashEvents());
 
-        var issues = query.issues("demo-project", from, to, new QueryParams());
+        var issues = query.issues(TestAppIds.id("demo-app"), from, to, new QueryParams());
         assertEquals(2, issues.issues().size());
         assertEquals(3, issues.issues().get(0).eventCount());
         assertEquals(1, issues.issues().get(1).eventCount());
         QueryParams fingerprintFilter = new QueryParams();
         fingerprintFilter.setFingerprint(issues.issues().get(0).fingerprint());
-        assertEquals(8, query.overview("demo-project", from, to, fingerprintFilter)
+        assertEquals(8, query.overview(TestAppIds.id("demo-app"), from, to, fingerprintFilter)
                 .stats().startedSessions());
-        assertEquals(3, query.overview("demo-project", from, to, fingerprintFilter)
+        assertEquals(3, query.overview(TestAppIds.id("demo-app"), from, to, fingerprintFilter)
                 .stats().crashEvents());
-        var issueEvents = query.events("demo-project", issues.issues().get(0).fingerprint(), from, to,
+        var issueEvents = query.events(TestAppIds.id("demo-app"), issues.issues().get(0).fingerprint(), from, to,
                 new QueryParams());
         assertEquals(3, issueEvents.events().size());
-        assertNotNull(query.event("demo-project", "crash-202").rawCrash());
+        assertNotNull(query.event(TestAppIds.id("demo-app"), "crash-202").rawCrash());
     }
 
     @Test
@@ -101,9 +101,9 @@ class CrashDatasetStatisticsTests {
         EventEnvelope crash = CrashTestSupport.event("only-crash", "crash", "session-only", "device-only",
                 "3.2.0", CrashTestSupport.nowMillis(),
                 CrashTestSupport.crash("java.lang.IllegalStateException", "boom", 1, "A"));
-        ingestion.ingest("demo-project", CrashTestSupport.batch(java.util.List.of(crash)));
+        ingestion.ingest(TestAppIds.id("demo-app"), CrashTestSupport.batch(java.util.List.of(crash)));
 
-        var stats = query.overview("demo-project", Instant.now().minusSeconds(60).toString(),
+        var stats = query.overview(TestAppIds.id("demo-app"), Instant.now().minusSeconds(60).toString(),
                 Instant.now().plusSeconds(60).toString(), new QueryParams()).stats();
         assertEquals("denominator_insufficient", stats.status());
         assertNull(stats.crashRatePer1000Sessions());

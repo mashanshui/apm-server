@@ -16,7 +16,7 @@ apm.storage.mode=clickhouse
 apm.clickhouse.enabled=true
 ~~~
 
-`apm.ingest.enabled=false` 会停止项目 Key 对应的 Crash 上报。`APM_STORAGE_MODE=memory` 是无外部依赖的临时开发模式；ClickHouse 模式必须配置 URL、数据库、用户名和密码。
+`apm.ingest.enabled=false` 会停止 App Key 对应的 Crash 上报。`APM_STORAGE_MODE=memory` 是无外部依赖的临时开发模式；ClickHouse 模式必须配置 URL、数据库、用户名和密码。
 
 ## 回滚
 

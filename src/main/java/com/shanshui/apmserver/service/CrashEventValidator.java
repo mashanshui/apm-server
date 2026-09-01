@@ -4,6 +4,8 @@ import tools.jackson.databind.ObjectMapper;
 import com.shanshui.apmserver.config.IngestProperties;
 import com.shanshui.apmserver.domain.CrashPayload;
 import com.shanshui.apmserver.domain.EventEnvelope;
+import com.shanshui.apmserver.domain.FrameSceneSummaryPayload;
+import com.shanshui.apmserver.domain.ForegroundSuspensionSummaryPayload;
 import com.shanshui.apmserver.domain.StackFrame;
 import com.shanshui.apmserver.domain.ThrowableNode;
 import com.shanshui.apmserver.domain.ValidationIssue;
@@ -40,6 +42,10 @@ public class CrashEventValidator {
             issues.add(issue("INVALID_EVENT", "事件不能为空"));
             throw new EventValidationException(issues);
         }
+        if ("jank".equals(event.eventType())) {
+            issues.add(issue("JANK_ARTIFACT_REQUIRED", "卡顿个例必须通过 /ingest/v1/stack-artifacts:parse 上传"));
+            throw new EventValidationException(issues);
+        }
         if (event.schemaVersion() == null || event.schemaVersion() != properties.getSupportedSchemaVersion()) {
             issues.add(issue("UNSUPPORTED_SCHEMA_VERSION", "不支持的事件 Schema 版本"));
         }
@@ -47,6 +53,7 @@ public class CrashEventValidator {
         require(event.eventType(), "eventType", 32, issues);
         require(event.sessionId(), "sessionId", 128, issues);
         require(event.anonymousDeviceId(), "anonymousDeviceId", 256, issues);
+        require(event.packageName(), "packageName", 255, issues);
         require(event.appVersion(), "appVersion", 128, issues);
         require(event.buildId(), "buildId", 256, issues);
         require(event.environment(), "environment", 64, issues);
@@ -75,14 +82,39 @@ public class CrashEventValidator {
                 issues.add(issue("EVENT_TIME_TOO_OLD", "事件时间超出允许的历史窗口"));
             }
         }
-        if (event.eventType() != null && !event.eventType().equals("crash")
-                && !event.eventType().equals("app_start")) {
-            issues.add(issue("UNSUPPORTED_EVENT_TYPE", "首期仅支持 app_start 和 JVM crash 事件"));
-        }
-        if ("crash".equals(event.eventType())) {
-            validateCrash(event.crash(), issues);
-        } else if ("app_start".equals(event.eventType()) && event.crash() != null) {
-            issues.add(issue("INVALID_CRASH_PAYLOAD", "app_start 不应携带 crash 载荷"));
+        int payloadCount = countPayloads(event);
+        if (event.eventType() != null && !isSupportedEventType(event.eventType())) {
+            issues.add(issue("UNSUPPORTED_EVENT_TYPE", "不支持的事件类型"));
+        } else if (payloadCount > 1) {
+            issues.add(issue("MULTIPLE_EVENT_PAYLOADS", "事件只能携带一个专用载荷"));
+        } else if ("crash".equals(event.eventType())) {
+            if (payloadCount != 1 || event.crash() == null) {
+                issues.add(issue("INVALID_CRASH_PAYLOAD", "crash 事件必须且只能携带 crash 载荷"));
+            } else {
+                validateCrash(event.crash(), issues);
+            }
+        } else if ("app_start".equals(event.eventType())) {
+            if (payloadCount != 0) {
+                issues.add(issue("INVALID_EVENT_PAYLOAD", "app_start 不应携带专用载荷"));
+            }
+        } else if ("frame_scene_summary".equals(event.eventType())) {
+            if (!properties.isFrameMetricsEnabled()) {
+                issues.add(issue("FRAME_METRICS_DISABLED", "场景帧指标接收开关已关闭"));
+            }
+            if (payloadCount != 1 || event.frameSceneSummary() == null) {
+                issues.add(issue("INVALID_FRAME_PAYLOAD", "frame_scene_summary 事件必须且只能携带 frameSceneSummary 载荷"));
+            } else {
+                validateFrameScene(event.frameSceneSummary(), issues);
+            }
+        } else if ("foreground_suspension_summary".equals(event.eventType())) {
+            if (!properties.isSuspensionMetricsEnabled()) {
+                issues.add(issue("SUSPENSION_METRICS_DISABLED", "前台挂起指标接收开关已关闭"));
+            }
+            if (payloadCount != 1 || event.foregroundSuspensionSummary() == null) {
+                issues.add(issue("INVALID_SUSPENSION_PAYLOAD", "foreground_suspension_summary 事件必须且只能携带 foregroundSuspensionSummary 载荷"));
+            } else {
+                validateSuspension(event.foregroundSuspensionSummary(), issues);
+            }
         }
         try {
             if (objectMapper.writeValueAsBytes(event).length > properties.getMaxEventBytes()) {
@@ -149,6 +181,88 @@ public class CrashEventValidator {
         }
         if (frameCount > properties.getMaxStackFrames()) {
             issues.add(issue("TOO_MANY_STACK_FRAMES", "堆栈帧数量超过上限"));
+        }
+    }
+
+    private boolean isSupportedEventType(String eventType) {
+        return "crash".equals(eventType)
+                || "app_start".equals(eventType)
+                || "jank".equals(eventType)
+                || "frame_scene_summary".equals(eventType)
+                || "foreground_suspension_summary".equals(eventType);
+    }
+
+    private int countPayloads(EventEnvelope event) {
+        int count = 0;
+        if (event.crash() != null) {
+            count++;
+        }
+        if (event.jank() != null) {
+            count++;
+        }
+        if (event.frameSceneSummary() != null) {
+            count++;
+        }
+        if (event.foregroundSuspensionSummary() != null) {
+            count++;
+        }
+        return count;
+    }
+
+    private void validateFrameScene(FrameSceneSummaryPayload payload, List<ValidationIssue> issues) {
+        require(payload.scene(), "frameSceneSummary.scene", properties.getMaxSceneLength(), issues);
+        if (payload.algorithmVersion() == null || payload.algorithmVersion().isBlank()) {
+            issues.add(issue("MISSING_FPS_ALGORITHM_VERSION", "frameSceneSummary.algorithmVersion 不能为空"));
+        } else if (!properties.getSupportedFpsAlgorithmVersions().contains(payload.algorithmVersion())) {
+            issues.add(issue("UNSUPPORTED_FPS_ALGORITHM_VERSION", "不支持的 FPS 算法版本"));
+        }
+        if (payload.activeDurationMs() == null || payload.activeDurationMs() <= 0) {
+            issues.add(issue("INVALID_ACTIVE_DURATION", "activeDurationMs 必须为正数"));
+        }
+        if (payload.uiRefreshFrameCount() == null || payload.uiRefreshFrameCount() <= 0) {
+            issues.add(issue("NO_UI_REFRESH_FRAMES", "统计区间必须包含真实 UI 刷新帧"));
+        }
+        if (payload.refreshRateHz() == null || payload.refreshRateHz() <= 0 || payload.refreshRateHz() > 1_000) {
+            issues.add(issue("INVALID_REFRESH_RATE", "refreshRateHz 超出范围"));
+        }
+        if (payload.normalizedFps60() == null || payload.normalizedFps60() < 0 || payload.normalizedFps60() > 1_000) {
+            issues.add(issue("INVALID_NORMALIZED_FPS", "normalizedFps60 超出范围"));
+        }
+        if (payload.frameDurationHistogram() != null
+                && payload.frameDurationHistogram().size() > properties.getMaxFrameHistogramBuckets()) {
+            issues.add(issue("TOO_MANY_FRAME_BUCKETS", "帧耗时分布桶数量超过上限"));
+        }
+        if (payload.frameDurationHistogram() != null) {
+            payload.frameDurationHistogram().forEach((bucket, count) -> {
+                if (bucket == null || !bucket.matches("[A-Za-z0-9_.-]{1,64}")) {
+                    issues.add(issue("INVALID_FRAME_BUCKET", "帧耗时分布桶名称无效"));
+                }
+                if (count == null || count < 0) {
+                    issues.add(issue("INVALID_FRAME_BUCKET_COUNT", "帧耗时分布桶计数必须为非负整数"));
+                }
+            });
+        }
+    }
+
+    private void validateSuspension(ForegroundSuspensionSummaryPayload payload, List<ValidationIssue> issues) {
+        if (payload.algorithmVersion() == null || payload.algorithmVersion().isBlank()) {
+            issues.add(issue("MISSING_SUSPENSION_ALGORITHM_VERSION", "foregroundSuspensionSummary.algorithmVersion 不能为空"));
+        } else if (!properties.getSupportedSuspensionAlgorithmVersions().contains(payload.algorithmVersion())) {
+            issues.add(issue("UNSUPPORTED_SUSPENSION_ALGORITHM_VERSION", "不支持的挂起算法版本"));
+        }
+        if (payload.foregroundDurationMs() == null || payload.foregroundDurationMs() <= 0) {
+            issues.add(issue("INVALID_FOREGROUND_DURATION", "foregroundDurationMs 必须为正数"));
+        }
+        if (payload.suspensionDurationMs() == null || payload.suspensionDurationMs() < 0
+                || (payload.foregroundDurationMs() != null && payload.foregroundDurationMs() > 0
+                && payload.suspensionDurationMs() > payload.foregroundDurationMs())) {
+            issues.add(issue("INVALID_SUSPENSION_DURATION", "suspensionDurationMs 超出范围"));
+        }
+        if (payload.suspensionCount() == null || payload.suspensionCount() < 0) {
+            issues.add(issue("INVALID_SUSPENSION_COUNT", "suspensionCount 必须为非负整数"));
+        }
+        if (payload.thresholdMs() == null || payload.thresholdMs() <= 0) {
+            issues.add(issue("INVALID_SUSPENSION_THRESHOLD", "thresholdMs 必须为正数"));
         }
     }
 

@@ -18,10 +18,10 @@ class CrashFingerprintServiceTests {
         CrashPayload second = CrashTestSupport.crash("java.lang.IllegalStateException", "state for user 98765", 200,
                 "com.example.checkout.PaymentActivity");
 
-        assertEquals(service.fingerprint("project-a", "app-a", first),
-                service.fingerprint("project-a", "app-a", second));
-        assertNotEquals(service.fingerprint("project-a", "app-a", first),
-                service.fingerprint("project-a", "app-a",
+        assertEquals(service.fingerprint(TestAppIds.id("app-a"), "app-a", first),
+                service.fingerprint(TestAppIds.id("app-a"), "app-a", second));
+        assertNotEquals(service.fingerprint(TestAppIds.id("app-a"), "app-a", first),
+                service.fingerprint(TestAppIds.id("app-a"), "app-a",
                         CrashTestSupport.crash("java.lang.NullPointerException", "state for user 12345", 100,
                                 "com.example.order.OrderRepository")));
     }

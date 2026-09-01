@@ -8,9 +8,9 @@ import java.util.Optional;
 
 public interface EventRepository {
 
-    AppendResult append(String projectId, List<StoredEvent> events);
+    AppendResult append(java.util.UUID appId, List<StoredEvent> events);
 
-    List<StoredEvent> findAll(String projectId);
+    List<StoredEvent> findAll(java.util.UUID appId);
 
-    Optional<StoredEvent> findByEventId(String projectId, String eventId);
+    Optional<StoredEvent> findByEventId(java.util.UUID appId, String eventId);
 }

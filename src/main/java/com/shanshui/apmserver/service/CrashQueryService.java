@@ -49,17 +49,17 @@ public class CrashQueryService {
         this.metrics = metrics;
     }
 
-    public CrashOverviewResponse overview(String projectId, String from, String to, QueryParams params) {
-        CrashQueryFilter filter = filter(projectId, from, to, params);
+    public CrashOverviewResponse overview(java.util.UUID appId, String from, String to, QueryParams params) {
+        CrashQueryFilter filter = filter(appId, from, to, params);
         List<StoredEvent> events = findFiltered(filter, event -> true);
-        return new CrashOverviewResponse(projectId, filter.from(), filter.to(), stats(events), dataSource());
+        return new CrashOverviewResponse(appId, filter.from(), filter.to(), stats(events), dataSource());
     }
 
-    public CrashTrendResponse trend(String projectId, String from, String to, String interval, QueryParams params) {
+    public CrashTrendResponse trend(java.util.UUID appId, String from, String to, String interval, QueryParams params) {
         if (!"hour".equals(interval) && !"day".equals(interval)) {
             throw new QueryValidationException("INVALID_INTERVAL", "interval 只支持 hour 或 day", 400);
         }
-        CrashQueryFilter filter = filter(projectId, from, to, params);
+        CrashQueryFilter filter = filter(appId, from, to, params);
         List<StoredEvent> events = findFiltered(filter, event -> true);
         Map<Instant, List<StoredEvent>> buckets = new TreeMap<>();
         for (StoredEvent event : events) {
@@ -74,11 +74,11 @@ public class CrashQueryService {
                     return new CrashTrendPoint(entry.getKey(), end, stats(entry.getValue()));
                 })
                 .toList();
-        return new CrashTrendResponse(projectId, filter.from(), filter.to(), interval, points, dataSource());
+        return new CrashTrendResponse(appId, filter.from(), filter.to(), interval, points, dataSource());
     }
 
-    public CrashIssueResponse issues(String projectId, String from, String to, QueryParams params) {
-        CrashQueryFilter filter = filter(projectId, from, to, params);
+    public CrashIssueResponse issues(java.util.UUID appId, String from, String to, QueryParams params) {
+        CrashQueryFilter filter = filter(appId, from, to, params);
         List<StoredEvent> events = findFiltered(filter, StoredEvent::isCrash);
         Map<String, List<StoredEvent>> grouped = groupByFingerprint(events);
         List<CrashIssueSummary> all = grouped.entrySet().stream()
@@ -91,14 +91,14 @@ public class CrashQueryService {
         List<CrashIssueSummary> page = page(all, start, filter.limit());
         String nextCursor = start + page.size() < all.size() && !page.isEmpty()
                 ? page.get(page.size() - 1).fingerprint() : null;
-        return new CrashIssueResponse(projectId, filter.from(), filter.to(), page, nextCursor, dataSource());
+        return new CrashIssueResponse(appId, filter.from(), filter.to(), page, nextCursor, dataSource());
     }
 
-    public CrashEventListResponse events(String projectId, String fingerprint,
+    public CrashEventListResponse events(java.util.UUID appId, String fingerprint,
                                          String from, String to, QueryParams params) {
         QueryParams effective = params == null ? new QueryParams() : params;
         effective.setFingerprint(fingerprint);
-        CrashQueryFilter filter = filter(projectId, from, to, effective);
+        CrashQueryFilter filter = filter(appId, from, to, effective);
         List<StoredEvent> events = findFiltered(filter, event -> event.isCrash()
                 && fingerprint.equals(event.crashFingerprint()));
         events = events.stream()
@@ -109,23 +109,23 @@ public class CrashQueryService {
         List<StoredEvent> page = page(events, start, filter.limit());
         String nextCursor = start + page.size() < events.size() && !page.isEmpty()
                 ? page.get(page.size() - 1).eventId() : null;
-        return new CrashEventListResponse(projectId, fingerprint, filter.from(), filter.to(),
+        return new CrashEventListResponse(appId, fingerprint, filter.from(), filter.to(),
                 page.stream().map(this::toSummary).toList(), nextCursor, dataSource());
     }
 
-    public CrashEventDetailResponse event(String projectId, String eventId) {
-        StoredEvent event = repository.findByEventId(projectId, eventId)
+    public CrashEventDetailResponse event(java.util.UUID appId, String eventId) {
+        StoredEvent event = repository.findByEventId(appId, eventId)
                 .filter(StoredEvent::isCrash)
                 .orElseThrow(() -> new QueryValidationException("EVENT_NOT_FOUND", "Crash 事件不存在", 404));
         return new CrashEventDetailResponse(
-                event.projectId(), event.eventId(), event.appId(), event.occurredAt(), event.receivedAt(),
+                event.appId(), event.eventId(), event.packageName(), event.occurredAt(), event.receivedAt(),
                 event.sessionId(), event.anonymousDeviceId(), event.appVersion(), event.versionCode(),
                 event.buildId(), event.channel(), event.environment(), event.osVersion(), event.deviceModel(),
                 event.networkType(), event.crashExceptionType(), event.crashFingerprint(),
                 event.fingerprintVersion(), event.symbolicationStatus(), event.crash());
     }
 
-    public CrashQueryFilter filter(String projectId, String fromText, String toText, QueryParams params) {
+    public CrashQueryFilter filter(java.util.UUID appId, String fromText, String toText, QueryParams params) {
         QueryParams values = params == null ? new QueryParams() : params;
         Instant to = parseInstant(toText, "to", Instant.now());
         Instant from = parseInstant(fromText, "from", to.minus(24, ChronoUnit.HOURS));
@@ -143,7 +143,7 @@ public class CrashQueryService {
         if (timeout < 1 || timeout > properties.getMaxTimeoutMs()) {
             throw new QueryValidationException("INVALID_TIMEOUT", "timeoutMs 超出允许范围", 400);
         }
-        return new CrashQueryFilter(projectId, from, to,
+        return new CrashQueryFilter(appId, from, to,
                 clean(values.getAppVersion()), clean(values.getChannel()), clean(values.getEnvironment()),
                 clean(values.getOsVersion()), clean(values.getDeviceModel()), clean(values.getFingerprint()),
                 limit, clean(values.getCursor()), timeout);
@@ -151,7 +151,7 @@ public class CrashQueryService {
 
     private List<StoredEvent> findFiltered(CrashQueryFilter filter, Predicate<StoredEvent> predicate) {
         long deadline = System.nanoTime() + filter.timeoutMs() * 1_000_000L;
-        List<StoredEvent> all = repository.findAll(filter.projectId());
+        List<StoredEvent> all = repository.findAll(filter.appId());
         List<StoredEvent> result = new ArrayList<>();
         for (StoredEvent event : all) {
             if (System.nanoTime() > deadline) {

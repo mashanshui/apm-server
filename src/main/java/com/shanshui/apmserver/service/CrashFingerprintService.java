@@ -22,9 +22,9 @@ public class CrashFingerprintService {
     private static final Pattern NUMBER = Pattern.compile("\\b\\d+(?:\\.\\d+)?\\b");
     private static final Pattern QUOTED_VALUE = Pattern.compile("(['\"]).*?\\1");
 
-    public String fingerprint(String projectId, String appId, CrashPayload crash) {
+    public String fingerprint(java.util.UUID appId, String packageName, CrashPayload crash) {
         if (crash == null || crash.throwableChain() == null || crash.throwableChain().isEmpty()) {
-            return sha256(projectId + "|" + appId + "|missing-crash");
+            return sha256(appId + "|" + packageName + "|missing-crash");
         }
         ThrowableNode primary = crash.throwableChain().get(0);
         List<StackFrame> frames = new ArrayList<>();
@@ -46,7 +46,7 @@ public class CrashFingerprintService {
             }
         }
         StringBuilder normalized = new StringBuilder();
-        normalized.append(projectId).append('|').append(appId).append('|').append(crash.kind()).append('|');
+        normalized.append(appId).append('|').append(packageName).append('|').append(crash.kind()).append('|');
         normalized.append(normalize(primary.type())).append('|');
         normalized.append(normalize(primary.message())).append('|');
         frames.stream().limit(MAX_FRAMES).forEach(frame -> normalized

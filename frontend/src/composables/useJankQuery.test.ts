@@ -1,0 +1,71 @@
+import { describe, expect, it } from 'vitest'
+import { ApiError } from '../api/http'
+import { createJankCursorQuery, createJankQueryRegion } from './useJankQuery'
+
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  let reject!: (reason?: unknown) => void
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise
+    reject = rejectPromise
+  })
+  return { promise, resolve, reject }
+}
+
+describe('卡顿查询基础设施', () => {
+  it('取消旧请求并阻止旧响应覆盖最新数据', async () => {
+    const region = createJankQueryRegion<string>()
+    const first = deferred<string>()
+    const second = deferred<string>()
+    const signals: AbortSignal[] = []
+
+    const firstRun = region.run((signal) => {
+      signals.push(signal)
+      return first.promise
+    })
+    const secondRun = region.run(() => second.promise)
+    expect(signals[0].aborted).toBe(true)
+
+    second.resolve('new')
+    await secondRun
+    first.resolve('old')
+    await firstRun
+
+    expect(region.data.value).toBe('new')
+    expect(region.loading.value).toBe(false)
+  })
+
+  it('各区域错误互不覆盖', async () => {
+    const overview = createJankQueryRegion<string>()
+    const trend = createJankQueryRegion<string>()
+    await Promise.all([
+      overview.run(async () => 'overview-ok'),
+      trend.run(async () => {
+        throw new ApiError({ status: 500, message: '趋势失败' })
+      }),
+    ])
+    expect(overview.data.value).toBe('overview-ok')
+    expect(overview.error.value).toBeNull()
+    expect(trend.error.value).toBe('趋势失败')
+  })
+
+  it('游标追加按稳定键去重并保留追加失败前的数据', async () => {
+    const query = createJankCursorQuery<{ eventId: string }>((item) => item.eventId)
+    await query.load(async () => ({
+      items: [{ eventId: 'a' }, { eventId: 'b' }],
+      nextCursor: 'cursor-2',
+    }))
+    await query.loadMore(async (cursor) => {
+      expect(cursor).toBe('cursor-2')
+      return { items: [{ eventId: 'b' }, { eventId: 'c' }], nextCursor: 'cursor-3' }
+    })
+    expect(query.items.value.map((item) => item.eventId)).toEqual(['a', 'b', 'c'])
+    expect(query.nextCursor.value).toBe('cursor-3')
+
+    await query.loadMore(async () => {
+      throw new ApiError({ status: 500, message: '追加失败' })
+    })
+    expect(query.items.value.map((item) => item.eventId)).toEqual(['a', 'b', 'c'])
+    expect(query.appendError.value).toBe('追加失败')
+  })
+})

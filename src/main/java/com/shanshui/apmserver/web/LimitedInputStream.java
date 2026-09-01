@@ -9,11 +9,17 @@ import java.io.InputStream;
 public class LimitedInputStream extends FilterInputStream {
 
     private final long maxBytes;
+    private final String limitMessage;
     private long bytesRead;
 
     public LimitedInputStream(InputStream inputStream, long maxBytes) {
+        this(inputStream, maxBytes, "请求解压后超过大小上限");
+    }
+
+    public LimitedInputStream(InputStream inputStream, long maxBytes, String limitMessage) {
         super(inputStream);
         this.maxBytes = maxBytes;
+        this.limitMessage = limitMessage;
     }
 
     @Override
@@ -37,7 +43,7 @@ public class LimitedInputStream extends FilterInputStream {
     private void count(int count) {
         bytesRead += count;
         if (bytesRead > maxBytes) {
-            throw new PayloadTooLargeException("请求解压后超过大小上限");
+            throw new PayloadTooLargeException(limitMessage);
         }
     }
 }

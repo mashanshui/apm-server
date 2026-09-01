@@ -21,8 +21,8 @@ class CrashReliabilityTests {
                 "3.2.0", Instant.now().toEpochMilli(),
                 CrashTestSupport.crash("java.lang.IllegalStateException", "boom", 1, "A"));
 
-        assertEquals(1, ingestion.ingest("project-a", CrashTestSupport.batch(List.of(event))).accepted());
-        var retry = ingestion.ingest("project-a", CrashTestSupport.batch(List.of(event)));
+        assertEquals(1, ingestion.ingest(TestAppIds.id("app-a"), CrashTestSupport.batch(List.of(event))).accepted());
+        var retry = ingestion.ingest(TestAppIds.id("app-a"), CrashTestSupport.batch(List.of(event)));
         assertEquals(0, retry.accepted());
         assertEquals(1, retry.duplicate());
     }
@@ -36,6 +36,6 @@ class CrashReliabilityTests {
                 Instant.now().toEpochMilli(), CrashTestSupport.crash("java.lang.RuntimeException", "boom", 1, "A"));
 
         assertThrows(EventStoreUnavailableException.class,
-                () -> ingestion.ingest("project-a", CrashTestSupport.batch(List.of(event))));
+                () -> ingestion.ingest(TestAppIds.id("app-a"), CrashTestSupport.batch(List.of(event))));
     }
 }

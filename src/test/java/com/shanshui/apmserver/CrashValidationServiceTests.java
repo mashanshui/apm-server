@@ -21,13 +21,13 @@ class CrashValidationServiceTests {
         EventEnvelope event = CrashTestSupport.event("bad-1", "crash", "session-1", "device-1", "3.2.0",
                 CrashTestSupport.nowMillis(), CrashTestSupport.crash("java.lang.RuntimeException", "boom", 1, "A"));
         EventEnvelope invalidEvent = new EventEnvelope(event.schemaVersion(), event.eventId(), event.eventType(), event.occurredAt(),
-                event.sessionId(), event.anonymousDeviceId(), event.appId(), event.appVersion(), event.versionCode(),
+                event.sessionId(), event.anonymousDeviceId(), event.packageName(), event.appVersion(), event.versionCode(),
                 event.buildId(), event.environment(), event.channel(), event.osVersion(), event.deviceModel(),
                 event.networkType(), event.measurements(), event.attributes(),
                 new com.shanshui.apmserver.domain.CrashPayload("native", false, event.crash().throwableChain()));
 
         EventValidationException exception = assertThrows(EventValidationException.class,
-                () -> processor.process("project-a", invalidEvent, java.time.Instant.now()));
+                () -> processor.process(TestAppIds.id("app-a"), invalidEvent, java.time.Instant.now()));
         assertTrue(exception.getIssues().stream().anyMatch(issue -> issue.code().equals("UNSUPPORTED_CRASH_KIND")));
         assertTrue(exception.getIssues().stream().anyMatch(issue -> issue.code().equals("NON_FATAL_CRASH")));
     }
@@ -42,7 +42,7 @@ class CrashValidationServiceTests {
                 CrashTestSupport.nowMillis(), CrashTestSupport.crash("java.lang.RuntimeException", "too-long-message", 1, "A"));
 
         EventValidationException exception = assertThrows(EventValidationException.class,
-                () -> processor.process("project-a", event, java.time.Instant.now()));
+                () -> processor.process(TestAppIds.id("app-a"), event, java.time.Instant.now()));
         assertTrue(exception.getIssues().stream().anyMatch(issue -> issue.code().equals("MESSAGE_TOO_LONG")));
     }
 }

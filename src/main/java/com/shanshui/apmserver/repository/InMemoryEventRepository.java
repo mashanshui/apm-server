@@ -25,12 +25,12 @@ public class InMemoryEventRepository implements EventRepository {
     }
 
     @Override
-    public synchronized AppendResult append(String projectId, List<StoredEvent> newEvents) {
+    public synchronized AppendResult append(java.util.UUID appId, List<StoredEvent> newEvents) {
         ensureAvailable();
         int accepted = 0;
         int duplicate = 0;
         for (StoredEvent event : newEvents) {
-            String key = key(projectId, event.eventId());
+            String key = key(appId, event.eventId());
             if (events.putIfAbsent(key, event) == null) {
                 accepted++;
             } else {
@@ -41,10 +41,10 @@ public class InMemoryEventRepository implements EventRepository {
     }
 
     @Override
-    public List<StoredEvent> findAll(String projectId) {
+    public List<StoredEvent> findAll(java.util.UUID appId) {
         ensureAvailable();
         List<StoredEvent> result = new ArrayList<>();
-        String prefix = projectId + "\u0000";
+        String prefix = appId + "\u0000";
         for (Map.Entry<String, StoredEvent> entry : events.entrySet()) {
             if (entry.getKey().startsWith(prefix)) {
                 result.add(entry.getValue());
@@ -55,9 +55,18 @@ public class InMemoryEventRepository implements EventRepository {
     }
 
     @Override
-    public Optional<StoredEvent> findByEventId(String projectId, String eventId) {
+    public Optional<StoredEvent> findByEventId(java.util.UUID appId, String eventId) {
         ensureAvailable();
-        return Optional.ofNullable(events.get(key(projectId, eventId)));
+        return Optional.ofNullable(events.get(key(appId, eventId)));
+    }
+
+    /** 卡顿事实与详情在同一不可变 StoredEvent 中保存，供契约测试读取，且沿用应用+事件 ID 幂等键。 */
+    public List<StoredEvent> findJankEvents(java.util.UUID appId) {
+        return findAll(appId).stream().filter(StoredEvent::isJank).toList();
+    }
+
+    public Optional<StoredEvent> findJankByEventId(java.util.UUID appId, String eventId) {
+        return findByEventId(appId, eventId).filter(StoredEvent::isJank);
     }
 
     public void setAvailable(boolean available) {
@@ -74,7 +83,7 @@ public class InMemoryEventRepository implements EventRepository {
         }
     }
 
-    private String key(String projectId, String eventId) {
-        return projectId + "\u0000" + eventId;
+    private String key(java.util.UUID appId, String eventId) {
+        return appId + "\u0000" + eventId;
     }
 }

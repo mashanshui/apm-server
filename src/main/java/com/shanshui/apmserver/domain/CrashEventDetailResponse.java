@@ -3,9 +3,9 @@ package com.shanshui.apmserver.domain;
 import java.time.Instant;
 
 public record CrashEventDetailResponse(
-        String projectId,
+        java.util.UUID appId,
         String eventId,
-        String appId,
+        String packageName,
         Instant occurredAt,
         Instant receivedAt,
         String sessionId,
