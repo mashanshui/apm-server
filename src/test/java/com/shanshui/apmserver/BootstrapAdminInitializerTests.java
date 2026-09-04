@@ -1,9 +1,9 @@
 package com.shanshui.apmserver;
 
-import com.shanshui.apmserver.config.AuthProperties;
-import com.shanshui.apmserver.domain.AppUser;
-import com.shanshui.apmserver.repository.AppUserRepository;
-import com.shanshui.apmserver.service.BootstrapAdminInitializer;
+import com.shanshui.apmserver.identity.internal.config.AuthProperties;
+import com.shanshui.apmserver.identity.internal.domain.AppUser;
+import com.shanshui.apmserver.identity.internal.persistence.AppUserRepository;
+import com.shanshui.apmserver.identity.internal.application.BootstrapAdminInitializer;
 import org.junit.jupiter.api.Test;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 

@@ -1,6 +1,6 @@
 package com.shanshui.apmserver;
 
-import com.shanshui.apmserver.repository.InMemoryEventRepository;
+import com.shanshui.apmserver.jank.internal.persistence.InMemoryJankEventRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -29,7 +29,7 @@ class JankRequestLimitApiIntegrationTests extends AppIngestApiTestSupport {
     private MockMvc mockMvc;
 
     @Autowired
-    private InMemoryEventRepository repository;
+    private InMemoryJankEventRepository repository;
 
     @BeforeEach
     void clearRepository() {

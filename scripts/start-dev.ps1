@@ -94,6 +94,20 @@ function Wait-TcpPort {
 function Stop-ProcessTree {
     param([int]$ProcessId)
 
+    if ($ProcessId -le 0) {
+        return
+    }
+
+    # Start-Process 使用 cmd -> Gradle -> Java 的多级进程链；Stop-Process
+    # 只结束当前 PID，失败清理必须递归结束已确认属于本次启动的进程树。
+    $taskKill = Get-Command taskkill.exe -ErrorAction SilentlyContinue
+    if ($null -ne $taskKill) {
+        & $taskKill.Source /PID $ProcessId /T /F 2>$null | Out-Null
+        if ($LASTEXITCODE -eq 0) {
+            return
+        }
+    }
+
     $process = Get-Process -Id $ProcessId -ErrorAction SilentlyContinue
     if ($null -ne $process) {
         Stop-Process -Id $ProcessId -Force -ErrorAction SilentlyContinue
@@ -244,6 +258,20 @@ if (-not (Wait-TcpPort -Port 5432 -TimeoutSeconds 60)) {
 }
 
 if ($StorageMode -eq 'clickhouse') {
+    # 安装文档使用 CLICKHOUSE_ADMIN_*，应用连接属性使用 CLICKHOUSE_*；
+    # 未显式设置应用变量时复用同一套本地管理员配置。
+    if ([string]::IsNullOrWhiteSpace($env:CLICKHOUSE_USERNAME) -and
+        -not [string]::IsNullOrWhiteSpace($env:CLICKHOUSE_ADMIN_USER)) {
+        $env:CLICKHOUSE_USERNAME = $env:CLICKHOUSE_ADMIN_USER
+    }
+    if ([string]::IsNullOrWhiteSpace($env:CLICKHOUSE_PASSWORD) -and
+        -not [string]::IsNullOrWhiteSpace($env:CLICKHOUSE_ADMIN_PASSWORD)) {
+        $env:CLICKHOUSE_PASSWORD = $env:CLICKHOUSE_ADMIN_PASSWORD
+    }
+    if ([string]::IsNullOrWhiteSpace($env:CLICKHOUSE_URL) -and
+        -not [string]::IsNullOrWhiteSpace($env:CLICKHOUSE_HTTP_URL)) {
+        $env:CLICKHOUSE_URL = $env:CLICKHOUSE_HTTP_URL
+    }
     if ([string]::IsNullOrWhiteSpace($env:CLICKHOUSE_PASSWORD)) {
         $securePassword = Read-Host '请输入 ClickHouse 密码' -AsSecureString
         $env:CLICKHOUSE_PASSWORD = [System.Net.NetworkCredential]::new('', $securePassword).Password
@@ -264,6 +292,15 @@ if ($StorageMode -eq 'clickhouse') {
 }
 $env:APM_STORAGE_MODE = $StorageMode
 $env:GRADLE_USER_HOME = Join-Path $repoRoot '.gradle-local'
+
+# 首次启动可能需要下载 Gradle Distribution；先完成 Wrapper 预热，避免
+# 下载时间被误计入后端 90 秒端口就绪超时。
+$gradleWrapper = Join-Path $repoRoot 'gradlew.bat'
+& $gradleWrapper --no-daemon --version
+$gradleExitCode = $LASTEXITCODE
+if ($gradleExitCode -ne 0) {
+    throw "Gradle Wrapper 初始化失败（退出码 $gradleExitCode），请查看网络或 Gradle 日志。"
+}
 
 New-Item -ItemType Directory -Path $runtimeRoot -Force | Out-Null
 

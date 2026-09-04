@@ -1,21 +1,30 @@
 package com.shanshui.apmserver;
 
-import com.shanshui.apmserver.config.ClickHouseProperties;
-import com.shanshui.apmserver.config.IngestProperties;
-import com.shanshui.apmserver.config.QueryProperties;
-import com.shanshui.apmserver.config.StorageProperties;
-import com.shanshui.apmserver.domain.CrashPayload;
-import com.shanshui.apmserver.domain.EventBatchRequest;
-import com.shanshui.apmserver.domain.EventEnvelope;
-import com.shanshui.apmserver.domain.StackFrame;
-import com.shanshui.apmserver.domain.ThrowableNode;
-import com.shanshui.apmserver.repository.InMemoryEventRepository;
-import com.shanshui.apmserver.service.CrashEventProcessor;
-import com.shanshui.apmserver.service.CrashEventValidator;
-import com.shanshui.apmserver.service.CrashFingerprintService;
-import com.shanshui.apmserver.service.CrashIngestionService;
-import com.shanshui.apmserver.service.CrashQualityMetrics;
-import com.shanshui.apmserver.service.CrashSanitizer;
+import com.shanshui.apmserver.platform.api.ClickHouseProperties;
+import com.shanshui.apmserver.bootstrap.internal.config.IngestConfigurationProperties;
+import com.shanshui.apmserver.platform.api.QueryProperties;
+import com.shanshui.apmserver.platform.api.StorageProperties;
+import com.shanshui.apmserver.crash.api.CrashPayload;
+import com.shanshui.apmserver.crash.api.CrashIngestCommand;
+import com.shanshui.apmserver.ingest.api.EventBatchRequest;
+import com.shanshui.apmserver.ingest.api.EventEnvelope;
+import com.shanshui.apmserver.telemetry.api.StackFrame;
+import com.shanshui.apmserver.crash.api.ThrowableNode;
+import com.shanshui.apmserver.crash.internal.persistence.InMemoryCrashRepository;
+import com.shanshui.apmserver.crash.internal.port.CrashWritePort;
+import com.shanshui.apmserver.jank.internal.persistence.InMemoryJankEventRepository;
+import com.shanshui.apmserver.jank.internal.port.JankEventRepository;
+import com.shanshui.apmserver.crash.internal.application.CrashEventProcessor;
+import com.shanshui.apmserver.crash.internal.application.CrashEventValidator;
+import com.shanshui.apmserver.crash.internal.application.CrashFingerprintService;
+import com.shanshui.apmserver.ingest.internal.application.BatchIngestionService;
+import com.shanshui.apmserver.bootstrap.internal.observability.MicrometerTelemetryMetrics;
+import com.shanshui.apmserver.crash.internal.application.CrashSanitizer;
+import com.shanshui.apmserver.jank.api.JankMetricIngestCommand;
+import com.shanshui.apmserver.jank.internal.application.JankMetricEventProcessor;
+import com.shanshui.apmserver.jank.internal.application.JankMetricEventValidator;
+import com.shanshui.apmserver.jank.internal.application.JankSanitizer;
+import com.shanshui.apmserver.jank.internal.application.JankWriteCoordinator;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import tools.jackson.databind.ObjectMapper;
 
@@ -27,8 +36,8 @@ final class CrashTestSupport {
     private CrashTestSupport() {
     }
 
-    static IngestProperties ingestProperties() {
-        IngestProperties properties = new IngestProperties();
+    static IngestConfigurationProperties ingestProperties() {
+        IngestConfigurationProperties properties = new IngestConfigurationProperties();
         properties.setMaxPastDays(365);
         properties.setMaxFutureSkewMinutes(365 * 24 * 60);
         properties.setDeviceHashSalt("test-salt");
@@ -39,13 +48,26 @@ final class CrashTestSupport {
         return new ObjectMapper();
     }
 
-    static CrashIngestionService ingestion(InMemoryEventRepository repository, IngestProperties properties) {
+    static BatchIngestionService ingestion(InMemoryCrashRepository repository, IngestConfigurationProperties properties) {
+        return ingestion(repository, new InMemoryJankEventRepository(storageProperties()), properties);
+    }
+
+    static BatchIngestionService ingestion(InMemoryJankEventRepository repository, IngestConfigurationProperties properties) {
+        return ingestion(new InMemoryCrashRepository(storageProperties()), repository, properties);
+    }
+
+    private static BatchIngestionService ingestion(CrashWritePort crashRepository,
+                                                     JankEventRepository jankRepository,
+                                                     IngestConfigurationProperties properties) {
         CrashSanitizer sanitizer = new CrashSanitizer(properties);
         CrashEventValidator validator = new CrashEventValidator(properties, objectMapper());
         CrashEventProcessor processor = new CrashEventProcessor(validator, sanitizer,
-                new CrashFingerprintService(), properties);
-        return new CrashIngestionService(processor, repository,
-                new CrashQualityMetrics(new SimpleMeterRegistry()));
+                new CrashFingerprintService(), crashRepository);
+        var jankProcessor = new JankMetricEventProcessor(
+                new JankMetricEventValidator(properties, objectMapper()), new JankSanitizer(properties),
+                new JankWriteCoordinator(jankRepository));
+        var metrics = new MicrometerTelemetryMetrics(new SimpleMeterRegistry());
+        return new BatchIngestionService(processor, jankProcessor, metrics, metrics, metrics);
     }
 
     static CrashPayload crash(String exceptionType, String message, int line, String className) {
@@ -60,6 +82,21 @@ final class CrashTestSupport {
                 "com.example.app", version, version.startsWith("3.2") ? 320 : 330,
                 version.startsWith("3.2") ? "build-320" : "build-330", "production", "official",
                 "16", "Pixel-8", "wifi", null, null, crash);
+    }
+
+    static CrashIngestCommand crashCommand(EventEnvelope event) {
+        return new CrashIngestCommand(event.schemaVersion(), event.eventId(), event.eventType(), event.occurredAt(),
+                event.sessionId(), event.anonymousDeviceId(), event.packageName(), event.appVersion(),
+                event.versionCode(), event.buildId(), event.environment(), event.channel(), event.osVersion(),
+                event.deviceModel(), event.networkType(), event.measurements(), event.attributes(), event.crash());
+    }
+
+    static JankMetricIngestCommand metricCommand(EventEnvelope event) {
+        return new JankMetricIngestCommand(event.schemaVersion(), event.eventId(), event.eventType(), event.occurredAt(),
+                event.sessionId(), event.anonymousDeviceId(), event.packageName(), event.appVersion(),
+                event.versionCode(), event.buildId(), event.environment(), event.channel(), event.osVersion(),
+                event.deviceModel(), event.networkType(), event.measurements(), event.attributes(),
+                event.frameSceneSummary(), event.foregroundSuspensionSummary());
     }
 
     static QueryProperties queryProperties() {

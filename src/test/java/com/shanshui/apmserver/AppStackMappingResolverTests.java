@@ -1,8 +1,8 @@
 package com.shanshui.apmserver;
 
-import com.shanshui.apmserver.config.StackParserProperties;
-import com.shanshui.apmserver.service.InvalidStackArtifactException;
-import com.shanshui.apmserver.service.AppStackMappingResolver;
+import com.shanshui.apmserver.jank.internal.config.StackParserProperties;
+import com.shanshui.apmserver.jank.api.InvalidStackArtifactException;
+import com.shanshui.apmserver.jank.internal.artifact.AppStackMappingResolver;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 

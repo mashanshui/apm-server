@@ -1,7 +1,7 @@
 package com.shanshui.apmserver;
 
-import com.shanshui.apmserver.config.IngestProperties;
-import com.shanshui.apmserver.service.CrashSanitizer;
+import com.shanshui.apmserver.bootstrap.internal.config.IngestConfigurationProperties;
+import com.shanshui.apmserver.crash.internal.application.CrashSanitizer;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -12,7 +12,7 @@ class CrashSanitizerTests {
 
     @Test
     void redactsSensitiveTextAndHashesDeviceId() {
-        IngestProperties properties = CrashTestSupport.ingestProperties();
+        IngestConfigurationProperties properties = CrashTestSupport.ingestProperties();
         CrashSanitizer sanitizer = new CrashSanitizer(properties);
         String result = sanitizer.sanitizeText(
                 "email alice@example.com url https://example.com/user?id=123 path C:\\Users\\alice\\secret.txt", 4096);

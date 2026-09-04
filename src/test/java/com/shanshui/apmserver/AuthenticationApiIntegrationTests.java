@@ -1,8 +1,8 @@
 package com.shanshui.apmserver;
 
-import com.shanshui.apmserver.domain.AppUser;
-import com.shanshui.apmserver.domain.UserStatus;
-import com.shanshui.apmserver.repository.AppUserRepository;
+import com.shanshui.apmserver.identity.internal.domain.AppUser;
+import com.shanshui.apmserver.identity.internal.domain.UserStatus;
+import com.shanshui.apmserver.identity.internal.persistence.AppUserRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;

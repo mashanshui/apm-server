@@ -1,12 +1,16 @@
 package com.shanshui.apmserver;
 
-import com.shanshui.apmserver.config.QueryProperties;
-import com.shanshui.apmserver.domain.ForegroundSuspensionSummaryPayload;
-import com.shanshui.apmserver.domain.FrameSceneSummaryPayload;
-import com.shanshui.apmserver.domain.StoredEvent;
-import com.shanshui.apmserver.repository.InMemoryEventRepository;
-import com.shanshui.apmserver.service.JankMetricsQueryService;
-import com.shanshui.apmserver.web.QueryParams;
+import com.shanshui.apmserver.jank.internal.persistence.InMemoryJankMetricsRepository;
+
+import com.shanshui.apmserver.platform.api.StorageProperties;
+
+import com.shanshui.apmserver.platform.api.QueryProperties;
+import com.shanshui.apmserver.jank.api.ForegroundSuspensionSummaryPayload;
+import com.shanshui.apmserver.jank.api.FrameSceneSummaryPayload;
+import com.shanshui.apmserver.jank.internal.domain.JankStoredSignal;
+import com.shanshui.apmserver.jank.internal.persistence.InMemoryJankEventRepository;
+import com.shanshui.apmserver.jank.internal.application.JankMetricsQueryService;
+import com.shanshui.apmserver.jank.internal.domain.JankQueryCommand;
 import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
@@ -23,26 +27,26 @@ class JankMetricsPerformanceTests {
 
     @Test
     void fixedBatchMeasuresP95P99ForInMemoryMetricQueries() {
-        InMemoryEventRepository repository = new InMemoryEventRepository(CrashTestSupport.storageProperties());
-        List<StoredEvent> events = new ArrayList<>();
+        InMemoryJankEventRepository repository = new InMemoryJankEventRepository(CrashTestSupport.storageProperties());
+        List<JankStoredSignal> events = new ArrayList<>();
         Instant now = Instant.now();
         for (int i = 0; i < 1_000; i++) {
             String device = "device-" + (i % 100);
             Instant occurredAt = now.minusSeconds(i % 86_400);
-            events.add(new StoredEvent(TestAppIds.id("perf-app"), "app", "frame-" + i, "frame_scene_summary", occurredAt,
+            events.add(TestJankSignals.storedEvent(TestAppIds.id("perf-app"), "app", "frame-" + i, "frame_scene_summary", occurredAt,
                     now, 1, "session-" + i, device, "1.0", 1, "build", "prod", "official", "16", "Pixel-8", "wifi",
                     Map.of(), Map.of(), null, null, null, null, null, null, null, null, null,
                     new FrameSceneSummaryPayload(i % 2 == 0 ? "home" : "detail", "fps-v1", 1_000L,
                             45 + (i % 16), 60.0, 45.0 + (i % 16), Map.of()), null));
-            events.add(new StoredEvent(TestAppIds.id("perf-app"), "app", "susp-" + i, "foreground_suspension_summary", occurredAt,
+            events.add(TestJankSignals.storedEvent(TestAppIds.id("perf-app"), "app", "susp-" + i, "foreground_suspension_summary", occurredAt,
                     now, 1, "session-" + i, device, "1.0", 1, "build", "prod", "official", "16", "Pixel-8", "wifi",
                     Map.of(), Map.of(), null, null, null, null, null, null, null, null, null,
                     null,
                     new ForegroundSuspensionSummaryPayload("suspension-v1", 60_000L, 10L, 1, 200L)));
         }
         repository.append(TestAppIds.id("perf-app"), events);
-        JankMetricsQueryService query = new JankMetricsQueryService(repository, queryProperties());
-        QueryParams params = new QueryParams();
+        JankMetricsQueryService query = new JankMetricsQueryService(new InMemoryJankMetricsRepository(repository), queryProperties());
+        JankQueryCommand params = JankQueryCommand.empty();
         String from = now.minus(Duration.ofDays(2)).toString();
         String to = now.plusSeconds(1).toString();
         for (int i = 0; i < 5; i++) {

@@ -1,14 +1,17 @@
 package com.shanshui.apmserver;
 
-import com.shanshui.apmserver.domain.EventEnvelope;
-import com.shanshui.apmserver.domain.FrameSceneSummaryPayload;
-import com.shanshui.apmserver.domain.JankPayload;
-import com.shanshui.apmserver.domain.JankSample;
-import com.shanshui.apmserver.domain.StackFrame;
-import com.shanshui.apmserver.domain.ForegroundSuspensionSummaryPayload;
-import com.shanshui.apmserver.repository.EventStoreUnavailableException;
-import com.shanshui.apmserver.repository.InMemoryEventRepository;
-import com.shanshui.apmserver.service.EventValidationException;
+import com.shanshui.apmserver.bootstrap.internal.config.IngestConfigurationProperties;
+import com.shanshui.apmserver.platform.api.StorageProperties;
+
+import com.shanshui.apmserver.ingest.api.EventEnvelope;
+import com.shanshui.apmserver.jank.api.FrameSceneSummaryPayload;
+import com.shanshui.apmserver.jank.api.JankPayload;
+import com.shanshui.apmserver.jank.api.JankSample;
+import com.shanshui.apmserver.telemetry.api.StackFrame;
+import com.shanshui.apmserver.jank.api.ForegroundSuspensionSummaryPayload;
+import com.shanshui.apmserver.platform.api.EventStoreUnavailableException;
+import com.shanshui.apmserver.jank.internal.persistence.InMemoryJankEventRepository;
+import com.shanshui.apmserver.telemetry.api.EventValidationException;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
@@ -24,7 +27,7 @@ class JankIngestionTests {
 
     @Test
     void rejectsJsonJankAndPointsClientToArtifactEndpoint() {
-        InMemoryEventRepository repository = new InMemoryEventRepository(CrashTestSupport.storageProperties());
+        InMemoryJankEventRepository repository = new InMemoryJankEventRepository(CrashTestSupport.storageProperties());
         var ingestion = CrashTestSupport.ingestion(repository, CrashTestSupport.ingestProperties());
         EventEnvelope event = jank("jank-1", 0L, "device-raw");
 
@@ -37,7 +40,7 @@ class JankIngestionTests {
 
     @Test
     void repeatedJsonJankNeverCreatesAnEvent() {
-        InMemoryEventRepository repository = new InMemoryEventRepository(CrashTestSupport.storageProperties());
+        InMemoryJankEventRepository repository = new InMemoryJankEventRepository(CrashTestSupport.storageProperties());
         var ingestion = CrashTestSupport.ingestion(repository, CrashTestSupport.ingestProperties());
         EventEnvelope event = jank("same-id", 0L, "device");
         assertEquals(1, ingestion.ingest(TestAppIds.id("app-a"), CrashTestSupport.batch(List.of(event))).rejected());
@@ -49,7 +52,7 @@ class JankIngestionTests {
 
     @Test
     void rejectsJsonJankBeforeInspectingLegacyEvidenceFields() {
-        InMemoryEventRepository repository = new InMemoryEventRepository(CrashTestSupport.storageProperties());
+        InMemoryJankEventRepository repository = new InMemoryJankEventRepository(CrashTestSupport.storageProperties());
         var ingestion = CrashTestSupport.ingestion(repository, CrashTestSupport.ingestProperties());
         EventEnvelope invalid = jank("invalid", 300_000_000L, "device");
         var response = ingestion.ingest(TestAppIds.id("app-a"), CrashTestSupport.batch(List.of(invalid)));
@@ -59,7 +62,7 @@ class JankIngestionTests {
 
     @Test
     void mixedBatchAcceptsFrameAndRejectsJsonJank() {
-        InMemoryEventRepository repository = new InMemoryEventRepository(CrashTestSupport.storageProperties());
+        InMemoryJankEventRepository repository = new InMemoryJankEventRepository(CrashTestSupport.storageProperties());
         var ingestion = CrashTestSupport.ingestion(repository, CrashTestSupport.ingestProperties());
         EventEnvelope validFrame = frame("frame-valid", "device");
         var response = ingestion.ingest(TestAppIds.id("app-a"), CrashTestSupport.batch(List.of(
@@ -71,7 +74,7 @@ class JankIngestionTests {
 
     @Test
     void unavailableMemoryStoreRemainsRetryableForMetricEvents() {
-        InMemoryEventRepository repository = new InMemoryEventRepository(CrashTestSupport.storageProperties());
+        InMemoryJankEventRepository repository = new InMemoryJankEventRepository(CrashTestSupport.storageProperties());
         repository.setAvailable(false);
         var ingestion = CrashTestSupport.ingestion(repository, CrashTestSupport.ingestProperties());
         assertThrows(EventStoreUnavailableException.class,
@@ -80,7 +83,7 @@ class JankIngestionTests {
 
     @Test
     void acceptsFrameAndSuspensionMetricsAndSanitizesDeviceId() {
-        InMemoryEventRepository repository = new InMemoryEventRepository(CrashTestSupport.storageProperties());
+        InMemoryJankEventRepository repository = new InMemoryJankEventRepository(CrashTestSupport.storageProperties());
         var properties = CrashTestSupport.ingestProperties();
         properties.setSupportedFpsAlgorithmVersions(List.of("fps-v1"));
         properties.setSupportedSuspensionAlgorithmVersions(List.of("suspension-v1"));
@@ -95,7 +98,7 @@ class JankIngestionTests {
 
     @Test
     void rejectsUnsupportedFrameAndSuspensionAlgorithmsAndInvalidDenominators() {
-        InMemoryEventRepository repository = new InMemoryEventRepository(CrashTestSupport.storageProperties());
+        InMemoryJankEventRepository repository = new InMemoryJankEventRepository(CrashTestSupport.storageProperties());
         var ingestion = CrashTestSupport.ingestion(repository, CrashTestSupport.ingestProperties());
         EventEnvelope invalidFrame = frame("frame-invalid-algorithm", "device");
         invalidFrame = new EventEnvelope(invalidFrame.schemaVersion(), invalidFrame.eventId(), invalidFrame.eventType(),
@@ -116,7 +119,7 @@ class JankIngestionTests {
 
     @Test
     void rejectsNegativeFrameHistogramBucketCounts() {
-        InMemoryEventRepository repository = new InMemoryEventRepository(CrashTestSupport.storageProperties());
+        InMemoryJankEventRepository repository = new InMemoryJankEventRepository(CrashTestSupport.storageProperties());
         var ingestion = CrashTestSupport.ingestion(repository, CrashTestSupport.ingestProperties());
         EventEnvelope invalid = new EventEnvelope(2, "frame-invalid-bucket", "frame_scene_summary",
                 Instant.now().toEpochMilli(), "session", "device", "app", "1.0", 1, "build", "prod",

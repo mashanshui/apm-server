@@ -1,10 +1,10 @@
 package com.shanshui.apmserver;
 
-import com.shanshui.apmserver.domain.AppRole;
-import com.shanshui.apmserver.service.AppNotFoundException;
-import com.shanshui.apmserver.service.AppMembershipService;
-import com.shanshui.apmserver.service.AppRoleDeniedException;
-import com.shanshui.apmserver.repository.AppMemberRepository;
+import com.shanshui.apmserver.identity.internal.domain.AppRole;
+import com.shanshui.apmserver.identity.api.AppNotFoundException;
+import com.shanshui.apmserver.identity.internal.application.AppMembershipService;
+import com.shanshui.apmserver.identity.api.AppRoleDeniedException;
+import com.shanshui.apmserver.identity.internal.persistence.AppMemberRepository;
 import org.junit.jupiter.api.Test;
 
 import java.util.Optional;

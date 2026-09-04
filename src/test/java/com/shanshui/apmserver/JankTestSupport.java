@@ -1,13 +1,16 @@
 package com.shanshui.apmserver;
 
-import com.shanshui.apmserver.domain.EventBatchRequest;
-import com.shanshui.apmserver.domain.EventEnvelope;
-import com.shanshui.apmserver.domain.JankAnalysis;
-import com.shanshui.apmserver.domain.StoredEvent;
-import com.shanshui.apmserver.repository.InMemoryEventRepository;
-import com.shanshui.apmserver.service.CrashSanitizer;
-import com.shanshui.apmserver.service.JankAnalysisService;
-import com.shanshui.apmserver.service.JankFingerprintService;
+import com.shanshui.apmserver.bootstrap.internal.config.IngestConfigurationProperties;
+
+import com.shanshui.apmserver.ingest.api.EventBatchRequest;
+import com.shanshui.apmserver.ingest.api.EventEnvelope;
+import com.shanshui.apmserver.jank.api.JankAnalysis;
+import com.shanshui.apmserver.jank.internal.domain.JankEvent;
+import com.shanshui.apmserver.jank.internal.persistence.InMemoryJankEventRepository;
+import com.shanshui.apmserver.telemetry.api.EventMetadata;
+import com.shanshui.apmserver.jank.internal.application.JankSanitizer;
+import com.shanshui.apmserver.jank.internal.application.JankAnalysisService;
+import com.shanshui.apmserver.jank.internal.application.JankFingerprintService;
 
 import java.time.Instant;
 import java.util.List;
@@ -18,24 +21,30 @@ final class JankTestSupport {
     private JankTestSupport() {
     }
 
-    static StoredEvent storedEvent(UUID appId, EventEnvelope source) {
+    static JankEvent storedEvent(UUID appId, EventEnvelope source) {
         var properties = CrashTestSupport.ingestProperties();
-        EventEnvelope event = new CrashSanitizer(properties).sanitize(source);
-        JankAnalysis analysis = new JankAnalysisService(properties).analyze(event.jank());
+        JankSanitizer sanitizer = new JankSanitizer(properties);
+        var payload = sanitizer.sanitizeJank(source.jank());
+        JankAnalysis analysis = new JankAnalysisService(properties).analyze(payload);
         JankFingerprintService fingerprints = new JankFingerprintService();
-        String fingerprint = fingerprints.fingerprint(appId, event.packageName(), event.jank(), analysis);
-        return new StoredEvent(appId, event.packageName(), event.eventId(), "jank",
-                Instant.ofEpochMilli(event.occurredAt()), Instant.now(), event.schemaVersion(), event.sessionId(),
-                event.anonymousDeviceId(), event.appVersion(), event.versionCode(), event.buildId(),
-                event.environment(), event.channel(), event.osVersion(), event.deviceModel(), event.networkType(),
-                event.measurements(), event.attributes(), null, null, null, fingerprint, fingerprints.version(),
-                "raw_only", null, event.jank(), analysis, null, null);
+        String packageName = sanitizer.sanitizeIdentifier(source.packageName(), 255);
+        String fingerprint = fingerprints.fingerprint(appId, packageName, payload, analysis);
+        EventMetadata metadata = new EventMetadata(appId, packageName,
+                sanitizer.sanitizeIdentifier(source.eventId(), 128), "jank",
+                Instant.ofEpochMilli(source.occurredAt()), Instant.now(), source.schemaVersion(),
+                sanitizer.sanitizeIdentifier(source.sessionId(), 128), sanitizer.hashDeviceId(source.anonymousDeviceId()),
+                sanitizer.sanitizeText(source.appVersion(), 128), source.versionCode(),
+                sanitizer.sanitizeText(source.buildId(), 256), sanitizer.sanitizeIdentifier(source.environment(), 64),
+                sanitizer.sanitizeIdentifier(source.channel(), 128), sanitizer.sanitizeIdentifier(source.osVersion(), 64),
+                sanitizer.sanitizeText(source.deviceModel(), 256), sanitizer.sanitizeIdentifier(source.networkType(), 32),
+                source.measurements(), source.attributes());
+        return new JankEvent(metadata, fingerprint, fingerprints.version(), "raw_only", payload, analysis);
     }
 
-    static void appendFixture(UUID appId, InMemoryEventRepository repository, EventBatchRequest batch) {
-        List<StoredEvent> janks = batch.events().stream()
+    static void appendFixture(UUID appId, InMemoryJankEventRepository repository, EventBatchRequest batch) {
+        List<com.shanshui.apmserver.jank.internal.domain.JankStoredSignal> janks = batch.events().stream()
                 .filter(event -> "jank".equals(event.eventType()))
-                .map(event -> storedEvent(appId, event))
+                .map(event -> (com.shanshui.apmserver.jank.internal.domain.JankStoredSignal) storedEvent(appId, event))
                 .toList();
         repository.append(appId, janks);
 

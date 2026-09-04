@@ -1,8 +1,11 @@
 package com.shanshui.apmserver;
 
-import com.shanshui.apmserver.domain.EventEnvelope;
-import com.shanshui.apmserver.repository.EventStoreUnavailableException;
-import com.shanshui.apmserver.repository.InMemoryEventRepository;
+import com.shanshui.apmserver.bootstrap.internal.config.IngestConfigurationProperties;
+import com.shanshui.apmserver.platform.api.StorageProperties;
+
+import com.shanshui.apmserver.ingest.api.EventEnvelope;
+import com.shanshui.apmserver.platform.api.EventStoreUnavailableException;
+import com.shanshui.apmserver.crash.internal.persistence.InMemoryCrashRepository;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
@@ -15,7 +18,7 @@ class CrashReliabilityTests {
 
     @Test
     void retryUsesSameEventIdAndCountsDuplicateOnlyOnce() {
-        InMemoryEventRepository repository = new InMemoryEventRepository(new com.shanshui.apmserver.config.StorageProperties());
+        InMemoryCrashRepository repository = new InMemoryCrashRepository(new com.shanshui.apmserver.platform.api.StorageProperties());
         var ingestion = CrashTestSupport.ingestion(repository, CrashTestSupport.ingestProperties());
         EventEnvelope event = CrashTestSupport.event("retry-event", "crash", "retry-session", "retry-device",
                 "3.2.0", Instant.now().toEpochMilli(),
@@ -29,7 +32,7 @@ class CrashReliabilityTests {
 
     @Test
     void unavailableStoreIsRetryable() {
-        InMemoryEventRepository repository = new InMemoryEventRepository(new com.shanshui.apmserver.config.StorageProperties());
+        InMemoryCrashRepository repository = new InMemoryCrashRepository(new com.shanshui.apmserver.platform.api.StorageProperties());
         repository.setAvailable(false);
         var ingestion = CrashTestSupport.ingestion(repository, CrashTestSupport.ingestProperties());
         EventEnvelope event = CrashTestSupport.event("store-down", "crash", "session", "device", "3.2.0",

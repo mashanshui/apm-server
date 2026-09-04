@@ -1,21 +1,23 @@
 package com.shanshui.apmserver;
 
 import com.sun.net.httpserver.HttpServer;
-import com.shanshui.apmserver.config.ClickHouseProperties;
-import com.shanshui.apmserver.config.IngestProperties;
-import com.shanshui.apmserver.domain.EventEnvelope;
-import com.shanshui.apmserver.domain.JankPayload;
-import com.shanshui.apmserver.domain.JankSample;
-import com.shanshui.apmserver.domain.MetricQueryFilter;
-import com.shanshui.apmserver.domain.StoredEvent;
-import com.shanshui.apmserver.domain.StackFrame;
-import com.shanshui.apmserver.repository.ClickHouseEventRepository;
-import com.shanshui.apmserver.repository.EventStoreUnavailableException;
-import com.shanshui.apmserver.service.CrashEventProcessor;
-import com.shanshui.apmserver.service.CrashEventValidator;
-import com.shanshui.apmserver.service.CrashFingerprintService;
-import com.shanshui.apmserver.service.CrashQualityMetrics;
-import com.shanshui.apmserver.service.CrashSanitizer;
+import com.shanshui.apmserver.platform.api.ClickHouseProperties;
+import com.shanshui.apmserver.platform.api.ClickHouseHttpClient;
+import com.shanshui.apmserver.bootstrap.internal.config.IngestConfigurationProperties;
+import com.shanshui.apmserver.ingest.api.EventEnvelope;
+import com.shanshui.apmserver.jank.api.JankPayload;
+import com.shanshui.apmserver.jank.api.JankSample;
+import com.shanshui.apmserver.jank.internal.domain.MetricQueryFilter;
+import com.shanshui.apmserver.jank.internal.domain.JankEvent;
+import com.shanshui.apmserver.jank.internal.persistence.ClickHouseJankEventRepository;
+import com.shanshui.apmserver.jank.internal.persistence.ClickHouseJankMetricsRepository;
+import com.shanshui.apmserver.telemetry.api.StackFrame;
+import com.shanshui.apmserver.platform.api.EventStoreUnavailableException;
+import com.shanshui.apmserver.crash.internal.application.CrashEventProcessor;
+import com.shanshui.apmserver.crash.internal.application.CrashEventValidator;
+import com.shanshui.apmserver.crash.internal.application.CrashFingerprintService;
+import com.shanshui.apmserver.bootstrap.internal.observability.MicrometerTelemetryMetrics;
+import com.shanshui.apmserver.crash.internal.application.CrashSanitizer;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
 import tools.jackson.databind.ObjectMapper;
@@ -51,9 +53,8 @@ class ClickHouseJankRepositoryTests {
         try {
             ClickHouseProperties properties = new ClickHouseProperties();
             properties.setUrl("http://localhost:" + server.getAddress().getPort());
-            ClickHouseEventRepository repository = new ClickHouseEventRepository(properties,
-                    new ObjectMapper());
-            StoredEvent event = event();
+            ClickHouseJankEventRepository repository = repository(properties, new SimpleMeterRegistry());
+            JankEvent event = event();
             assertEquals(1, repository.append(TestAppIds.id("app-a"), List.of(event)).accepted());
             assertEquals(4, requests.size());
             assertTrue(requests.get(0).contains("FROM apm_event_raw FINAL"));
@@ -75,7 +76,7 @@ class ClickHouseJankRepositoryTests {
     void mapsClickHouseUnavailableToRetryableStoreError() {
         ClickHouseProperties properties = new ClickHouseProperties();
         properties.setUrl("http://127.0.0.1:1");
-        ClickHouseEventRepository repository = new ClickHouseEventRepository(properties, new ObjectMapper());
+        ClickHouseJankEventRepository repository = repository(properties, new SimpleMeterRegistry());
         assertThrows(EventStoreUnavailableException.class,
                 () -> repository.append(TestAppIds.id("app-a"), List.of(event())));
     }
@@ -96,8 +97,9 @@ class ClickHouseJankRepositoryTests {
             ClickHouseProperties properties = new ClickHouseProperties();
             properties.setUrl("http://localhost:" + server.getAddress().getPort());
             var registry = new SimpleMeterRegistry();
-            var metrics = new CrashQualityMetrics(registry);
-            ClickHouseEventRepository repository = new ClickHouseEventRepository(properties, new ObjectMapper(), metrics);
+            var metrics = new MicrometerTelemetryMetrics(registry);
+            ClickHouseJankEventRepository repository = new ClickHouseJankEventRepository(
+                    new ClickHouseHttpClient(properties), new ObjectMapper(), metrics);
             assertThrows(EventStoreUnavailableException.class, () -> repository.append(TestAppIds.id("app-a"), List.of(event())));
             assertEquals(1.0, registry.counter("apm_jank_fact_detail_inconsistency_total").count());
         } finally {
@@ -124,8 +126,8 @@ class ClickHouseJankRepositoryTests {
         try {
             ClickHouseProperties properties = new ClickHouseProperties();
             properties.setUrl("http://localhost:" + server.getAddress().getPort());
-            ClickHouseEventRepository repository = new ClickHouseEventRepository(properties, new ObjectMapper());
-            StoredEvent event = event();
+            ClickHouseJankEventRepository repository = repository(properties, new SimpleMeterRegistry());
+            JankEvent event = event();
             assertThrows(EventStoreUnavailableException.class, () -> repository.append(TestAppIds.id("app-a"), List.of(event)));
             assertEquals(1, repository.append(TestAppIds.id("app-a"), List.of(event)).duplicate());
             assertEquals(8, calls.get());
@@ -157,7 +159,8 @@ class ClickHouseJankRepositoryTests {
         try {
             ClickHouseProperties properties = new ClickHouseProperties();
             properties.setUrl("http://localhost:" + server.getAddress().getPort());
-            ClickHouseEventRepository repository = new ClickHouseEventRepository(properties, new ObjectMapper());
+            ClickHouseJankMetricsRepository repository = new ClickHouseJankMetricsRepository(
+                    new ClickHouseHttpClient(properties), new ObjectMapper());
             MetricQueryFilter filter = new MetricQueryFilter(TestAppIds.id("app-a"),
                     Instant.parse("2026-08-15T00:00:00Z"), Instant.parse("2026-08-16T00:00:00Z"),
                     null, null, null, null, null, null, null, 50, 2_000);
@@ -178,10 +181,12 @@ class ClickHouseJankRepositoryTests {
         }
     }
 
-    private StoredEvent event() {
-        IngestProperties properties = CrashTestSupport.ingestProperties();
-        var processor = new CrashEventProcessor(new CrashEventValidator(properties, new ObjectMapper()),
-                new CrashSanitizer(properties), new CrashFingerprintService(), properties);
+    private ClickHouseJankEventRepository repository(ClickHouseProperties properties, SimpleMeterRegistry registry) {
+        return new ClickHouseJankEventRepository(new ClickHouseHttpClient(properties), new ObjectMapper(),
+                new MicrometerTelemetryMetrics(registry));
+    }
+
+    private JankEvent event() {
         EventEnvelope envelope = new EventEnvelope(1, "ch-jank", "jank", Instant.now().toEpochMilli(),
                 "session", "device", "app", "1.0", 1, "build", "prod", "official", "16", "Pixel", "wifi",
                 null, null, null, new JankPayload("scene", "jank-v1", 200_000_000L, 100_000_000L,

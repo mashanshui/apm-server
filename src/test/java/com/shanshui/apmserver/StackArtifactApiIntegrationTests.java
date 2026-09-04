@@ -2,8 +2,8 @@ package com.shanshui.apmserver;
 
 import com.bytedance.rheatrace.stack.StackParser;
 import com.bytedance.rheatrace.stack.StackMappingResolver;
-import com.shanshui.apmserver.repository.InMemoryEventRepository;
-import com.shanshui.apmserver.web.StackArtifactController;
+import com.shanshui.apmserver.jank.internal.persistence.InMemoryJankEventRepository;
+import com.shanshui.apmserver.jank.internal.web.StackArtifactController;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -44,7 +44,7 @@ class StackArtifactApiIntegrationTests extends AppIngestApiTestSupport {
     private TestStackParser parser;
 
     @Autowired
-    private InMemoryEventRepository repository;
+    private InMemoryJankEventRepository repository;
 
     @BeforeEach
     void resetParser() {

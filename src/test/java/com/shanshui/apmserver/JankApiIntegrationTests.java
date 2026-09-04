@@ -2,10 +2,10 @@ package com.shanshui.apmserver;
 
 import com.bytedance.rheatrace.stack.StackMappingResolver;
 import com.bytedance.rheatrace.stack.StackParser;
-import com.shanshui.apmserver.repository.ApmAppRepository;
-import com.shanshui.apmserver.repository.InMemoryEventRepository;
-import com.shanshui.apmserver.repository.AppMemberRepository;
-import com.shanshui.apmserver.web.StackArtifactController;
+import com.shanshui.apmserver.identity.internal.persistence.ApmAppRepository;
+import com.shanshui.apmserver.jank.internal.persistence.InMemoryJankEventRepository;
+import com.shanshui.apmserver.identity.internal.persistence.AppMemberRepository;
+import com.shanshui.apmserver.jank.internal.web.StackArtifactController;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -37,7 +37,7 @@ class JankApiIntegrationTests extends AppIngestApiTestSupport {
     private MockMvc mockMvc;
 
     @Autowired
-    private InMemoryEventRepository repository;
+    private InMemoryJankEventRepository repository;
 
     @Autowired
     private ApmAppRepository appRepository;

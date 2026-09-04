@@ -1,10 +1,19 @@
 package com.shanshui.apmserver;
 
-import com.shanshui.apmserver.domain.EventEnvelope;
-import com.shanshui.apmserver.domain.JankPayload;
-import com.shanshui.apmserver.domain.JankSample;
-import com.shanshui.apmserver.domain.StackFrame;
-import com.shanshui.apmserver.repository.InMemoryEventRepository;
+import com.shanshui.apmserver.bootstrap.internal.config.IngestConfigurationProperties;
+import com.shanshui.apmserver.platform.api.StorageProperties;
+import com.shanshui.apmserver.crash.internal.application.CrashEventProcessor;
+import com.shanshui.apmserver.crash.internal.application.CrashEventValidator;
+import com.shanshui.apmserver.crash.internal.application.CrashFingerprintService;
+import com.shanshui.apmserver.crash.internal.application.CrashSanitizer;
+import com.shanshui.apmserver.bootstrap.internal.observability.MicrometerTelemetryMetrics;
+import com.shanshui.apmserver.ingest.internal.application.BatchIngestionService;
+
+import com.shanshui.apmserver.ingest.api.EventEnvelope;
+import com.shanshui.apmserver.jank.api.JankPayload;
+import com.shanshui.apmserver.jank.api.JankSample;
+import com.shanshui.apmserver.telemetry.api.StackFrame;
+import com.shanshui.apmserver.jank.internal.persistence.InMemoryJankEventRepository;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
 
@@ -19,15 +28,24 @@ class JankQualityMetricsTests {
 
     @Test
     void batchJsonJankOnlyRecordsReceiveAndPermanentRejectMetrics() {
-        InMemoryEventRepository repository = new InMemoryEventRepository(CrashTestSupport.storageProperties());
+        InMemoryJankEventRepository repository = new InMemoryJankEventRepository(CrashTestSupport.storageProperties());
         SimpleMeterRegistry registry = new SimpleMeterRegistry();
         var properties = CrashTestSupport.ingestProperties();
-        var sanitizer = new com.shanshui.apmserver.service.CrashSanitizer(properties);
-        var validator = new com.shanshui.apmserver.service.CrashEventValidator(properties, CrashTestSupport.objectMapper());
-        var processor = new com.shanshui.apmserver.service.CrashEventProcessor(validator, sanitizer,
-                new com.shanshui.apmserver.service.CrashFingerprintService(), properties);
-        var ingestion = new com.shanshui.apmserver.service.CrashIngestionService(processor, repository,
-                new com.shanshui.apmserver.service.CrashQualityMetrics(registry));
+        var crashProcessor = new com.shanshui.apmserver.crash.internal.application.CrashEventProcessor(
+                new com.shanshui.apmserver.crash.internal.application.CrashEventValidator(
+                        properties, CrashTestSupport.objectMapper()),
+                new com.shanshui.apmserver.crash.internal.application.CrashSanitizer(properties),
+                new com.shanshui.apmserver.crash.internal.application.CrashFingerprintService(),
+                new com.shanshui.apmserver.crash.internal.persistence.InMemoryCrashRepository(
+                        CrashTestSupport.storageProperties()));
+        var jankProcessor = new com.shanshui.apmserver.jank.internal.application.JankMetricEventProcessor(
+                new com.shanshui.apmserver.jank.internal.application.JankMetricEventValidator(
+                        properties, CrashTestSupport.objectMapper()),
+                new com.shanshui.apmserver.jank.internal.application.JankSanitizer(properties),
+                new com.shanshui.apmserver.jank.internal.application.JankWriteCoordinator(repository));
+        var metrics = new com.shanshui.apmserver.bootstrap.internal.observability.MicrometerTelemetryMetrics(registry);
+        var ingestion = new com.shanshui.apmserver.ingest.internal.application.BatchIngestionService(
+                crashProcessor, jankProcessor, metrics, metrics, metrics);
         EventEnvelope valid = jank("quality-1", "jank-v1");
         ingestion.ingest(TestAppIds.id("app-a"), CrashTestSupport.batch(List.of(valid)));
         ingestion.ingest(TestAppIds.id("app-a"), CrashTestSupport.batch(List.of(valid)));

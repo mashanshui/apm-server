@@ -1,8 +1,11 @@
 package com.shanshui.apmserver;
 
-import com.shanshui.apmserver.domain.EventBatchRequest;
-import com.shanshui.apmserver.domain.JankAnalysis;
-import com.shanshui.apmserver.domain.StoredEvent;
+import com.shanshui.apmserver.bootstrap.internal.config.IngestConfigurationProperties;
+import com.shanshui.apmserver.jank.api.FrameSceneSummaryPayload;
+
+import com.shanshui.apmserver.ingest.api.EventBatchRequest;
+import com.shanshui.apmserver.jank.api.JankAnalysis;
+import com.shanshui.apmserver.jank.internal.domain.JankEvent;
 import org.junit.jupiter.api.Test;
 import tools.jackson.databind.ObjectMapper;
 
@@ -31,12 +34,12 @@ class JankDatasetStatisticsTests {
         properties.setMaxPastDays(3650);
         properties.setSupportedFpsAlgorithmVersions(List.of("fps-v1", "fps-v2"));
         properties.setSupportedSuspensionAlgorithmVersions(List.of("suspension-v1", "suspension-v2"));
-        Map<String, StoredEvent> uniqueJankEvents = new LinkedHashMap<>();
+        Map<String, JankEvent> uniqueJankEvents = new LinkedHashMap<>();
         batch.events().stream().filter(event -> "jank".equals(event.eventType())).forEach(event -> {
-            StoredEvent stored = JankTestSupport.storedEvent(TestAppIds.id("demo-app"), event);
+            JankEvent stored = JankTestSupport.storedEvent(TestAppIds.id("demo-app"), event);
             uniqueJankEvents.putIfAbsent(stored.eventId(), stored);
         });
-        List<StoredEvent> janks = List.copyOf(uniqueJankEvents.values());
+        List<JankEvent> janks = List.copyOf(uniqueJankEvents.values());
 
         assertEquals(11, batch.events().size());
         assertEquals(9, batch.events().stream().map(event -> event.eventId()).distinct().count());
@@ -50,7 +53,7 @@ class JankDatasetStatisticsTests {
         assertEquals(janks.get(0).crashFingerprint(), janks.get(1).crashFingerprint());
         assertNotEquals(janks.get(0).crashFingerprint(), janks.get(2).crashFingerprint());
 
-        Map<String, com.shanshui.apmserver.domain.FrameSceneSummaryPayload> uniqueFrames = new LinkedHashMap<>();
+        Map<String, com.shanshui.apmserver.jank.api.FrameSceneSummaryPayload> uniqueFrames = new LinkedHashMap<>();
         batch.events().stream().filter(event -> "frame_scene_summary".equals(event.eventType()))
                 .forEach(event -> uniqueFrames.putIfAbsent(event.eventId(), event.frameSceneSummary()));
         assertEquals(3, uniqueFrames.size());

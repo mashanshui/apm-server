@@ -1,11 +1,13 @@
 package com.shanshui.apmserver;
 
-import com.shanshui.apmserver.config.IngestProperties;
-import com.shanshui.apmserver.domain.StoredEvent;
-import com.shanshui.apmserver.service.CrashSanitizer;
-import com.shanshui.apmserver.service.InvalidStackArtifactException;
-import com.shanshui.apmserver.service.JankArtifactReportMapper;
-import com.shanshui.apmserver.service.JankFingerprintService;
+import com.shanshui.apmserver.jank.api.JankAnalysis;
+
+import com.shanshui.apmserver.bootstrap.internal.config.IngestConfigurationProperties;
+import com.shanshui.apmserver.jank.internal.domain.JankEvent;
+import com.shanshui.apmserver.jank.internal.application.JankSanitizer;
+import com.shanshui.apmserver.jank.api.InvalidStackArtifactException;
+import com.shanshui.apmserver.jank.internal.artifact.JankArtifactReportMapper;
+import com.shanshui.apmserver.jank.internal.application.JankFingerprintService;
 import org.junit.jupiter.api.Test;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
@@ -33,7 +35,7 @@ class JankArtifactReportMapperTests {
     @Test
     void countsAllTargetThreadSegmentsAndDeduplicatesStacks() throws Exception {
         JsonNode report = report(1_000L, 20_000_000L);
-        StoredEvent event = mapper(CrashTestSupport.ingestProperties()).map(
+        JankEvent event = mapper(CrashTestSupport.ingestProperties()).map(
                 TestAppIds.id("app-a"), report, Instant.parse("2026-08-30T00:00:00Z"), false);
 
         assertEquals(2, event.jank().expectedSampleCount());
@@ -59,7 +61,7 @@ class JankArtifactReportMapperTests {
         callTree.put("estimatedDurationNs", 10_000_000L);
         callTree.put("estimatedSelfDurationNs", 10_000_000L);
 
-        StoredEvent event = mapper(CrashTestSupport.ingestProperties()).map(
+        JankEvent event = mapper(CrashTestSupport.ingestProperties()).map(
                 TestAppIds.id("app-a"), report, Instant.now(), false);
         assertEquals(1, event.jank().expectedSampleCount());
         assertEquals(2, event.jank().parsedSampleCount());
@@ -85,7 +87,7 @@ class JankArtifactReportMapperTests {
     @Test
     void preservesNanosecondIntegersBeyondDoublePrecision() throws Exception {
         long start = 9_007_199_254_740_992L;
-        StoredEvent event = mapper(CrashTestSupport.ingestProperties()).map(
+        JankEvent event = mapper(CrashTestSupport.ingestProperties()).map(
                 TestAppIds.id("app-a"), report(start, 20_000_000L), Instant.now(), true);
 
         assertEquals(20_000_000L, event.jank().messageDurationNs());
@@ -94,13 +96,13 @@ class JankArtifactReportMapperTests {
 
     @Test
     void rejectsEvidenceLimitsInsteadOfSilentlyTruncating() throws Exception {
-        IngestProperties sampleLimit = CrashTestSupport.ingestProperties();
+        IngestConfigurationProperties sampleLimit = CrashTestSupport.ingestProperties();
         sampleLimit.setMaxJankSamples(1);
         InvalidStackArtifactException samples = assertThrows(InvalidStackArtifactException.class,
                 () -> mapper(sampleLimit).map(TestAppIds.id("app-a"), report(1_000L, 20_000_000L), Instant.now(), false));
         assertEquals("JANK_EVIDENCE_LIMIT_EXCEEDED", samples.getCode());
 
-        IngestProperties detailLimit = CrashTestSupport.ingestProperties();
+        IngestConfigurationProperties detailLimit = CrashTestSupport.ingestProperties();
         detailLimit.setMaxJankDetailBytes(32);
         InvalidStackArtifactException detail = assertThrows(InvalidStackArtifactException.class,
                 () -> mapper(detailLimit).map(TestAppIds.id("app-a"), report(1_000L, 20_000_000L), Instant.now(), false));
@@ -144,8 +146,8 @@ class JankArtifactReportMapperTests {
         assertEquals(expected, exception.getCode());
     }
 
-    private JankArtifactReportMapper mapper(IngestProperties properties) {
-        return new JankArtifactReportMapper(objectMapper, properties, new CrashSanitizer(properties),
+    private JankArtifactReportMapper mapper(IngestConfigurationProperties properties) {
+        return new JankArtifactReportMapper(objectMapper, properties, new JankSanitizer(properties),
                 new JankFingerprintService());
     }
 

@@ -1,14 +1,14 @@
 package com.shanshui.apmserver;
 
-import com.shanshui.apmserver.domain.AppMember;
-import com.shanshui.apmserver.domain.AppMemberId;
-import com.shanshui.apmserver.domain.AppRole;
-import com.shanshui.apmserver.domain.AppUser;
-import com.shanshui.apmserver.domain.UserStatus;
-import com.shanshui.apmserver.repository.AppIngestCredentialRepository;
-import com.shanshui.apmserver.repository.AppMemberRepository;
-import com.shanshui.apmserver.repository.AppUserRepository;
-import com.shanshui.apmserver.repository.ApmAppRepository;
+import com.shanshui.apmserver.identity.internal.domain.AppMember;
+import com.shanshui.apmserver.identity.internal.domain.AppMemberId;
+import com.shanshui.apmserver.identity.internal.domain.AppRole;
+import com.shanshui.apmserver.identity.internal.domain.AppUser;
+import com.shanshui.apmserver.identity.internal.domain.UserStatus;
+import com.shanshui.apmserver.identity.internal.persistence.AppIngestCredentialRepository;
+import com.shanshui.apmserver.identity.internal.persistence.AppMemberRepository;
+import com.shanshui.apmserver.identity.internal.persistence.AppUserRepository;
+import com.shanshui.apmserver.identity.internal.persistence.ApmAppRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;

@@ -1,11 +1,11 @@
 package com.shanshui.apmserver;
 
-import com.shanshui.apmserver.domain.AppCreateRequest;
-import com.shanshui.apmserver.repository.AppUserRepository;
-import com.shanshui.apmserver.repository.ApmAppRepository;
-import com.shanshui.apmserver.repository.AppIngestCredentialRepository;
-import com.shanshui.apmserver.repository.AppMemberRepository;
-import com.shanshui.apmserver.service.AppManagementService;
+import com.shanshui.apmserver.identity.internal.domain.AppCreateRequest;
+import com.shanshui.apmserver.identity.internal.persistence.AppUserRepository;
+import com.shanshui.apmserver.identity.internal.persistence.ApmAppRepository;
+import com.shanshui.apmserver.identity.internal.persistence.AppIngestCredentialRepository;
+import com.shanshui.apmserver.identity.internal.persistence.AppMemberRepository;
+import com.shanshui.apmserver.identity.internal.application.AppManagementService;
 import org.springframework.beans.factory.annotation.Autowired;
 
 import java.util.UUID;

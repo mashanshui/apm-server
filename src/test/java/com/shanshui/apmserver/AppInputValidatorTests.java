@@ -1,7 +1,7 @@
 package com.shanshui.apmserver;
 
-import com.shanshui.apmserver.service.InvalidAppInputException;
-import com.shanshui.apmserver.service.AppInputValidator;
+import com.shanshui.apmserver.identity.api.InvalidAppInputException;
+import com.shanshui.apmserver.identity.internal.application.AppInputValidator;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;

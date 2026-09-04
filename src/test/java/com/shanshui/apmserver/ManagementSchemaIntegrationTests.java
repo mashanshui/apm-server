@@ -172,7 +172,7 @@ class ManagementSchemaIntegrationTests {
         var dataSource = new DriverManagerDataSource(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword());
         var entityManagerFactory = new LocalContainerEntityManagerFactoryBean();
         entityManagerFactory.setDataSource(dataSource);
-        entityManagerFactory.setPackagesToScan("com.shanshui.apmserver.domain");
+        entityManagerFactory.setPackagesToScan("com.shanshui.apmserver.identity.internal.domain");
         entityManagerFactory.setJpaVendorAdapter(new HibernateJpaVendorAdapter());
         var properties = new Properties();
         properties.setProperty("hibernate.hbm2ddl.auto", "validate");

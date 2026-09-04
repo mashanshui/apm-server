@@ -1,8 +1,8 @@
 package com.shanshui.apmserver;
 
-import com.shanshui.apmserver.repository.ApmAppRepository;
-import com.shanshui.apmserver.repository.InMemoryEventRepository;
-import com.shanshui.apmserver.repository.AppMemberRepository;
+import com.shanshui.apmserver.identity.internal.persistence.ApmAppRepository;
+import com.shanshui.apmserver.jank.internal.persistence.InMemoryJankEventRepository;
+import com.shanshui.apmserver.identity.internal.persistence.AppMemberRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -26,7 +26,7 @@ class JankMetricsApiIntegrationTests extends AppIngestApiTestSupport {
     private MockMvc mockMvc;
 
     @Autowired
-    private InMemoryEventRepository repository;
+    private InMemoryJankEventRepository repository;
 
     @Autowired
     private ApmAppRepository appRepository;

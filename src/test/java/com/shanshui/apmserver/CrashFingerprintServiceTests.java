@@ -1,7 +1,7 @@
 package com.shanshui.apmserver;
 
-import com.shanshui.apmserver.domain.CrashPayload;
-import com.shanshui.apmserver.service.CrashFingerprintService;
+import com.shanshui.apmserver.crash.api.CrashPayload;
+import com.shanshui.apmserver.crash.internal.application.CrashFingerprintService;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;

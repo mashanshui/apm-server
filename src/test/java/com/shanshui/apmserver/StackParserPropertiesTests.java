@@ -1,6 +1,6 @@
 package com.shanshui.apmserver;
 
-import com.shanshui.apmserver.config.StackParserProperties;
+import com.shanshui.apmserver.jank.internal.config.StackParserProperties;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.context.properties.bind.Bindable;
 import org.springframework.boot.context.properties.bind.Binder;

@@ -1,7 +1,7 @@
 package com.shanshui.apmserver;
 
-import com.shanshui.apmserver.domain.MetricQueryFilter;
-import com.shanshui.apmserver.repository.ClickHouseJankMetricsQuerySql;
+import com.shanshui.apmserver.jank.internal.domain.MetricQueryFilter;
+import com.shanshui.apmserver.jank.internal.persistence.ClickHouseJankMetricsQuerySql;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;

@@ -1,20 +1,23 @@
 package com.shanshui.apmserver;
 
+import com.shanshui.apmserver.platform.api.StorageProperties;
+import com.shanshui.apmserver.jank.api.JankAnalysis;
+
 import com.bytedance.rheatrace.stack.StackMappingResolver;
 import com.bytedance.rheatrace.stack.StackParser;
-import com.shanshui.apmserver.config.IngestProperties;
-import com.shanshui.apmserver.config.StackParserProperties;
-import com.shanshui.apmserver.domain.AuthenticatedApp;
-import com.shanshui.apmserver.repository.InMemoryEventRepository;
-import com.shanshui.apmserver.service.CrashSanitizer;
-import com.shanshui.apmserver.service.CrashQualityMetrics;
-import com.shanshui.apmserver.service.InvalidStackArtifactException;
-import com.shanshui.apmserver.service.JankArtifactReportMapper;
-import com.shanshui.apmserver.service.JankFingerprintService;
-import com.shanshui.apmserver.service.AppStackMappingResolver;
-import com.shanshui.apmserver.service.PackageNameMismatchException;
-import com.shanshui.apmserver.service.StackArtifactParseService;
-import com.shanshui.apmserver.service.StackParserBusyException;
+import com.shanshui.apmserver.bootstrap.internal.config.IngestConfigurationProperties;
+import com.shanshui.apmserver.jank.internal.config.StackParserProperties;
+import com.shanshui.apmserver.identity.api.AuthenticatedApp;
+import com.shanshui.apmserver.jank.internal.persistence.InMemoryJankEventRepository;
+import com.shanshui.apmserver.jank.internal.application.JankSanitizer;
+import com.shanshui.apmserver.bootstrap.internal.observability.MicrometerTelemetryMetrics;
+import com.shanshui.apmserver.jank.api.InvalidStackArtifactException;
+import com.shanshui.apmserver.jank.internal.artifact.JankArtifactReportMapper;
+import com.shanshui.apmserver.jank.internal.application.JankFingerprintService;
+import com.shanshui.apmserver.jank.internal.artifact.AppStackMappingResolver;
+import com.shanshui.apmserver.identity.api.PackageNameMismatchException;
+import com.shanshui.apmserver.jank.internal.artifact.StackArtifactParseService;
+import com.shanshui.apmserver.jank.api.StackParserBusyException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import tools.jackson.databind.ObjectMapper;
@@ -44,7 +47,7 @@ class StackArtifactParseServiceTests {
 
     @Test
     void returnsAcceptedThenDuplicateAndStoresDerivedQuality() {
-        InMemoryEventRepository repository = repository();
+        InMemoryJankEventRepository repository = repository();
         StackArtifactParseService service = service(parser(report()), repository, 2);
 
         var accepted = service.parse(app("demo-app"), new ByteArrayInputStream(new byte[]{1}));
@@ -99,7 +102,7 @@ class StackArtifactParseServiceTests {
     @Test
     void recordsArtifactAcceptedDuplicateAndVersionMetrics() {
         var registry = new io.micrometer.core.instrument.simple.SimpleMeterRegistry();
-        var metrics = new CrashQualityMetrics(registry);
+        var metrics = new MicrometerTelemetryMetrics(registry);
         var service = service(parser(report()), repository(), 1, metrics);
 
         assertEquals("accepted", service.parse(app("app-a"), new ByteArrayInputStream(new byte[]{1})).status());
@@ -151,31 +154,32 @@ class StackArtifactParseServiceTests {
     }
 
     private StackArtifactParseService service(StackParser parser,
-                                              InMemoryEventRepository repository,
+                                              InMemoryJankEventRepository repository,
                                               int concurrency) {
         return service(parser, repository, concurrency,
-                new CrashQualityMetrics(new io.micrometer.core.instrument.simple.SimpleMeterRegistry()));
+                new MicrometerTelemetryMetrics(new io.micrometer.core.instrument.simple.SimpleMeterRegistry()));
     }
 
     private StackArtifactParseService service(StackParser parser,
-                                              InMemoryEventRepository repository,
+                                              InMemoryJankEventRepository repository,
                                               int concurrency,
-                                              CrashQualityMetrics metrics) {
+                                              MicrometerTelemetryMetrics metrics) {
         StackParserProperties stackProperties = new StackParserProperties();
         stackProperties.setMappingRoot(mappingRoot.toString());
         stackProperties.setMaxConcurrentParses(concurrency);
-        IngestProperties ingestProperties = CrashTestSupport.ingestProperties();
+        IngestConfigurationProperties ingestProperties = CrashTestSupport.ingestProperties();
         ObjectMapper objectMapper = new ObjectMapper();
-        CrashSanitizer sanitizer = new CrashSanitizer(ingestProperties);
+        JankSanitizer sanitizer = new JankSanitizer(ingestProperties);
         JankArtifactReportMapper mapper = new JankArtifactReportMapper(objectMapper, ingestProperties,
                 sanitizer, new JankFingerprintService());
         return new StackArtifactParseService(parser, objectMapper,
-                new AppStackMappingResolver(stackProperties), mapper, repository, stackProperties,
+                new AppStackMappingResolver(stackProperties), mapper,
+                new com.shanshui.apmserver.jank.internal.application.JankWriteCoordinator(repository), stackProperties,
                 metrics);
     }
 
-    private InMemoryEventRepository repository() {
-        return new InMemoryEventRepository(CrashTestSupport.storageProperties());
+    private InMemoryJankEventRepository repository() {
+        return new InMemoryJankEventRepository(CrashTestSupport.storageProperties());
     }
 
     private AuthenticatedApp app(String appId) {

@@ -1,14 +1,13 @@
 package com.shanshui.apmserver;
 
-import com.shanshui.apmserver.config.IngestProperties;
-import com.shanshui.apmserver.domain.EventEnvelope;
-import com.shanshui.apmserver.domain.JankPayload;
-import com.shanshui.apmserver.domain.JankSample;
-import com.shanshui.apmserver.domain.StackFrame;
-import com.shanshui.apmserver.service.CrashEventValidator;
-import com.shanshui.apmserver.service.CrashSanitizer;
-import com.shanshui.apmserver.service.EventValidationException;
-import com.shanshui.apmserver.web.LimitedInputStream;
+import com.shanshui.apmserver.bootstrap.internal.config.IngestConfigurationProperties;
+import com.shanshui.apmserver.ingest.api.EventEnvelope;
+import com.shanshui.apmserver.jank.api.JankPayload;
+import com.shanshui.apmserver.jank.api.JankSample;
+import com.shanshui.apmserver.telemetry.api.StackFrame;
+import com.shanshui.apmserver.jank.internal.application.JankSanitizer;
+import com.shanshui.apmserver.jank.internal.persistence.InMemoryJankEventRepository;
+import com.shanshui.apmserver.platform.api.LimitedInputStream;
 import org.junit.jupiter.api.Test;
 
 import java.io.ByteArrayInputStream;
@@ -24,7 +23,7 @@ class JankSecurityBoundaryTests {
 
     @Test
     void validatorRejectsLegacyJsonJankBeforeInspectingEvidence() {
-        IngestProperties properties = CrashTestSupport.ingestProperties();
+        IngestConfigurationProperties properties = CrashTestSupport.ingestProperties();
         properties.setMaxSceneLength(5);
         properties.setMaxJankStackDepth(1);
         properties.setMaxJankDetailBytes(100);
@@ -36,15 +35,15 @@ class JankSecurityBoundaryTests {
                                 new StackFrame("com.example.App", "run", "a", 1, true),
                                 new StackFrame("com.example.App", "next", "a", 2, true))),
                         1, 1, 0), null, null);
-        EventValidationException exception = assertThrows(EventValidationException.class,
-                () -> new CrashEventValidator(properties, CrashTestSupport.objectMapper()).validate(event));
-        assertTrue(exception.getIssues().stream().anyMatch(issue -> issue.code().equals("JANK_ARTIFACT_REQUIRED")));
+        var response = CrashTestSupport.ingestion(new InMemoryJankEventRepository(CrashTestSupport.storageProperties()), properties)
+                .ingest(TestAppIds.id("app-a"), CrashTestSupport.batch(List.of(event)));
+        assertTrue(response.errors().stream().anyMatch(issue -> issue.code().equals("JANK_ARTIFACT_REQUIRED")));
     }
 
     @Test
     void sanitizerRedactsIllegalDynamicValuesAndHashesDeviceIdentifiers() {
-        IngestProperties properties = CrashTestSupport.ingestProperties();
-        CrashSanitizer sanitizer = new CrashSanitizer(properties);
+        IngestConfigurationProperties properties = CrashTestSupport.ingestProperties();
+        JankSanitizer sanitizer = new JankSanitizer(properties);
         String value = "C:\\Users\\alice\\a.txt https://example.test/x?token=1 alice@example.test "
                 + "+86 138 0013 8000 550e8400-e29b-41d4-a716-446655440000\u0000";
         String sanitized = sanitizer.sanitizeText(value, 4096);
