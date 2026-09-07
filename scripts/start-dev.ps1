@@ -15,6 +15,7 @@ param(
 $ErrorActionPreference = 'Stop'
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
+$backendRoot = Join-Path $repoRoot 'backend'
 $frontendRoot = Join-Path $repoRoot 'frontend'
 $runtimeRoot = Join-Path $repoRoot 'build\dev-services'
 $statePath = Join-Path $runtimeRoot 'services.json'
@@ -162,8 +163,8 @@ function Stop-StartupProcess {
     }
 }
 
-if (-not (Test-Path -LiteralPath (Join-Path $repoRoot 'gradlew.bat'))) {
-    throw "找不到 Gradle Wrapper：$repoRoot\gradlew.bat"
+if (-not (Test-Path -LiteralPath (Join-Path $backendRoot 'gradlew.bat'))) {
+    throw "找不到 Gradle Wrapper：$backendRoot\gradlew.bat"
 }
 if (-not (Test-Path -LiteralPath (Join-Path $frontendRoot 'package.json'))) {
     throw "找不到前端项目：$frontendRoot"
@@ -295,8 +296,9 @@ $env:GRADLE_USER_HOME = Join-Path $repoRoot '.gradle-local'
 
 # 首次启动可能需要下载 Gradle Distribution；先完成 Wrapper 预热，避免
 # 下载时间被误计入后端 90 秒端口就绪超时。
-$gradleWrapper = Join-Path $repoRoot 'gradlew.bat'
-& $gradleWrapper --no-daemon --version
+$gradleWrapper = Join-Path $backendRoot 'gradlew.bat'
+# 显式指定后端工程，允许从仓库根目录或其他目录调用统一入口。
+& $gradleWrapper -p $backendRoot --no-daemon --version
 $gradleExitCode = $LASTEXITCODE
 if ($gradleExitCode -ne 0) {
     throw "Gradle Wrapper 初始化失败（退出码 $gradleExitCode），请查看网络或 Gradle 日志。"
@@ -304,11 +306,11 @@ if ($gradleExitCode -ne 0) {
 
 New-Item -ItemType Directory -Path $runtimeRoot -Force | Out-Null
 
-$backendCommand = "call `"$repoRoot\gradlew.bat`" --no-daemon bootRun > `"$backendLog`" 2>&1"
+$backendCommand = "call `"$gradleWrapper`" --no-daemon bootRun > `"$backendLog`" 2>&1"
 $backendProcess = Start-Process `
     -FilePath 'cmd.exe' `
     -ArgumentList @('/d', '/c', $backendCommand) `
-    -WorkingDirectory $repoRoot `
+    -WorkingDirectory $backendRoot `
     -WindowStyle Hidden `
     -PassThru
 

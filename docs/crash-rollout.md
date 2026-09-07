@@ -2,7 +2,7 @@
 
 ## 灰度顺序
 
-1. 执行 src/main/resources/db/clickhouse/001_crash_schema.sql，验证原始表、明细表和两个小时聚合对象可重复初始化。
+1. 执行 backend/src/main/resources/db/clickhouse/001_crash_schema.sql，验证原始表、明细表和两个小时聚合对象可重复初始化。
 2. 生产默认使用 ClickHouse；如需隔离外部依赖，可临时以 `APM_STORAGE_MODE=memory` 联调 API 和固定数据集，验收后恢复 ClickHouse。
 3. Android SDK 只灰度发送 JVM fatal Crash，保留本地队列并观察 accepted、rejected、duplicate 和临时失败重试。
 4. 通过 Grafana 检查总览、趋势、问题排行、版本对比、无数据、分母不足和详情下钻。

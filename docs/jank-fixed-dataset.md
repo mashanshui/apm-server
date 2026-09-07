@@ -1,6 +1,6 @@
 # 卡顿固定数据集与期望结果
 
-`src/test/resources/fixtures/jank-dataset.json` 是服务端归一化存储与查询口径的固定样本，不是 `/ingest/v1/batches` 的客户端上传示例。它包含 11 条内部测试输入：4 条已归一化卡顿事实（`jank-001` 重复一次）、4 条场景帧汇总（`frame-001` 重复一次）和 3 条前台挂起汇总，共 9 个唯一 `eventId`。真实客户端卡顿个例必须走 `.rheajank.zip` 入口。
+`backend/src/test/resources/fixtures/jank-dataset.json` 是服务端归一化存储与查询口径的固定样本，不是 `/ingest/v1/batches` 的客户端上传示例。它包含 11 条内部测试输入：4 条已归一化卡顿事实（`jank-001` 重复一次）、4 条场景帧汇总（`frame-001` 重复一次）和 3 条前台挂起汇总，共 9 个唯一 `eventId`。真实客户端卡顿个例必须走 `.rheajank.zip` 入口。
 
 ## 卡顿期望
 

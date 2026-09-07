@@ -10,13 +10,13 @@ docker run --name apm-clickhouse -d `
   -e CLICKHOUSE_DB=apm `
   clickhouse/clickhouse-server:latest
 
-Get-Content src/main/resources/db/clickhouse/001_crash_schema.sql |
+Get-Content backend/src/main/resources/db/clickhouse/001_crash_schema.sql |
   docker exec -i apm-clickhouse clickhouse-client --multiquery
-Get-Content src/main/resources/db/clickhouse/002_jank_schema.sql |
+Get-Content backend/src/main/resources/db/clickhouse/002_jank_schema.sql |
   docker exec -i apm-clickhouse clickhouse-client --multiquery
-Get-Content src/main/resources/db/clickhouse/003_jank_sampling_quality.sql |
+Get-Content backend/src/main/resources/db/clickhouse/003_jank_sampling_quality.sql |
   docker exec -i apm-clickhouse clickhouse-client --multiquery
-Get-Content src/main/resources/db/clickhouse/004_application_identity_schema.sql |
+Get-Content backend/src/main/resources/db/clickhouse/004_application_identity_schema.sql |
   docker exec -i apm-clickhouse clickhouse-client --multiquery
 ```
 

@@ -59,7 +59,7 @@
 |---|---|
 | Android SDK 开发 | [客户端接入目录](../client-integration/README.md)、[卡顿监控上传接入](../client-integration/jank-monitoring.md)、[卡顿压缩包上传接入](../client-integration/stack-artifact-upload.md)、[卡顿压缩包 manifest v3](../client-integration/jank-artifact-manifest.md)、[JVM Crash 上传接入](../client-integration/crash-client-integration.md) |
 | 后端接口联调 | [服务端 API 目录](../api/README.md)、[Crash API 与统计公式](../api/crash-api.md)、[Crash 错误码](../api/crash-error-codes.md)、[卡顿监控服务端 API](../api/jank-server-api.md)、[卡顿压缩包解析与落库 API](../api/stack-artifact-api.md)、[登录与应用管理 API](../api/app-api.md) |
-| 数据与验收 | [Crash 固定数据集](../crash-fixed-dataset.md)、[卡顿固定数据集](../jank-fixed-dataset.md)、[卡顿指标性能基线](../jank-performance-baseline.md) |
+| 数据与验收 | [Crash 固定数据集](../crash-fixed-dataset.md)、[卡顿固定数据集](../jank-fixed-dataset.md)、[卡顿指标性能基线](../../backend/docs/knowledge-base/jank-performance-baseline.md) |
 | ClickHouse 与 Grafana | [ClickHouse 本地初始化](../clickhouse-local.md)、[Grafana/ClickHouse 安装与应用接入](../grafana-clickhouse-install.md)、[灰度、开关与回滚](../crash-rollout.md) |
 | Web 前端开发 | [前端知识库](../../frontend/docs/knowledge-base/README.md) |
 
@@ -74,10 +74,23 @@
 
 ## 内容归属与维护约定
 
-1. 当前实现状态和验证层级只在[当前实现与验证边界](00-当前实现与验证边界.md)汇总；测试命令、数量和日期只在[测试与质量保障](08-测试与质量保障.md)维护。
+1. 平台实现状态和验证层级在[当前实现与验证边界](00-当前实现与验证边界.md)汇总；平台端到端证据在[测试与质量保障](08-测试与质量保障.md)维护，后端和前端专项命令、数量与日期分别由各自知识库维护。
 2. 原理、长期约束和领域模型写入对应主题页；已经接受的关键技术取舍写入[架构决策记录](10-架构决策记录.md)。
 3. 未确定的容量、SLA、保留期限、多租户和运维参数写入[待确认事项](13-待确认事项.md)，不要混入“当前已实现”描述。
 4. 正式 API、事件字段或统计口径变更时，同时更新主题页、专项 API 文档、示例和测试要求。
 5. 前端实现细节统一维护在[前端知识库](../../frontend/docs/knowledge-base/README.md)；平台知识库只保留跨端架构、正式接口、安全和部署边界。
 6. 新增文档必须使用中文，标题直接表达要回答的问题，并从本页或所属专项目录建立入口。
 7. 只记录已验证的事实，并明确区分代码存在、自动化验证、外部环境冒烟和生产就绪。
+
+## 工程与知识库边界
+
+仓库根目录负责平台架构、跨端约定、共同数据集与统一开发入口。`backend/` 和 `frontend/` 是并列独立工程。
+
+| 入口 | 唯一维护范围 |
+|---|---|
+| [后端知识库](../../backend/docs/knowledge-base/README.md) | Java 模块、内部链路、持久化、安全实现、构建配置、后端测试与性能证据 |
+| [前端知识库](../../frontend/docs/knowledge-base/README.md) | 页面、路由、状态、前端开发与测试 |
+| [API 文档](../api/README.md) | 对外字段、错误语义与统计口径 |
+| [客户端接入](../client-integration/README.md) | Android 构造事件、队列、上传和重试 |
+
+后端详细测试计数与工程命令只在后端维护，平台状态页保留能力摘要和证据入口。拆分章节的来源映射见[后端迁移索引](../../backend/docs/knowledge-base/README.md#本次内容迁移索引)。

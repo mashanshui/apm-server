@@ -7,8 +7,8 @@
 ## 一、先了解本项目的默认状态
 
 - 服务默认使用 `apm.storage.mode=clickhouse`，启动 Grafana/ClickHouse 后，上报数据会写入 ClickHouse；如需无外部依赖联调，可通过 `APM_STORAGE_MODE=memory` 临时覆盖。
-- ClickHouse 表结构脚本是 `src/main/resources/db/clickhouse/001_crash_schema.sql`。
-- 现有 Dashboard 文件是 `src/main/resources/grafana/dashboards/jvm-crash.json`。
+- ClickHouse 表结构脚本是 `backend/src/main/resources/db/clickhouse/001_crash_schema.sql`。
+- 现有 Dashboard 文件是 `backend/src/main/resources/grafana/dashboards/jvm-crash.json`。
 - 本文中的 ClickHouse 容器通过 HTTP `8123` 端口接收 Spring Boot 和 Grafana 请求，也暴露 Native `9000` 端口供需要 Native 协议的客户端使用。
 - 当前 Dashboard JSON 声明的是 Altinity/Vertamedia 数据源类型 `vertamedia-clickhouse-datasource`。如果只安装 Grafana Labs 的新插件 `grafana-clickhouse-datasource`，导入 JSON 时可能出现“未知数据源类型”；下文默认安装与仓库 JSON 兼容的 Altinity 插件，并在后文说明新插件的处理方式。
 
@@ -80,7 +80,7 @@ docker logs apm-clickhouse --tail 100
 在仓库根目录执行：
 
 ```powershell
-Get-Content -Raw src/main/resources/db/clickhouse/001_crash_schema.sql |
+Get-Content -Raw backend/src/main/resources/db/clickhouse/001_crash_schema.sql |
   docker exec -i apm-clickhouse clickhouse-client `
     --user apm_admin `
     --password $env:CH_ADMIN_PASSWORD `
@@ -175,7 +175,7 @@ FROM apm.apm_event_raw;
 ## 六、导入项目 Dashboard
 
 1. 进入 `Dashboards` → `New` → `Import`。
-2. 选择 `Upload dashboard JSON file`，上传 `src/main/resources/grafana/dashboards/jvm-crash.json`。
+2. 选择 `Upload dashboard JSON file`，上传 `backend/src/main/resources/grafana/dashboards/jvm-crash.json`。
 3. 在数据源映射下拉框中选择刚创建的 ClickHouse 数据源。
 4. 导入后把 `应用` 变量设置为目标应用的 UUID `appId`，并选择合适的时间范围。
 5. 通过 `Explore` 或接口上报一批测试事件后，再查看总览、小时趋势、问题排行和版本对比。
@@ -209,7 +209,7 @@ $env:CLICKHOUSE_DATABASE = "apm"
 $env:CLICKHOUSE_USERNAME = "apm_admin"
 $env:CLICKHOUSE_PASSWORD = $env:CH_ADMIN_PASSWORD
 
-./gradlew.bat bootRun
+./backend/gradlew.bat -p backend bootRun
 ```
 
 也可以直接使用仓库启动脚本。脚本会读取 `.env.local`，并在未显式设置应用变量时把 `CLICKHOUSE_ADMIN_USER`、`CLICKHOUSE_ADMIN_PASSWORD` 和 `CLICKHOUSE_HTTP_URL` 映射为 Spring Boot 使用的连接配置；首次运行会先预热 Gradle Wrapper。

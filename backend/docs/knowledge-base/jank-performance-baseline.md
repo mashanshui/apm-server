@@ -20,8 +20,10 @@ JANK_METRICS_BENCH records=2000 p95Ms=13.386 p99Ms=14.978 heapDeltaMb=19.000
 
 ## 复现命令
 
+以下命令从迁移后的仓库根目录执行；下文带日期的外部验收命令是历史记录，不表示本次重新执行。
+
 ```powershell
-./gradlew.bat test --no-daemon --tests com.shanshui.apmserver.JankMetricsPerformanceTests
+./backend/gradlew.bat -p backend test --no-daemon --tests com.shanshui.apmserver.JankMetricsPerformanceTests
 ```
 
 固定规模的真实 ClickHouse 写入、合并、`FINAL` 查询、分位数和事实/详情一致性已完成一次外部验收；大规模数据、并发度、资源使用和故障恢复仍需在目标生产规格实例上单独压测。
@@ -37,7 +39,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/validate-jank-clickhouse.p
   -InitializeSchema -AppId 00000000-0000-0000-0000-000000000001
 ```
 
-脚本执行 `002_jank_schema.sql` 的 8 条 `CREATE`（重复执行均返回 HTTP 200），从 `src/test/resources/fixtures/jank-dataset.json` 写入 11 条输入记录（9 个唯一 `eventId`），并验证以下结果：
+脚本执行 `002_jank_schema.sql` 的 8 条 `CREATE`（重复执行均返回 HTTP 200），从 `backend/src/test/resources/fixtures/jank-dataset.json` 写入 11 条输入记录（9 个唯一 `eventId`），并验证以下结果：
 
 | 验收项 | 结果 |
 | --- | --- |

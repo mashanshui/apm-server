@@ -48,3 +48,7 @@
 - 用户/应用状态：`src/stores/pinia.ts`、`src/stores/session.ts`、`src/stores/apps.ts`
 - 查询参数、应用切换、证据/图表布局与格式化：`src/utils/query.ts`、`src/utils/jankQuery.ts`、`src/utils/jankNavigation.ts`、`src/utils/jankEvidence.ts`、`src/utils/jankMetricChart.ts`、`src/utils/format.ts`
 - 构建和测试：`package.json`、`vite.config.ts`、`vitest.config.ts`
+
+## 后端工程入口
+
+后端位于仓库根目录的 `backend/`，内部实现与构建测试见[后端知识库](../../../backend/docs/knowledge-base/README.md)。整体架构仍以[平台知识库](../../../docs/knowledge-base/README.md)为准；前端继续只消费根目录 API 契约。

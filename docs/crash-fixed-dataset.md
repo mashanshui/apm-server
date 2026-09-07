@@ -1,6 +1,6 @@
 # Crash 固定验收数据集
 
-测试夹具位于 `src/test/resources/fixtures/crash-dataset.json`，故意包含 13 条上报记录：8 条 `app_start`、4 个唯一 Crash `eventId`，以及 `crash-202` 的一次重复上报。
+测试夹具位于 `backend/src/test/resources/fixtures/crash-dataset.json`，故意包含 13 条上报记录：8 条 `app_start`、4 个唯一 Crash `eventId`，以及 `crash-202` 的一次重复上报。
 
 ## 期望结果
 

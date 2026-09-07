@@ -200,10 +200,10 @@ FPS 响应按算法版本隔离，分位数按 FPS 从高到低计算，保证 `
 
 - [卡顿压缩包解析与落库 API](stack-artifact-api.md)
 - [卡顿压缩包 manifest v3](../client-integration/jank-artifact-manifest.md)
-- [`frame-scene-summary-v2.schema.json`](../../src/main/resources/schema/frame-scene-summary-v2.schema.json)
-- [`foreground-suspension-summary-v2.schema.json`](../../src/main/resources/schema/foreground-suspension-summary-v2.schema.json)
+- [`frame-scene-summary-v2.schema.json`](../../backend/src/main/resources/schema/frame-scene-summary-v2.schema.json)
+- [`foreground-suspension-summary-v2.schema.json`](../../backend/src/main/resources/schema/foreground-suspension-summary-v2.schema.json)
 - [`jank-fixed-dataset.md`](../jank-fixed-dataset.md)
-- [`jank-performance-baseline.md`](../jank-performance-baseline.md)
+- [`jank-performance-baseline.md`](../../backend/docs/knowledge-base/jank-performance-baseline.md)
 
 ## 验证边界
 

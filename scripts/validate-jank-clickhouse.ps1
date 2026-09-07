@@ -5,6 +5,11 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+# 所有仓库资源都相对脚本定位，不依赖调用者的当前目录。
+$repoRoot = Split-Path -Parent $PSScriptRoot
+$backendRoot = Join-Path $repoRoot 'backend'
+$localEnvPath = Join-Path $repoRoot '.env.local'
+
 if ([string]::IsNullOrWhiteSpace($AppId)) {
     $AppId = [Guid]::NewGuid().ToString()
 } else {
@@ -17,10 +22,10 @@ if ([string]::IsNullOrWhiteSpace($AppId)) {
 
 function Read-LocalEnv {
     $values = @{}
-    if (-not (Test-Path -LiteralPath '.env.local')) {
+    if (-not (Test-Path -LiteralPath $localEnvPath)) {
         throw '未找到 .env.local；请在本地配置 CLICKHOUSE_ADMIN_USER、CLICKHOUSE_ADMIN_PASSWORD 和 CLICKHOUSE_HTTP_URL。'
     }
-    foreach ($line in Get-Content -LiteralPath '.env.local') {
+    foreach ($line in Get-Content -LiteralPath $localEnvPath) {
         $trim = $line.Trim()
         if ($trim -match '^([A-Za-z_][A-Za-z0-9_]*)=(.*)$') {
             $value = $matches[2].Trim()
@@ -326,7 +331,7 @@ if ($InitializeSchema) {
     }
     $statementCount = 0
     foreach ($schemaFile in $schemaFiles) {
-        $schema = Get-Content -Raw -LiteralPath $schemaFile
+        $schema = Get-Content -Raw -LiteralPath (Join-Path $backendRoot $schemaFile)
         $statements = @($schema -split ';' | ForEach-Object { $_.Trim() } |
             Where-Object { $_ -and ($_ -notmatch '(?is)^--') })
         foreach ($statement in $statements) {
@@ -358,7 +363,7 @@ foreach ($table in $requiredTables) {
     Assert-Condition ($actualTables -contains $table) ('缺少 ClickHouse 对象: ' + $table)
 }
 
-$fixture = Get-Content -Raw -LiteralPath 'src/test/resources/fixtures/jank-dataset.json' | ConvertFrom-Json
+$fixture = Get-Content -Raw -LiteralPath (Join-Path $backendRoot 'src/test/resources/fixtures/jank-dataset.json') | ConvertFrom-Json
 $events = @($fixture.events)
 $from = '2026-08-15 00:00:00.000'
 $to = '2026-08-17 00:00:00.000'

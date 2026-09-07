@@ -174,5 +174,5 @@ X-Schema-Version: 2
 - [卡顿压缩包解析与落库 API](../api/stack-artifact-api.md)
 - [卡顿监控服务端 API](../api/jank-server-api.md)
 - [manifest v3 契约](jank-artifact-manifest.md)
-- [frame_scene_summary JSON Schema](../../src/main/resources/schema/frame-scene-summary-v2.schema.json)
-- [foreground_suspension_summary JSON Schema](../../src/main/resources/schema/foreground-suspension-summary-v2.schema.json)
+- [frame_scene_summary JSON Schema](../../backend/src/main/resources/schema/frame-scene-summary-v2.schema.json)
+- [foreground_suspension_summary JSON Schema](../../backend/src/main/resources/schema/foreground-suspension-summary-v2.schema.json)

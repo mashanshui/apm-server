@@ -354,5 +354,5 @@ curl -X POST "<服务端基础地址>/ingest/v1/batches" \
 
 - [Crash API 与统计公式](../api/crash-api.md)
 - [Crash 错误码与部分接受语义](../api/crash-error-codes.md)
-- [JVM Crash v2 JSON Schema](../../src/main/resources/schema/crash-event-v2.schema.json)
+- [JVM Crash v2 JSON Schema](../../backend/src/main/resources/schema/crash-event-v2.schema.json)
 - [Android Crash Handler Kotlin 联调样例](../examples/AndroidCrashHandler.kt)
