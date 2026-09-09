@@ -5,6 +5,7 @@ import com.shanshui.apmserver.ingest.api.IngestConfiguration;
 import com.shanshui.apmserver.identity.api.IngestAccessConfiguration;
 import com.shanshui.apmserver.jank.api.JankIngestConfiguration;
 import com.shanshui.apmserver.jank.api.JankMetricsConfiguration;
+import com.shanshui.apmserver.memory.api.MemoryMetricsConfiguration;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 import java.util.ArrayList;
@@ -12,7 +13,7 @@ import java.util.List;
 
 @ConfigurationProperties(prefix = "apm.ingest")
 public class IngestConfigurationProperties implements IngestConfiguration, CrashIngestConfiguration,
-        JankIngestConfiguration, JankMetricsConfiguration, IngestAccessConfiguration {
+        JankIngestConfiguration, JankMetricsConfiguration, MemoryMetricsConfiguration, IngestAccessConfiguration {
 
     private boolean enabled = true;
     private int supportedSchemaVersion = 2;
@@ -42,6 +43,8 @@ public class IngestConfigurationProperties implements IngestConfiguration, Crash
     private int maxJankDetailBytes = 512 * 1024;
     private int maxFrameHistogramBuckets = 64;
     private long suspensionThresholdMs = 200L;
+    private int maxProcessNameLength = 256;
+    private long maxMemoryMetricBytes = 9_007_199_254_740_991L;
 
     public boolean isEnabled() {
         return enabled;
@@ -268,5 +271,21 @@ public class IngestConfigurationProperties implements IngestConfiguration, Crash
 
     public void setSuspensionThresholdMs(long suspensionThresholdMs) {
         this.suspensionThresholdMs = suspensionThresholdMs;
+    }
+
+    public int getMaxProcessNameLength() {
+        return maxProcessNameLength;
+    }
+
+    public void setMaxProcessNameLength(int maxProcessNameLength) {
+        this.maxProcessNameLength = maxProcessNameLength;
+    }
+
+    public long getMaxMemoryMetricBytes() {
+        return maxMemoryMetricBytes;
+    }
+
+    public void setMaxMemoryMetricBytes(long maxMemoryMetricBytes) {
+        this.maxMemoryMetricBytes = maxMemoryMetricBytes;
     }
 }

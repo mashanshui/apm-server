@@ -319,15 +319,18 @@ if ($InitializeSchema) {
         "SELECT count() AS identity_columns FROM system.columns WHERE database = 'apm' " +
         "AND table = 'apm_event_raw' AND name = 'app_id' AND type = 'UUID' FORMAT JSONEachRow") | Select-Object -First 1
     if ($null -ne $currentSchema -and [Int64]$currentSchema.identity_columns -eq 1) {
-        $schemaFiles = @('src/main/resources/db/clickhouse/004_application_identity_schema.sql')
-        $schemaLabel = '004_application_identity_schema.sql'
+        $schemaFiles = @(
+            'src/main/resources/db/clickhouse/004_application_identity_schema.sql',
+            'src/main/resources/db/clickhouse/005_memory_metrics.sql')
+        $schemaLabel = '004-005'
     } else {
         $schemaFiles = @(
             'src/main/resources/db/clickhouse/001_crash_schema.sql',
             'src/main/resources/db/clickhouse/002_jank_schema.sql',
             'src/main/resources/db/clickhouse/003_jank_sampling_quality.sql',
-            'src/main/resources/db/clickhouse/004_application_identity_schema.sql')
-        $schemaLabel = '001-004'
+            'src/main/resources/db/clickhouse/004_application_identity_schema.sql',
+            'src/main/resources/db/clickhouse/005_memory_metrics.sql')
+        $schemaLabel = '001-005'
     }
     $statementCount = 0
     foreach ($schemaFile in $schemaFiles) {
@@ -355,9 +358,10 @@ $requiredTables = @(
     'apm_jank_detail',
     'apm_jank_event',
     'apm_jank_issue_hourly',
-    'apm_jank_issue_hourly_mv'
+    'apm_jank_issue_hourly_mv',
+    'apm_memory_sample'
 )
-$tableRows = Invoke-ClickHouseRows -Query "SELECT name FROM system.tables WHERE database = 'apm' AND (name LIKE 'apm_event%' OR name LIKE 'apm_crash%' OR name LIKE 'apm_jank%' OR name LIKE 'apm_frame%' OR name LIKE 'apm_device_suspension%') ORDER BY name FORMAT JSONEachRow"
+$tableRows = Invoke-ClickHouseRows -Query "SELECT name FROM system.tables WHERE database = 'apm' AND (name LIKE 'apm_event%' OR name LIKE 'apm_crash%' OR name LIKE 'apm_jank%' OR name LIKE 'apm_frame%' OR name LIKE 'apm_device_suspension%' OR name = 'apm_memory_sample') ORDER BY name FORMAT JSONEachRow"
 $actualTables = @($tableRows | ForEach-Object { $_.name })
 foreach ($table in $requiredTables) {
     Assert-Condition ($actualTables -contains $table) ('缺少 ClickHouse 对象: ' + $table)

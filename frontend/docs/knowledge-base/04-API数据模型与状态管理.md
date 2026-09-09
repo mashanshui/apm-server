@@ -37,6 +37,15 @@ GET /api/v1/apps/{appId}/jank-metrics/trend?metric=fps|suspension_rate&interval=
 GET /api/v1/apps/{appId}/jank-metrics/dimensions?metric=fps&dimension=scene
 ```
 
+内存指标页面只消费以下两个查询端点：
+
+```http
+GET /api/v1/apps/{appId}/memory-metrics/summary
+GET /api/v1/apps/{appId}/memory-metrics/trend?metric=pss|vss|java_heap&interval=hour|day
+```
+
+两个端点都支持 `from`、`to`、`appVersion`、`osVersion`、`deviceModel`、`processName`、`scene`、`foreground`；其中 `scene` 是采样时当前应用的 Activity 名称。趋势额外使用 `metric` 和 `interval`。服务端响应的三个指标各自包含 `sampleCount`、平均值和 P50/P90/P95/P99，单位为字节，缺失指标不计入对应统计。前端只在展示层换算 MiB，不把趋势桶重新汇总成概览。
+
 已发布契约、统计公式和服务端限制以[服务端 API 文档](../../../docs/api/README.md)、[Crash API 文档](../../../docs/api/crash-api.md)、[卡顿服务端 API](../../../docs/api/jank-server-api.md)及[平台查询与 Dashboard](../../../docs/knowledge-base/05-查询与Dashboard.md)为准；本页只记录前端消费方式。
 
 ## 请求约定
@@ -52,6 +61,7 @@ GET /api/v1/apps/{appId}/jank-metrics/dimensions?metric=fps&dimension=scene
 - 创建请求类型为可选 `name`、可选 `description` 和必填 `packageName`；空名称/描述由服务端分别默认到包名/null。
 - 空字符串、`undefined` 和 `null` 不进入查询参数。
 - Crash 查询参数集中在 `crashApi.ts`；卡顿公共参数与指标参数分别由 `jankApi.ts` 的白名单构造器维护，指标请求不接受指纹或游标。
+- 内存查询参数由 `memoryApi.ts` 和 `memoryQuery.ts` 的白名单共同维护；只允许 PSS/VSS/Java 堆、小时/日、前后台和已发布筛选，不接受 FD、32/64 位或多维下钻参数。
 
 ## 类型边界
 
@@ -93,6 +103,7 @@ Pinia 只管理跨页面的认证和应用状态；路由查询参数保存可�
 - 详情页直接管理单事件请求状态。
 - `jankQuery.ts` 维护卡顿公共/指标筛选的最近 24 小时默认值、白名单和 URL 往返；切换到挂起率时强制 `day`、清空 `scene`，并把 `scene` 维度回退到 `deviceModel`。
 - `useJankQuery.ts` 提供独立区域的加载/错误/数据状态、`AbortController`、请求令牌和游标按稳定键去重；`useJankIssues.ts`、`useJankIssueEvents.ts` 和 `useJankMetrics.ts` 分别组合问题、Issue 和指标页面请求。
+- `useMemoryMetrics.ts` 将 summary 与 trend 分成两个请求区域，各自维护加载/错误/重试和 `AbortController`；旧响应按查询令牌丢弃。`MemoryMetricsView.vue` 将时间和筛选保存到 URL，百分位切换只改变显示列，不触发重新聚合。
 
 当前不把 Crash 或卡顿查询结果写入全局 Store；如果未来需要跨页面缓存、预取或失效策略，再评估专用请求缓存库。
 

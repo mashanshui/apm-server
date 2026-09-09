@@ -54,6 +54,12 @@ const router = createRouter({
       component: () => import('../views/JankMetricsView.vue'),
     },
     {
+      path: '/apps/:appId/memory-metrics',
+      name: 'memory-metrics',
+      meta: { requiresAuth: true, appContext: true },
+      component: () => import('../views/MemoryMetricsView.vue'),
+    },
+    {
       path: '/apps/:appId/janks',
       name: 'jank-issues',
       meta: { requiresAuth: true, appContext: true },

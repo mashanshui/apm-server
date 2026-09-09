@@ -14,6 +14,7 @@ const session = useSessionStore()
 const currentApp = computed(() => apps.apps.find((app) => app.appId === props.appId))
 const crashActive = computed(() => String(route.name ?? '').startsWith('crash-'))
 const jankMetricsActive = computed(() => route.name === 'jank-metrics')
+const memoryMetricsActive = computed(() => route.name === 'memory-metrics')
 const jankIssuesActive = computed(() => ['jank-issues', 'jank-issue-events', 'jank-event-detail'].includes(String(route.name ?? '')))
 const settingsActive = computed(() => route.name === 'app-settings')
 
@@ -80,6 +81,14 @@ async function logout() {
           >
             <span class="nav-icon">⌁</span>
             <span>卡顿指标分析</span>
+          </RouterLink>
+          <RouterLink
+            class="nav-link"
+            :class="{ 'router-link-active': memoryMetricsActive }"
+            :to="{ name: 'memory-metrics', params: { appId: props.appId } }"
+          >
+            <span class="nav-icon">▥</span>
+            <span>内存指标分析</span>
           </RouterLink>
           <RouterLink
             class="nav-link"

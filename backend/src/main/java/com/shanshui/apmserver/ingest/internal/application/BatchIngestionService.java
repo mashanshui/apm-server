@@ -7,6 +7,8 @@ import com.shanshui.apmserver.ingest.api.IngestMetrics;
 import com.shanshui.apmserver.jank.api.JankMetricEventProcessing;
 import com.shanshui.apmserver.jank.api.JankMetricIngestCommand;
 import com.shanshui.apmserver.jank.api.JankMetrics;
+import com.shanshui.apmserver.memory.api.MemoryEventProcessing;
+import com.shanshui.apmserver.memory.api.MemoryIngestCommand;
 import com.shanshui.apmserver.ingest.api.EventIngestionService;
 import com.shanshui.apmserver.telemetry.api.EventValidationException;
 import com.shanshui.apmserver.ingest.api.InvalidBatchException;
@@ -34,21 +36,37 @@ public class BatchIngestionService implements EventIngestionService {
 
     private final CrashEventProcessing crashProcessor;
     private final JankMetricEventProcessing jankMetricProcessor;
+    private final MemoryEventProcessing memoryProcessor;
     private final IngestMetrics ingestMetrics;
     private final CrashMetrics crashMetrics;
     private final JankMetrics jankMetrics;
     private final Clock clock = Clock.systemUTC();
 
+    @org.springframework.beans.factory.annotation.Autowired
     public BatchIngestionService(CrashEventProcessing crashProcessor,
                                  JankMetricEventProcessing jankMetricProcessor,
+                                 MemoryEventProcessing memoryProcessor,
                                  IngestMetrics ingestMetrics,
                                  CrashMetrics crashMetrics,
                                  JankMetrics jankMetrics) {
         this.crashProcessor = crashProcessor;
         this.jankMetricProcessor = jankMetricProcessor;
+        this.memoryProcessor = memoryProcessor;
         this.ingestMetrics = ingestMetrics;
         this.crashMetrics = crashMetrics;
         this.jankMetrics = jankMetrics;
+    }
+
+    /** 兼容仅装配 Crash/Jank 处理器的领域级测试和旧内部调用。 */
+    public BatchIngestionService(CrashEventProcessing crashProcessor,
+                                 JankMetricEventProcessing jankMetricProcessor,
+                                 IngestMetrics ingestMetrics,
+                                 CrashMetrics crashMetrics,
+                                 JankMetrics jankMetrics) {
+        this(crashProcessor, jankMetricProcessor, (appId, command, receivedAt) -> {
+            throw new EventValidationException(List.of(
+                    new ValidationIssue("MEMORY_PROCESSOR_UNAVAILABLE", "内存事件处理器未装配")));
+        }, ingestMetrics, crashMetrics, jankMetrics);
     }
 
     @Override
@@ -75,7 +93,7 @@ public class BatchIngestionService implements EventIngestionService {
                 SignalIngestResult processed = processEvent(appId, event, receivedAt);
                 acceptedEvents += processed.appendResult().accepted();
                 duplicateEvents += processed.appendResult().duplicate();
-                if (isMetricEvent(event)) {
+                if (isJankMetricEvent(event)) {
                     jankMetrics.jankSchemaVersion(processed.metadata().schemaVersion());
                     jankMetrics.jankAlgorithmVersion(processed.metadata().eventType(), processed.algorithmVersion());
                 }
@@ -88,7 +106,7 @@ public class BatchIngestionService implements EventIngestionService {
                 }
             } catch (EventValidationException ex) {
                 rejectedEvents++;
-                boolean metricEvent = event != null && isMetricEvent(event);
+                boolean metricEvent = event != null && isJankMetricEvent(event);
                 if (event != null && "jank".equals(event.eventType())) {
                     jankMetrics.jankRejected();
                 }
@@ -134,7 +152,7 @@ public class BatchIngestionService implements EventIngestionService {
         }
     }
 
-    private boolean isMetricEvent(EventEnvelope event) {
+    private boolean isJankMetricEvent(EventEnvelope event) {
         return event != null && ("jank".equals(event.eventType())
                 || "frame_scene_summary".equals(event.eventType())
                 || "foreground_suspension_summary".equals(event.eventType()));
@@ -154,6 +172,19 @@ public class BatchIngestionService implements EventIngestionService {
                     event.versionCode(), event.buildId(), event.environment(), event.channel(), event.osVersion(),
                     event.deviceModel(), event.networkType(), event.measurements(), event.attributes(),
                     event.frameSceneSummary(), event.foregroundSuspensionSummary()), receivedAt);
+        }
+        if (event != null && "memory_sample".equals(event.eventType())) {
+            if (event.memorySample() == null || event.crash() != null || event.jank() != null
+                    || event.frameSceneSummary() != null || event.foregroundSuspensionSummary() != null) {
+                throw new EventValidationException(List.of(
+                        new ValidationIssue("INVALID_MEMORY_PAYLOAD", "memory_sample 事件必须且只能携带 memorySample 载荷")));
+            }
+            return memoryProcessor.ingest(appId, new MemoryIngestCommand(
+                    event.schemaVersion(), event.eventId(), event.eventType(), event.occurredAt(),
+                    event.sessionId(), event.anonymousDeviceId(), event.packageName(), event.appVersion(),
+                    event.versionCode(), event.buildId(), event.environment(), event.channel(), event.osVersion(),
+                    event.deviceModel(), event.networkType(), event.measurements(), event.attributes(),
+                    event.memorySample()), receivedAt);
         }
         CrashIngestCommand command = event == null ? null : new CrashIngestCommand(
                 event.schemaVersion(), event.eventId(), event.eventType(), event.occurredAt(), event.sessionId(),

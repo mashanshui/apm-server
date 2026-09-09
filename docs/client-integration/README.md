@@ -8,6 +8,7 @@
 - [Android 卡顿压缩包上传接入](stack-artifact-upload.md)
 - [Android 卡顿压缩包 manifest v3 契约](jank-artifact-manifest.md)
 - [Android JVM Crash 上传接入](crash-client-integration.md)
+- [Android 内存指标上传接入](memory-metrics.md)
 - [Android/processor 后续改造清单](android-processor-follow-up-checklist.md)
 
 服务端请求/响应、查询、统计和错误语义统一见[服务端 API 文档](../api/README.md)。

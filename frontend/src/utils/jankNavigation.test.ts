@@ -23,4 +23,17 @@ describe('jankAppSwitchTarget', () => {
     expect(target.query.cursor).toBeUndefined()
     expect(target.query.algorithmVersion).toBe('jank-v1')
   })
+
+  it('内存页切换应用时保留筛选并移除不支持的位数参数', () => {
+    const target = jankAppSwitchTarget('memory-metrics', 'next', {
+      from: '2026-08-15T00:00:00Z', to: '2026-08-16T00:00:00Z', metric: 'vss', interval: 'day',
+      percentile: 'p95', processName: 'worker', foreground: 'false', bitness: '64',
+    }) as { name: string; params: Record<string, unknown>; query: Record<string, unknown> }
+    expect(target.name).toBe('memory-metrics')
+    expect(target.params.appId).toBe('next')
+    expect(target.query.metric).toBe('vss')
+    expect(target.query.percentile).toBe('p95')
+    expect(target.query.foreground).toBe('false')
+    expect(target.query.bitness).toBeUndefined()
+  })
 })

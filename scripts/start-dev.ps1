@@ -58,6 +58,57 @@ function Import-LocalEnvironment {
 
 Import-LocalEnvironment -Path $localEnvPath
 
+function Test-Java21Home {
+    param([string]$JavaHome)
+
+    if ([string]::IsNullOrWhiteSpace($JavaHome)) {
+        return $false
+    }
+
+    $javaExecutable = Join-Path $JavaHome 'bin\java.exe'
+    if (-not (Test-Path -LiteralPath $javaExecutable)) {
+        return $false
+    }
+
+    $version = (& $javaExecutable -version 2>&1 | Out-String)
+    return $version -match 'version\s+"21(?:[.\"]|$)'
+}
+
+function Resolve-Java21Home {
+    $configuredJavaHome = [Environment]::GetEnvironmentVariable('APM_JAVA_HOME', 'Process')
+    if (-not [string]::IsNullOrWhiteSpace($configuredJavaHome)) {
+        $configuredJavaHome = $configuredJavaHome.Trim()
+        if (-not (Test-Java21Home -JavaHome $configuredJavaHome)) {
+            throw "APM_JAVA_HOME 必须指向可用的 JDK 21：$configuredJavaHome"
+        }
+        return (Resolve-Path -LiteralPath $configuredJavaHome).ProviderPath
+    }
+
+    $candidates = [System.Collections.Generic.List[string]]::new()
+    if (-not [string]::IsNullOrWhiteSpace($env:JAVA_HOME)) {
+        $candidates.Add($env:JAVA_HOME.Trim())
+    }
+
+    $javaInstallRoot = Join-Path ${env:ProgramFiles} 'Java'
+    if (Test-Path -LiteralPath $javaInstallRoot) {
+        foreach ($javaHome in @(Get-ChildItem -LiteralPath $javaInstallRoot -Directory -Filter 'jdk-21*' -ErrorAction SilentlyContinue | Sort-Object Name -Descending)) {
+            $candidates.Add($javaHome.FullName)
+        }
+    }
+
+    foreach ($candidate in $candidates | Select-Object -Unique) {
+        if (Test-Java21Home -JavaHome $candidate) {
+            return (Resolve-Path -LiteralPath $candidate).ProviderPath
+        }
+    }
+
+    throw '未找到可用的 JDK 21。请安装 JDK 21，或设置被 .env.local 忽略的 APM_JAVA_HOME。'
+}
+
+$env:JAVA_HOME = Resolve-Java21Home
+$env:Path = (Join-Path $env:JAVA_HOME 'bin') + ';' + $env:Path
+Write-Host "使用 JDK 21：$env:JAVA_HOME"
+
 function Test-TcpPort {
     param([int]$Port)
 

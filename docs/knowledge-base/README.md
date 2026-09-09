@@ -15,7 +15,7 @@
 | 为什么采用当前技术方案 | [架构决策记录](10-架构决策记录.md) |
 | 哪些参数或能力尚未确定 | [待确认事项](13-待确认事项.md) |
 
-当前结论：仓库已形成 JVM Crash 与卡顿监控的服务端开发闭环，后端以单进程模块化单体隔离 Identity、Ingest、Crash 与 Jank，包含领域专属 ClickHouse 存储边界、Vue 浅色 PC 控制台、Session 登录、应用管理和 PostgreSQL/Flyway 管理 schema；生产网关、容量与故障恢复、完整多租户运营和更多 APM 信号仍未完成。详细状态不在本页重复维护，以[当前实现与验证边界](00-当前实现与验证边界.md)为准。
+当前结论：仓库已形成 JVM Crash、卡顿监控和 PSS/VSS/Java 堆内存指标的服务端开发闭环，后端以单进程模块化单体隔离 Identity、Ingest、Crash、Jank 与 Memory，包含领域专属 ClickHouse 存储边界、Vue 浅色 PC 控制台、Session 登录、应用管理和 PostgreSQL/Flyway 管理 schema；生产网关、容量与故障恢复、完整多租户运营和更多 APM 信号仍未完成。详细状态不在本页重复维护，以[当前实现与验证边界](00-当前实现与验证边界.md)为准。
 
 ## 核心知识地图
 
@@ -33,7 +33,7 @@
 |---|---|
 | [事件模型与数据存储](03-事件模型与数据存储.md) | PostgreSQL、ClickHouse、对象存储如何分工，事件如何建模 |
 | [上报协议与可靠性](04-上报协议与可靠性.md) | 批量、gzip、校验、错误、重试和去重语义是什么 |
-| [查询与 Dashboard](05-查询与Dashboard.md) | 查询 API、Grafana 与 Vue 如何分工，统计口径是什么 |
+| [查询与 Dashboard](05-查询与Dashboard.md) | Crash、卡顿和内存查询 API、Grafana 与 Vue 如何分工，统计口径是什么 |
 | [安全与隐私](06-安全与隐私.md) | 登录、应用授权、上报 Key、脱敏和多租户边界是什么 |
 
 ### 交付与治理
@@ -57,9 +57,9 @@
 
 | 使用者 | 文档入口 |
 |---|---|
-| Android SDK 开发 | [客户端接入目录](../client-integration/README.md)、[卡顿监控上传接入](../client-integration/jank-monitoring.md)、[卡顿压缩包上传接入](../client-integration/stack-artifact-upload.md)、[卡顿压缩包 manifest v3](../client-integration/jank-artifact-manifest.md)、[JVM Crash 上传接入](../client-integration/crash-client-integration.md) |
-| 后端接口联调 | [服务端 API 目录](../api/README.md)、[Crash API 与统计公式](../api/crash-api.md)、[Crash 错误码](../api/crash-error-codes.md)、[卡顿监控服务端 API](../api/jank-server-api.md)、[卡顿压缩包解析与落库 API](../api/stack-artifact-api.md)、[登录与应用管理 API](../api/app-api.md) |
-| 数据与验收 | [Crash 固定数据集](../crash-fixed-dataset.md)、[卡顿固定数据集](../jank-fixed-dataset.md)、[卡顿指标性能基线](../../backend/docs/knowledge-base/jank-performance-baseline.md) |
+| Android SDK 开发 | [客户端接入目录](../client-integration/README.md)、[内存指标上传接入](../client-integration/memory-metrics.md)、[卡顿监控上传接入](../client-integration/jank-monitoring.md)、[卡顿压缩包上传接入](../client-integration/stack-artifact-upload.md)、[卡顿压缩包 manifest v3](../client-integration/jank-artifact-manifest.md)、[JVM Crash 上传接入](../client-integration/crash-client-integration.md) |
+| 后端接口联调 | [服务端 API 目录](../api/README.md)、[内存指标 API](../api/memory-metrics-api.md)、[Crash API 与统计公式](../api/crash-api.md)、[Crash 错误码](../api/crash-error-codes.md)、[卡顿监控服务端 API](../api/jank-server-api.md)、[卡顿压缩包解析与落库 API](../api/stack-artifact-api.md)、[登录与应用管理 API](../api/app-api.md) |
+| 数据与验收 | [Crash 固定数据集](../crash-fixed-dataset.md)、[内存固定数据集](../memory-fixed-dataset.md)、[卡顿固定数据集](../jank-fixed-dataset.md)、[卡顿指标性能基线](../../backend/docs/knowledge-base/jank-performance-baseline.md) |
 | ClickHouse 与 Grafana | [ClickHouse 本地初始化](../clickhouse-local.md)、[Grafana/ClickHouse 安装与应用接入](../grafana-clickhouse-install.md)、[灰度、开关与回滚](../crash-rollout.md) |
 | Web 前端开发 | [前端知识库](../../frontend/docs/knowledge-base/README.md) |
 

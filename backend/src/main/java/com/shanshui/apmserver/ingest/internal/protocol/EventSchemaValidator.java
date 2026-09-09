@@ -20,7 +20,7 @@ public class EventSchemaValidator {
             "schemaVersion", "eventId", "eventType", "occurredAt", "sessionId", "anonymousDeviceId",
             "packageName", "appVersion", "versionCode", "buildId", "environment", "channel", "osVersion",
             "deviceModel", "networkType", "measurements", "attributes", "crash", "jank",
-            "frameSceneSummary", "foregroundSuspensionSummary");
+            "frameSceneSummary", "foregroundSuspensionSummary", "memorySample");
     private static final Set<String> CRASH_FIELDS = Set.of("kind", "fatal", "throwableChain");
     private static final Set<String> THROWABLE_FIELDS = Set.of("type", "message", "frames");
     private static final Set<String> FRAME_FIELDS = Set.of("className", "methodName", "fileName", "lineNumber", "applicationFrame");
@@ -28,6 +28,8 @@ public class EventSchemaValidator {
             "uiRefreshFrameCount", "refreshRateHz", "normalizedFps60", "frameDurationHistogram");
     private static final Set<String> SUSPENSION_FIELDS = Set.of("algorithmVersion", "foregroundDurationMs",
             "suspensionDurationMs", "suspensionCount", "thresholdMs");
+    private static final Set<String> MEMORY_FIELDS = Set.of("pssBytes", "vssBytes", "javaHeapUsedBytes",
+            "processName", "foreground", "scene");
 
     public void validateBatch(JsonNode root) {
         requireObject(root, "批次");
@@ -65,6 +67,7 @@ public class EventSchemaValidator {
         validateCrash(event.get("crash"));
         validateFrameScene(event.get("frameSceneSummary"));
         validateSuspension(event.get("foregroundSuspensionSummary"));
+        validateMemory(event.get("memorySample"));
     }
 
     private void validateCrash(JsonNode payload) {
@@ -136,6 +139,20 @@ public class EventSchemaValidator {
         requireInteger(payload, "suspensionDurationMs");
         requireInteger(payload, "suspensionCount");
         requireInteger(payload, "thresholdMs");
+    }
+
+    private void validateMemory(JsonNode payload) {
+        if (payload == null || payload.isNull()) {
+            return;
+        }
+        requireObject(payload, "memorySample");
+        rejectUnknown(payload, MEMORY_FIELDS, "memorySample");
+        requireInteger(payload, "pssBytes");
+        requireInteger(payload, "vssBytes");
+        requireInteger(payload, "javaHeapUsedBytes");
+        requirePresentText(payload, "processName");
+        requireBoolean(payload, "foreground");
+        requireText(payload, "scene");
     }
 
     private void validateOptionalObject(JsonNode parent, String name) {

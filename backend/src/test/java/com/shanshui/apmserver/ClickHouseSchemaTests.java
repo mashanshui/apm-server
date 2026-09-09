@@ -62,4 +62,19 @@ class ClickHouseSchemaTests {
             assertTrue(!sql.contains("project_id"));
         }
     }
+
+    @Test
+    void memoryMetricsSchemaKeepsNullableSamplesAndStableDedupKey() throws Exception {
+        try (InputStream input = getClass().getResourceAsStream("/db/clickhouse/005_memory_metrics.sql")) {
+            String sql = new String(input.readAllBytes(), StandardCharsets.UTF_8);
+            assertTrue(sql.contains("CREATE TABLE IF NOT EXISTS apm.apm_memory_sample"));
+            assertTrue(sql.contains("pss_bytes Nullable(UInt64)"));
+            assertTrue(sql.contains("vss_bytes Nullable(UInt64)"));
+            assertTrue(sql.contains("java_heap_used_bytes Nullable(UInt64)"));
+            assertTrue(sql.contains("ENGINE = ReplacingMergeTree(received_time)"));
+            assertTrue(sql.contains("PARTITION BY toYYYYMM(event_time)"));
+            assertTrue(sql.contains("ORDER BY (app_id, event_id)"));
+            assertTrue(sql.contains("TTL event_time + INTERVAL 90 DAY"));
+        }
+    }
 }
