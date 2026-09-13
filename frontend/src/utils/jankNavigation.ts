@@ -1,6 +1,7 @@
 import type { LocationQuery, RouteLocationRaw } from 'vue-router'
 import { jankFiltersToQuery, jankMetricFiltersToQuery, parseJankFilters, parseJankMetricFilters } from './jankQuery'
 import { memoryMetricFiltersToQuery, parseMemoryMetricFilters } from './memoryQuery'
+import { memoryLeakFiltersToQuery, parseMemoryLeakFilters } from './memoryLeakQuery'
 
 export function jankAppSwitchTarget(
   routeName: string | symbol | null | undefined,
@@ -20,6 +21,13 @@ export function jankAppSwitchTarget(
       name: 'memory-metrics',
       params: { appId },
       query: memoryMetricFiltersToQuery(parseMemoryMetricFilters(query)),
+    }
+  }
+  if (name === 'memory-leaks') {
+    return {
+      name: 'memory-leaks',
+      params: { appId },
+      query: memoryLeakFiltersToQuery(parseMemoryLeakFilters(query)),
     }
   }
   if (['jank-issues', 'jank-issue-events', 'jank-event-detail'].includes(name)) {

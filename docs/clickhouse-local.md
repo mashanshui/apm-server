@@ -34,3 +34,28 @@ apm.clickhouse.password=${CLICKHOUSE_PASSWORD}
 ```
 
 当前代码通过 ClickHouse HTTP 适配器持久化事件；应用账号需要同时具备 `SELECT` 和 `INSERT` 权限，Grafana 仍应使用独立的只读账号。
+
+## 本地后端连接云端调试数据库
+
+当前云端仅用于调试，`compose.cloud.yaml` 已将 PostgreSQL 5432 和 ClickHouse HTTP 8123 映射到公网。本地后端可在根目录被 Git 忽略的 `.env.local` 中配置：
+
+```dotenv
+APM_DATABASE_URL=jdbc:postgresql://124.221.252.121:5432/apm
+APM_DATABASE_USERNAME=apm
+APM_DATABASE_PASSWORD=<云端 PostgreSQL 密码>
+APM_STORAGE_MODE=clickhouse
+CLICKHOUSE_URL=http://124.221.252.121:8123
+CLICKHOUSE_DATABASE=apm
+CLICKHOUSE_USERNAME=apm_admin
+CLICKHOUSE_PASSWORD=<云端 ClickHouse 密码>
+```
+
+然后执行：
+
+```powershell
+.\scripts\start-dev.ps1
+```
+
+当前脚本默认等价于 `-StorageMode clickhouse -DatabaseMode remote`。
+
+脚本会跳过本地 PostgreSQL 容器；本地后端的 Flyway、网页 Session、应用管理、上报和查询都使用云端调试数据库。数据库公网映射只适用于当前调试环境，正式环境应删除并改用内网、VPN 或 SSH 隧道。

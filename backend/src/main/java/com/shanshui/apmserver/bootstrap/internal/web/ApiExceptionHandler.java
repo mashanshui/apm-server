@@ -17,6 +17,9 @@ import com.shanshui.apmserver.identity.api.AppAuthenticationUnavailableException
 import com.shanshui.apmserver.identity.api.PackageNameMismatchException;
 import com.shanshui.apmserver.identity.api.InvalidCredentialsException;
 import com.shanshui.apmserver.identity.api.InvalidAppInputException;
+import com.shanshui.apmserver.memory.api.MemoryLeakEventConflictException;
+import com.shanshui.apmserver.memory.api.MemoryLeakReportValidationException;
+import com.shanshui.apmserver.memory.api.MemoryLeakAttachmentStoreException;
 import com.shanshui.apmserver.identity.api.UnauthenticatedException;
 import com.shanshui.apmserver.platform.api.QueryValidationException;
 import com.shanshui.apmserver.platform.api.UnsupportedMediaTypeException;
@@ -148,6 +151,22 @@ public class ApiExceptionHandler {
     public ResponseEntity<ApiErrorResponse> queryValidation(QueryValidationException ex) {
         return response(ResponseEntity.status(ex.getStatus())
                 .body(ApiErrorResponse.of(ex.getCode(), ex.getMessage(), false, null)));
+    }
+
+    @ExceptionHandler(MemoryLeakReportValidationException.class)
+    public ResponseEntity<ApiErrorResponse> memoryLeakValidation(MemoryLeakReportValidationException ex) {
+        return response(HttpStatus.BAD_REQUEST, ApiErrorResponse.of("INVALID_MEMORY_LEAK_REPORT", ex.getMessage(), false, null));
+    }
+
+    @ExceptionHandler(MemoryLeakEventConflictException.class)
+    public ResponseEntity<ApiErrorResponse> memoryLeakConflict(MemoryLeakEventConflictException ex) {
+        return response(HttpStatus.CONFLICT, ApiErrorResponse.of("EVENT_ID_CONFLICT", ex.getMessage(), false, null));
+    }
+
+    @ExceptionHandler(MemoryLeakAttachmentStoreException.class)
+    public ResponseEntity<ApiErrorResponse> memoryLeakAttachmentFailure(MemoryLeakAttachmentStoreException ex) {
+        return response(ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).header("Retry-After", "30")
+                .body(ApiErrorResponse.of("ATTACHMENT_STORE_UNAVAILABLE", ex.getMessage(), true, null)));
     }
 
     private ResponseEntity<ApiErrorResponse> response(HttpStatus status, ApiErrorResponse body) {

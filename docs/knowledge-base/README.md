@@ -57,9 +57,9 @@
 
 | 使用者 | 文档入口 |
 |---|---|
-| Android SDK 开发 | [客户端接入目录](../client-integration/README.md)、[内存指标上传接入](../client-integration/memory-metrics.md)、[卡顿监控上传接入](../client-integration/jank-monitoring.md)、[卡顿压缩包上传接入](../client-integration/stack-artifact-upload.md)、[卡顿压缩包 manifest v3](../client-integration/jank-artifact-manifest.md)、[JVM Crash 上传接入](../client-integration/crash-client-integration.md) |
-| 后端接口联调 | [服务端 API 目录](../api/README.md)、[内存指标 API](../api/memory-metrics-api.md)、[Crash API 与统计公式](../api/crash-api.md)、[Crash 错误码](../api/crash-error-codes.md)、[卡顿监控服务端 API](../api/jank-server-api.md)、[卡顿压缩包解析与落库 API](../api/stack-artifact-api.md)、[登录与应用管理 API](../api/app-api.md) |
-| 数据与验收 | [Crash 固定数据集](../crash-fixed-dataset.md)、[内存固定数据集](../memory-fixed-dataset.md)、[卡顿固定数据集](../jank-fixed-dataset.md)、[卡顿指标性能基线](../../backend/docs/knowledge-base/jank-performance-baseline.md) |
+| Android SDK 开发 | [客户端接入目录](../client-integration/README.md)、[内存指标上传接入](../client-integration/memory-metrics.md)、[内存泄漏报告上传接入](../client-integration/memory-leak-reports.md)、[卡顿监控上传接入](../client-integration/jank-monitoring.md)、[卡顿压缩包上传接入](../client-integration/stack-artifact-upload.md)、[卡顿压缩包 manifest v3](../client-integration/jank-artifact-manifest.md)、[JVM Crash 上传接入](../client-integration/crash-client-integration.md) |
+| 后端接口联调 | [服务端 API 目录](../api/README.md)、[内存指标 API](../api/memory-metrics-api.md)、[内存泄漏报告 API](../api/memory-leak-reports-api.md)、[Crash API 与统计公式](../api/crash-api.md)、[Crash 错误码](../api/crash-error-codes.md)、[卡顿监控服务端 API](../api/jank-server-api.md)、[卡顿压缩包解析与落库 API](../api/stack-artifact-api.md)、[登录与应用管理 API](../api/app-api.md) |
+| 数据与验收 | [Crash 固定数据集](../crash-fixed-dataset.md)、[内存固定数据集](../memory-fixed-dataset.md)、[内存泄漏固定数据](../memory-leak-fixed-dataset.md)、[卡顿固定数据集](../jank-fixed-dataset.md)、[卡顿指标性能基线](../../backend/docs/knowledge-base/jank-performance-baseline.md) |
 | ClickHouse 与 Grafana | [ClickHouse 本地初始化](../clickhouse-local.md)、[Grafana/ClickHouse 安装与应用接入](../grafana-clickhouse-install.md)、[灰度、开关与回滚](../crash-rollout.md) |
 | Web 前端开发 | [前端知识库](../../frontend/docs/knowledge-base/README.md) |
 

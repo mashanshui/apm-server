@@ -40,6 +40,15 @@ GET /api/v1/apps/{appId}/memory-metrics/summary
 GET /api/v1/apps/{appId}/memory-metrics/trend?metric=pss|vss|java_heap&interval=hour|day
 ```
 
+内存异常报告查询接口为：
+
+```http
+GET /api/v1/apps/{appId}/memory-leaks/issues
+GET /api/v1/apps/{appId}/memory-leaks/trend?interval=5m|hour|day
+```
+
+该页面按 SDK `signature` 聚合问题，展示发生次数、影响设备、版本集合、最新引用链和 UTC 趋势；分页前计算占比分母，空趋势桶补零。页面明确标记为“SDK 报告的疑似问题”，不展示泄漏字节或复现率，也没有 HPROF 解析详情入口。筛选和错误语义见[内存泄漏报告 API](../api/memory-leak-reports-api.md)。
+
 内存概览一次返回 PSS、VSS、Java 堆各自的平均值、P50、P90、P95、P99、有效样本数和状态；趋势返回 UTC 时间桶的相同统计值。所有值保持字节，前端换算为两位小数 MiB。所有查询都按去重后的非缺失样本计算，使用 `h=(n-1)*p` 线性插值；空指标和空桶返回 null，不从趋势二次汇总。筛选仅包含时间、应用版本、Android 版本、设备型号、进程名、场景和前后台；不提供 32/64 位、FD 触顶率、多维下钻、对比列表或导出。
 
 FPS 按算法版本隔离并按高到低返回 P50/P90/P99，趋势支持 UTC `hour`/`day`；挂起率先按匿名设备和 UTC 日期合并，再按设备日从低到高计算分位数，趋势只接受 UTC `day`。统一趋势点按时间桶和算法版本排序，使用 `validRecords` 表示当前指标的有效记录数，并只填充当前指标对应的 FPS 或秒/小时前台时长字段。完整字段、错误码和示例见[卡顿监控服务端 API](../api/jank-server-api.md)。

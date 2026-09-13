@@ -1,6 +1,7 @@
 HELP.md
 .gradle
 .gradle-local/
+.m2/
 build/
 !backend/gradle/wrapper/gradle-wrapper.jar
 !**/src/main/**/build/

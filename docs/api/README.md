@@ -12,6 +12,7 @@
 | 卡顿监控 | [卡顿监控服务端协议与查询 API](jank-server-api.md) | 卡顿 ZIP 落库、Issue、FPS、挂起率、趋势和多维查询 |
 | 卡顿接收 | [卡顿压缩包解析与落库 API](stack-artifact-api.md) | `.rheajank.zip`、应用 Key、服务端派生质量、幂等和错误语义 |
 | 内存指标 | [内存指标上传与查询 API](memory-metrics-api.md) | PSS、VSS、Java 堆采样上报、概览、趋势、筛选、统计和错误语义 |
+| 内存异常 | [内存泄漏报告 API](memory-leak-reports-api.md) | multipart 的 metadata/report 文件、可选 HPROF 保存、问题聚合和趋势查询；不解析 HPROF |
 
 ## 文档边界
 

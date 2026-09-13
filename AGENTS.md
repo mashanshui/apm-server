@@ -60,3 +60,21 @@ Java 代码使用 4 空格缩进、UTF-8 编码，并保持现有 `com.shanshui.
 ## 安全与配置
 
 禁止提交数据库密码、令牌或真实设备数据。敏感值通过环境变量或未跟踪的本地配置注入；提交示例配置时仅保留安全占位符。数据库结构变更应新增版本化 Flyway 迁移，不得改写已发布迁移。
+
+## 云服务器 SSH 连接
+
+用户已授权：后续项目任务需要访问此服务器时，Agent 可直接使用以下 SSH 配置连接，无需重复询问连接许可；远程操作应限定在当前任务已授权的范围内。
+
+- 地址：`124.221.252.121`，端口：`22`，用户：`ubuntu`。
+- 本机私钥路径：`C:\Users\shanshui\.ssh\apm_cloud`（PowerShell 中使用 `$env:USERPROFILE\.ssh\apm_cloud`）。私钥仅保存在本机，不得复制到仓库或输出其内容。
+- ED25519 主机指纹：`SHA256:1lXqfjFvy8p/wDN7mHfRBZRH0wN5u2hecNjZ990nnfs`。
+- 客户端公钥指纹：`SHA256:Ravp2ttYoJzC3yicVwT4LbqwL0DIsuci5ddMtaOV5T0`。
+- 主机密钥已保存在本机 `~/.ssh/known_hosts`；必须保持主机密钥校验，指纹不匹配时停止连接并核实原因。
+
+从本机 PowerShell 执行远程命令的示例：
+
+```powershell
+ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=15 -o IdentitiesOnly=yes -i "$env:USERPROFILE\.ssh\apm_cloud" ubuntu@124.221.252.121 "id; hostname"
+```
+
+2026-09-12 已验证免交互密钥登录成功，远程用户为 `ubuntu`，主机名为 `VM-0-4-ubuntu`。该验证仅覆盖 SSH 登录及基本系统信息读取，不代表项目已经部署或服务已验收；`sudo` 能力尚未验证。更换本机环境后，先检查私钥是否存在和主机信任记录是否已配置，不要自动覆盖或重新生成现有密钥。

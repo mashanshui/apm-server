@@ -1,0 +1,11 @@
+# 云端使用宿主机构建好的 JAR 和前端 dist；其余源码、缓存和敏感文件不进入运行镜像构建上下文。
+*
+!docker/
+!docker/**
+!backend/
+!backend/build/
+!backend/build/libs/
+!backend/build/libs/*-SNAPSHOT.jar
+!frontend/
+!frontend/dist/
+!frontend/dist/**

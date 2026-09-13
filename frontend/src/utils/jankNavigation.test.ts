@@ -36,4 +36,16 @@ describe('jankAppSwitchTarget', () => {
     expect(target.query.foreground).toBe('false')
     expect(target.query.bitness).toBeUndefined()
   })
+
+  it('内存泄漏页切换应用时保留筛选、分页和趋势状态', () => {
+    const target = jankAppSwitchTarget('memory-leaks', 'next', {
+      from: '2026-08-15T00:00:00Z', to: '2026-08-16T00:00:00Z', page: '2', pageSize: '50',
+      trendMetric: 'affectedDevices', keyword: '<Activity>', unknown: 'drop',
+    }) as { name: string; params: Record<string, unknown>; query: Record<string, unknown> }
+    expect(target.name).toBe('memory-leaks')
+    expect(target.params.appId).toBe('next')
+    expect(target.query.page).toBe('2')
+    expect(target.query.trendMetric).toBe('affectedDevices')
+    expect(target.query.unknown).toBeUndefined()
+  })
 })

@@ -1,0 +1,29 @@
+{
+  "classInfos": [
+    { "className": "com.example.LeakedActivity", "instanceCount": "2" }
+  ],
+  "gcPaths": [
+    {
+      "gcRoot": "Local variable in native code",
+      "instanceCount": 1,
+      "leakReason": "Activity Leak",
+      "path": [
+        { "declaredClass": "java.lang.Thread", "reference": "handler", "referenceType": "INSTANCE_FIELD" },
+        { "reference": "com.example.LeakedActivity", "referenceType": "instance" }
+      ],
+      "signature": "example-signature-a"
+    }
+  ],
+  "leakObjects": [
+    { "className": "com.example.LeakedActivity", "objectId": "12345", "size": "1024", "extDetail": "sample" }
+  ],
+  "runningInfo": {
+    "buildModel": "Test phone",
+    "currentPage": "MainActivity",
+    "manufacture": "Example",
+    "sdkInt": "33",
+    "dumpReason": "reason_thread_oom",
+    "nowTime": "2026-01-01_00-00-00_000",
+    "pss": "12.5mb"
+  }
+}

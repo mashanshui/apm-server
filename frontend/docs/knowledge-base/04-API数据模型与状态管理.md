@@ -44,6 +44,15 @@ GET /api/v1/apps/{appId}/memory-metrics/summary
 GET /api/v1/apps/{appId}/memory-metrics/trend?metric=pss|vss|java_heap&interval=hour|day
 ```
 
+内存异常报告页面消费：
+
+```http
+GET /api/v1/apps/{appId}/memory-leaks/issues
+GET /api/v1/apps/{appId}/memory-leaks/trend?interval=5m|hour|day
+```
+
+`memoryLeakApi.ts` 对问题和趋势分别维护查询参数白名单；`useMemoryLeakReports` 将两个请求独立加载、取消和重试，避免趋势失败覆盖列表结果。筛选进入 URL，应用切换沿用 `jankNavigation` 的路由状态保留逻辑。正式字段、统计口径和错误语义见[内存泄漏报告 API](../../../docs/api/memory-leak-reports-api.md)。
+
 两个端点都支持 `from`、`to`、`appVersion`、`osVersion`、`deviceModel`、`processName`、`scene`、`foreground`；其中 `scene` 是采样时当前应用的 Activity 名称。趋势额外使用 `metric` 和 `interval`。服务端响应的三个指标各自包含 `sampleCount`、平均值和 P50/P90/P95/P99，单位为字节，缺失指标不计入对应统计。前端只在展示层换算 MiB，不把趋势桶重新汇总成概览。
 
 已发布契约、统计公式和服务端限制以[服务端 API 文档](../../../docs/api/README.md)、[Crash API 文档](../../../docs/api/crash-api.md)、[卡顿服务端 API](../../../docs/api/jank-server-api.md)及[平台查询与 Dashboard](../../../docs/knowledge-base/05-查询与Dashboard.md)为准；本页只记录前端消费方式。

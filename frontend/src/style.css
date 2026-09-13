@@ -258,6 +258,36 @@ h2 { margin-bottom: 5px; color: var(--text-strong); font-size: 17px; }
 .auth-footnote { margin: 23px 0 0; color: var(--muted); font-size: 11px; text-align: center; }
 
 .jank-region { margin-bottom: 20px; }
+.memory-leak-filter .advanced-filter { margin-top: 15px; border-top: 1px solid var(--line); }
+.advanced-filter summary { padding: 13px 0 4px; color: var(--primary); cursor: pointer; font-size: 12px; font-weight: 750; }
+.advanced-filter-grid { margin-top: 12px; }
+.memory-leak-trend-region .chart { height: 310px; padding: 0 12px 14px; }
+.memory-leak-summary { display: flex; flex-wrap: wrap; gap: 18px; padding: 0 22px 15px; color: var(--muted); font-size: 12px; }
+.memory-leak-table-wrap { overflow-x: auto; }
+.memory-leak-table { min-width: 1080px; }
+.memory-leak-table th, .memory-leak-table td { vertical-align: top; }
+.memory-leak-table th button { color: inherit; }
+.table-sort-button { border: 0; padding: 0; background: transparent; cursor: pointer; font: inherit; }
+.table-sort-button:hover { color: var(--primary); }
+.memory-leak-issue-cell { min-width: 215px; max-width: 275px; white-space: normal !important; }
+.memory-leak-issue-cell strong, .memory-leak-issue-cell span, .memory-leak-issue-cell code { display: block; overflow-wrap: anywhere; }
+.memory-leak-issue-cell strong { color: var(--text-strong); font-size: 13px; }
+.memory-leak-issue-cell span { margin-top: 5px; color: var(--muted-strong); line-height: 1.45; }
+.memory-leak-issue-cell code { margin-top: 7px; color: var(--primary); font-family: "SFMono-Regular", Consolas, monospace; font-size: 10px; }
+.memory-leak-path-cell { min-width: 300px; max-width: 430px; white-space: normal !important; }
+.memory-leak-path-cell > span { display: block; overflow-wrap: anywhere; line-height: 1.45; }
+.memory-leak-path-cell > span:first-child { color: var(--muted); font-size: 11px; }
+.memory-leak-path-cell .link-button { display: block; margin-top: 8px; font-size: 11px; }
+.memory-leak-table td > small { display: block; margin-top: 4px; color: var(--muted); font-size: 10px; }
+.version-list { display: block; max-width: 180px; white-space: normal; overflow-wrap: anywhere; line-height: 1.5; }
+.memory-leak-expanded-row td { padding: 0; background: var(--surface-soft); }
+.memory-leak-path-detail { padding: 15px 22px 18px 38px; }
+.memory-leak-path-detail > strong { color: var(--text-strong); font-size: 12px; }
+.memory-leak-path-detail ol { display: grid; gap: 7px; margin: 11px 0 0; padding: 0; list-style: none; }
+.memory-leak-path-detail li { display: grid; grid-template-columns: 24px minmax(160px, 1fr) auto minmax(120px, .6fr); gap: 10px; align-items: baseline; padding: 8px 10px; border: 1px solid var(--line); border-radius: 7px; background: #fff; font-size: 11px; }
+.memory-leak-path-detail code, .path-class { overflow-wrap: anywhere; white-space: pre-wrap; }
+.memory-leak-path-detail code { color: var(--text-strong); font-family: "SFMono-Regular", Consolas, monospace; }
+.path-index, .path-type, .path-class { color: var(--muted); }
 .region-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 14px; }
 .region-heading h2, .region-heading p { margin-bottom: 0; }
 .region-heading p { margin-top: 5px; color: var(--muted); font-size: 12px; }

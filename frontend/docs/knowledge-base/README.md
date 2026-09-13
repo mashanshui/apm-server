@@ -14,7 +14,7 @@
 | 自动化验证 | 已覆盖关键行为 | Vitest、Vue Test Utils、`vue-tsc` 和 Vite 构建；页面、Store、路由、Crash API、卡顿状态/证据/应用切换、内存筛选和统计卡片均有测试 |
 | 生产能力 | 部分完成 | 登录/应用成员授权已由后端强制执行；生产同源网关、HTTPS、静态资源部署和 OIDC 仍待实现 |
 
-当前实现基线：2026-09-08。Crash 页面、卡顿指标/问题/Issue/事件证据页面和 PSS/VSS/Java 堆内存指标页面均已落地；卡顿详情质量字段已切换为 expected/parsed/missing。代码与已发布 API 是当前事实，本文档中的“目标”或“待确认”不代表已经实现。
+当前实现基线：2026-09-11。Crash 页面、卡顿指标/问题/Issue/事件证据页面、PSS/VSS/Java 堆内存指标页面和 SDK 内存异常报告页面均已落地；卡顿详情质量字段已切换为 expected/parsed/missing。代码与已发布 API 是当前事实，本文档中的“目标”或“待确认”不代表已经实现。内存异常页面不包含 HPROF 解析或内存详情入口。
 
 ## 知识导航
 
@@ -42,7 +42,7 @@
 - 页面：`src/views/`
 - 复用组件：`src/components/`
 - 查询编排：`src/composables/`
-- API 客户端：`src/api/crashApi.ts`、`src/api/jankApi.ts`、`src/api/memoryApi.ts`
+- API 客户端：`src/api/crashApi.ts`、`src/api/jankApi.ts`、`src/api/memoryApi.ts`、`src/api/memoryLeakApi.ts`
 - 认证/应用 API：`src/api/http.ts`、`src/api/authApi.ts`、`src/api/appApi.ts`
 - 接口类型：`src/types/crash.ts`、`src/types/jank.ts`、`src/types/memory.ts`
 - 用户/应用状态：`src/stores/pinia.ts`、`src/stores/session.ts`、`src/stores/apps.ts`

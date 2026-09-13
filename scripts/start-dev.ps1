@@ -3,6 +3,9 @@ param(
     [ValidateSet('clickhouse', 'memory')]
     [string]$StorageMode = 'clickhouse',
 
+    [ValidateSet('auto', 'local', 'remote')]
+    [string]$DatabaseMode = 'remote',
+
     [switch]$NoFrontend,
 
     [string]$BootstrapAdminEmail,
@@ -223,10 +226,6 @@ if (-not (Test-Path -LiteralPath (Join-Path $frontendRoot 'package.json'))) {
 if (-not (Get-Command npm.cmd -ErrorAction SilentlyContinue)) {
     throw '找不到 npm.cmd，请先安装 Node.js 并确认 npm 已加入 PATH'
 }
-if (-not (Get-Command docker.exe -ErrorAction SilentlyContinue)) {
-    throw '找不到 docker.exe。当前管理域需要 PostgreSQL，请先安装并启动 Docker Desktop。'
-}
-
 if (Test-Path -LiteralPath $statePath) {
     $oldState = Get-Content -LiteralPath $statePath -Raw | ConvertFrom-Json
     $oldEntries = @($oldState.backend, $oldState.frontend)
@@ -291,6 +290,24 @@ if ([string]::IsNullOrWhiteSpace($env:APM_DATABASE_NAME)) {
 if ([string]::IsNullOrWhiteSpace($env:APM_DATABASE_URL)) {
     $env:APM_DATABASE_URL = 'jdbc:postgresql://127.0.0.1:5432/' + $env:APM_DATABASE_NAME
 }
+
+# 默认使用远程 PostgreSQL；显式使用 auto 时根据 JDBC 地址判断数据库位置，
+# 本地地址使用 Docker PostgreSQL，其他地址视为远程数据库。
+$databaseIsRemote = switch ($DatabaseMode) {
+    'remote' { $true; break }
+    'local' { $false; break }
+    default {
+        -not ($env:APM_DATABASE_URL -match '^jdbc:postgresql://(?:localhost|127\.0\.0\.1|\[::1\])(?::\d+)?/')
+    }
+}
+if ($databaseIsRemote) {
+    Write-Host "使用远程 PostgreSQL：$env:APM_DATABASE_URL"
+} else {
+    if (-not (Get-Command docker.exe -ErrorAction SilentlyContinue)) {
+        throw '找不到 docker.exe。当前管理域需要本地 PostgreSQL，请先安装并启动 Docker Desktop。'
+    }
+}
+
 if ([string]::IsNullOrWhiteSpace($env:APM_FLYWAY_ENABLED)) {
     $env:APM_FLYWAY_ENABLED = 'true'
 }
@@ -301,12 +318,14 @@ if ([string]::IsNullOrWhiteSpace($env:APM_SESSION_SAME_SITE)) {
     $env:APM_SESSION_SAME_SITE = 'lax'
 }
 
-& docker.exe compose -f (Join-Path $repoRoot 'compose.yaml') up -d postgres
-if ($LASTEXITCODE -ne 0) {
-    throw 'PostgreSQL 容器启动失败，请查看 Docker Desktop 状态。'
-}
-if (-not (Wait-TcpPort -Port 5432 -TimeoutSeconds 60)) {
-    throw 'PostgreSQL 未在 60 秒内监听 5432 端口。'
+if (-not $databaseIsRemote) {
+    & docker.exe compose -f (Join-Path $repoRoot 'compose.yaml') up -d postgres
+    if ($LASTEXITCODE -ne 0) {
+        throw 'PostgreSQL 容器启动失败，请查看 Docker Desktop 状态。'
+    }
+    if (-not (Wait-TcpPort -Port 5432 -TimeoutSeconds 60)) {
+        throw 'PostgreSQL 未在 60 秒内监听 5432 端口。'
+    }
 }
 
 if ($StorageMode -eq 'clickhouse') {
@@ -344,6 +363,16 @@ if ($StorageMode -eq 'clickhouse') {
 }
 $env:APM_STORAGE_MODE = $StorageMode
 $env:GRADLE_USER_HOME = Join-Path $repoRoot '.gradle-local'
+
+# 当前工程的 processor 制品位于被 Git 忽略的项目 Maven Local；如果外部环境已经
+# 设置 GRADLE_OPTS（例如 Gradle 镜像地址），只追加仓库参数，不覆盖原有选项。
+$projectMavenRepository = Join-Path $repoRoot '.m2\repository'
+$mavenRepositoryOption = "-Dmaven.repo.local=$projectMavenRepository"
+if ([string]::IsNullOrWhiteSpace($env:GRADLE_OPTS)) {
+    $env:GRADLE_OPTS = $mavenRepositoryOption
+} elseif ($env:GRADLE_OPTS -notmatch [regex]::Escape('-Dmaven.repo.local=')) {
+    $env:GRADLE_OPTS = "$env:GRADLE_OPTS $mavenRepositoryOption"
+}
 
 # 首次启动可能需要下载 Gradle Distribution；先完成 Wrapper 预热，避免
 # 下载时间被误计入后端 90 秒端口就绪超时。
@@ -413,8 +442,9 @@ $frontendListenerState = if ($null -eq $frontendListenerId) {
 $state = [ordered]@{
     storageMode = $StorageMode
     database = [ordered]@{
-        compose = (Join-Path $repoRoot 'compose.yaml')
-        started = $true
+        mode    = if ($databaseIsRemote) { 'remote' } else { 'local' }
+        compose = if ($databaseIsRemote) { $null } else { Join-Path $repoRoot 'compose.yaml' }
+        started = -not $databaseIsRemote
     }
     backend = [ordered]@{
         launcher = Get-ProcessState -Process $backendProcess

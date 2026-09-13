@@ -1,0 +1,120 @@
+name: apm-server
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    mem_limit: 512m
+    # 当前云端仅用于调试，允许本地后端直接通过公网连接；生产环境应删除该映射或改用内网/VPN。
+    ports:
+      - "0.0.0.0:5432:5432"
+    environment:
+      POSTGRES_DB: ${APM_DATABASE_NAME}
+      POSTGRES_USER: ${APM_DATABASE_USERNAME}
+      POSTGRES_PASSWORD: ${APM_DATABASE_PASSWORD}
+    volumes:
+      - apm-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks:
+      - apm-internal
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:26.7.3.19
+    restart: unless-stopped
+    mem_limit: 1g
+    # 当前云端仅用于调试，允许本地后端直接通过公网连接；生产环境应删除该映射或改用内网/VPN。
+    ports:
+      - "0.0.0.0:8123:8123"
+    environment:
+      CLICKHOUSE_DB: ${CLICKHOUSE_DATABASE}
+      CLICKHOUSE_USER: ${CLICKHOUSE_USERNAME}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD}
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+    volumes:
+      - apm-clickhouse-data:/var/lib/clickhouse
+      - ./backend/src/main/resources/db/clickhouse:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "clickhouse-client --user \"$${CLICKHOUSE_USER}\" --password \"$${CLICKHOUSE_PASSWORD}\" --query 'SELECT 1' >/dev/null"]
+      interval: 5s
+      timeout: 10s
+      retries: 30
+    networks:
+      - apm-internal
+
+  backend:
+    build:
+      context: .
+      dockerfile: docker/backend-runtime.Dockerfile
+    restart: unless-stopped
+    mem_limit: 768m
+    depends_on:
+      postgres:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+    environment:
+      SERVER_ADDRESS: 0.0.0.0
+      SERVER_FORWARD_HEADERS_STRATEGY: framework
+      APM_DATABASE_URL: jdbc:postgresql://postgres:5432/${APM_DATABASE_NAME}
+      APM_DATABASE_USERNAME: ${APM_DATABASE_USERNAME}
+      APM_DATABASE_PASSWORD: ${APM_DATABASE_PASSWORD}
+      APM_DATABASE_POOL_SIZE: ${APM_DATABASE_POOL_SIZE:-10}
+      APM_FLYWAY_ENABLED: "true"
+      APM_STORAGE_MODE: clickhouse
+      APM_STORAGE_IN_MEMORY_AVAILABLE: "false"
+      APM_CLICKHOUSE_ENABLED: "true"
+      CLICKHOUSE_URL: http://clickhouse:8123
+      CLICKHOUSE_DATABASE: ${CLICKHOUSE_DATABASE}
+      CLICKHOUSE_USERNAME: ${CLICKHOUSE_USERNAME}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD}
+      APM_APP_KEY_ENCRYPTION_KEY: ${APM_APP_KEY_ENCRYPTION_KEY}
+      APM_DEVICE_HASH_SALT: ${APM_DEVICE_HASH_SALT}
+      APM_BOOTSTRAP_ADMIN_EMAIL: ${APM_BOOTSTRAP_ADMIN_EMAIL}
+      APM_BOOTSTRAP_ADMIN_PASSWORD: ${APM_BOOTSTRAP_ADMIN_PASSWORD}
+      APM_BOOTSTRAP_ADMIN_DISPLAY_NAME: ${APM_BOOTSTRAP_ADMIN_DISPLAY_NAME:-平台管理员}
+      APM_SESSION_COOKIE_SECURE: ${APM_SESSION_COOKIE_SECURE:-false}
+      APM_SESSION_SAME_SITE: ${APM_SESSION_SAME_SITE:-lax}
+      APM_MEMORY_REPORT_ARTIFACT_DIRECTORY: /var/lib/apm/memory-report-artifacts
+      JAVA_TOOL_OPTIONS: ${JAVA_TOOL_OPTIONS:--XX:MaxRAMPercentage=65 -XX:+ExitOnOutOfMemoryError}
+    volumes:
+      - apm-memory-report-artifacts:/var/lib/apm/memory-report-artifacts
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8080/actuator/health >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 40s
+    networks:
+      - apm-internal
+
+  web:
+    build:
+      context: .
+      dockerfile: docker/frontend-runtime.Dockerfile
+    restart: unless-stopped
+    mem_limit: 128m
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "${WEB_PORT:-80}:80"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1/healthz >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    networks:
+      - apm-internal
+
+volumes:
+  apm-postgres-data:
+  apm-clickhouse-data:
+  apm-memory-report-artifacts:
+
+networks:
+  apm-internal:
+    driver: bridge

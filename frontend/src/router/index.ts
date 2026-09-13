@@ -60,6 +60,12 @@ const router = createRouter({
       component: () => import('../views/MemoryMetricsView.vue'),
     },
     {
+      path: '/apps/:appId/memory-leaks',
+      name: 'memory-leaks',
+      meta: { requiresAuth: true, appContext: true },
+      component: () => import('../views/MemoryLeakReportsView.vue'),
+    },
+    {
       path: '/apps/:appId/janks',
       name: 'jank-issues',
       meta: { requiresAuth: true, appContext: true },

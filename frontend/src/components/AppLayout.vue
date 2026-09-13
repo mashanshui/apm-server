@@ -15,6 +15,7 @@ const currentApp = computed(() => apps.apps.find((app) => app.appId === props.ap
 const crashActive = computed(() => String(route.name ?? '').startsWith('crash-'))
 const jankMetricsActive = computed(() => route.name === 'jank-metrics')
 const memoryMetricsActive = computed(() => route.name === 'memory-metrics')
+const memoryLeaksActive = computed(() => route.name === 'memory-leaks')
 const jankIssuesActive = computed(() => ['jank-issues', 'jank-issue-events', 'jank-event-detail'].includes(String(route.name ?? '')))
 const settingsActive = computed(() => route.name === 'app-settings')
 
@@ -89,6 +90,14 @@ async function logout() {
           >
             <span class="nav-icon">▥</span>
             <span>内存指标分析</span>
+          </RouterLink>
+          <RouterLink
+            class="nav-link"
+            :class="{ 'router-link-active': memoryLeaksActive }"
+            :to="{ name: 'memory-leaks', params: { appId: props.appId } }"
+          >
+            <span class="nav-icon">⌁</span>
+            <span>内存泄漏问题</span>
           </RouterLink>
           <RouterLink
             class="nav-link"
