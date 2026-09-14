@@ -55,6 +55,8 @@
 
 ## 交付与接入文档
 
+云服务器连接参数与历史验证边界见 [SSH 连接说明](../cloud-ssh.md)，操作授权遵循[仓库协作规则](../../AGENTS.md#云服务器访问)。
+
 | 使用者 | 文档入口 |
 |---|---|
 | Android SDK 开发 | [客户端接入目录](../client-integration/README.md)、[内存指标上传接入](../client-integration/memory-metrics.md)、[内存泄漏报告上传接入](../client-integration/memory-leak-reports.md)、[卡顿监控上传接入](../client-integration/jank-monitoring.md)、[卡顿压缩包上传接入](../client-integration/stack-artifact-upload.md)、[卡顿压缩包 manifest v3](../client-integration/jank-artifact-manifest.md)、[JVM Crash 上传接入](../client-integration/crash-client-integration.md) |
