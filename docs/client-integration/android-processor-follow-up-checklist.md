@@ -1,6 +1,6 @@
 # Android/processor 后续改造清单
 
-本清单对应 apm-server 的应用身份协议收敛。本轮只修改 apm-server；Android SDK、Android 示例应用和 `rhea-trace-processor` 工程不在当前工作区内，不在本轮直接改动。服务端已固定 `io.github.mashanshui:rhea-trace-processor:1.0.1`，并用真实 v3 fixture 完成 processor 字节/报告解析门禁；本清单剩余内容是 Android producer、客户端队列、真实设备和生产制品治理，不应与服务端 parser 门禁混为一谈。
+本清单对应 apm-server 的应用身份协议收敛。本轮只修改 apm-server；Android SDK、Android 示例应用和 `rhea-trace-processor` 工程不在当前工作区内，不在本轮直接改动。服务端已固定 `io.github.mashanshui:rhea-trace-processor:1.0.2`，客户端设备 ZIP 的 UUID v4、`threadScope=main` 兼容性和云端落库已完成验收；本清单剩余内容是 Android producer 生命周期、客户端持久队列、生产制品仓库、真机长期运行和容量治理，不应把本次固定 ZIP 验收扩大为完整 SDK 交付。
 
 ## 1. 公共事件与 App Key
 
@@ -15,15 +15,16 @@
 - [ ] ZIP `manifest.json` 升级到 `schemaVersion=3`、`artifactType=RHEA_JANK`。
 - [ ] manifest 使用 `packageName`，删除旧 `appId` 字段和 v2 兼容回退；严格拒绝未知字段的协议变体（若 producer 自身负责 schema 校验）。
 - [ ] 保持 `eventId`、`occurredAt`、`buildId`、采样计数和 `files` 摘要语义稳定；声明大小与 SHA-256 必须对应 ZIP 内实际字节。
+- [ ] 新增并冻结安装级 `anonymousDeviceId`、启动级 `sessionId` 和 UUID v4 `processId`；主进程可令 `processId=sessionId`，子进程每次创建独立生成，禁止写入 Android 数值 PID。
 - [ ] 重新生成真实 `.rheajank.zip`，核对 `manifest.json`、`sampling.bin`、`sampling-mapping.bin` 条目、声明大小、摘要和解析输入字节。
 - [ ] 确认 processor 输出的 `sourceManifest.packageName` 与 producer 一致，应用帧判定使用 Android 真实包名，不使用系统 UUID `appId`。
 
 ## 3. processor 制品与服务端门禁
 
-- [ ] 将支持 manifest v3 的真实 `rhea-trace-processor` 制品发布到生产使用的受控 Maven 仓库；apm-server 当前已在本机 Maven Local 验证 `1.0.1`。
+- [ ] 将支持 manifest v3 UUID v4 `processId` 的真实 `rhea-trace-processor:1.0.2` 制品发布到生产使用的受控 Maven 仓库；本地 Maven Local 和云端测试已验证，生产制品治理仍待完成。
 - [x] 在服务端记录已确认的 Maven 坐标、版本、开发机仓库位置和 SHA-256 校验值，并登记对应真实 v3 fixture；生产仓库位置仍待 Android/发布流程确认。
 - [x] 将 apm-server 的 processor 依赖升级到已确认的 v3 版本；服务端不通过兼容代码伪造结果。
-- [x] 使用真实 v3 fixture 运行 processor 集成测试，确认报告 schema、包名、主线程证据和解析结果；服务端业务 `expected/parsed/missing` 仍由归一化层派生。
+- [x] 使用包含 UUID v4 `processId` 的真实 v3 fixture 运行 processor 集成测试，确认报告 schema、包名、主线程证据和解析结果；客户端设备 ZIP 已通过 `rhea-trace-processor:1.0.2` 验证。
 - [ ] 比较客户端原始 ZIP 字节、服务端接收字节、processor 报告关键字段和归一化结果；报告异常时不得把模拟 parser 结果当作真实兼容证明。
 
 ## 4. 持久重试与确认
@@ -36,7 +37,7 @@
 
 ## 5. 交付验收证据
 
-- [ ] 提供真实 v3 processor 制品坐标、版本、校验值和 fixture 文件名。
+- [x] 提供支持 UUID v4 `processId` 的真实 v3 processor 制品坐标、版本、校验值和 fixture 文件名。
 - [ ] 提供 Android 客户端视角的 JSON v2 与卡顿 v3 首次接受、重复、错误 Key、错误包名、网络重试和服务重启联调记录；服务端本地 HTTP 验收记录已登记在 API 文档。
 - [ ] 提供 Key 脱敏检查结果，证明完整 Key 未出现在日志、URL、构建产物和持久诊断数据中。
 - [ ] 在 Android producer、真实设备和客户端队列验收完成前，客户端联调交付仍保持未完成；服务端任务 6.6、6.7、10.5 已完成。

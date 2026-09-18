@@ -8,6 +8,8 @@
 
 `POST /ingest/v1/batches` 不再接收 `eventType=jank`，但仍用于 Crash、启动、场景 FPS 和前台挂起汇总。
 
+客户端生成 ZIP 时必须把安装级 `anonymousDeviceId`、启动级 `sessionId` 和进程实例 UUID v4 `processId` 一并写入 manifest 并冻结；主进程可以令 `processId=sessionId`，子进程每次创建生成新的 UUID，不能写入 Android 数值 PID。重试沿用原 ZIP 字节和身份字段。
+
 ## 2. 上传前持久化
 
 1. 在同一临时目录生成 `sampling.bin` 和 `sampling-mapping.bin`。
@@ -19,7 +21,7 @@
 
 ## 3. HTTP 请求
 
-先在网页创建应用并填写正确 Android application ID；名称和描述可选，只有包名必填。再由该应用 `OWNER`/`ADMIN` 在应用设置页查看 appKey。appKey 永久有效、不可轮换，并只允许上传 manifest `packageName` 与绑定包名完全一致的产物。当前服务端固定使用 `io.github.mashanshui:rhea-trace-processor:1.0.1`，已用真实 v3 fixture 完成 processor 字节和报告关键字段验证；生产制品仓库、Android 真机和持久重试仍需单独验收。
+先在网页创建应用并填写正确 Android application ID；名称和描述可选，只有包名必填。再由该应用 `OWNER`/`ADMIN` 在应用设置页查看 appKey。appKey 永久有效、不可轮换，并只允许上传 manifest `packageName` 与绑定包名完全一致的产物。当前服务端固定使用 `io.github.mashanshui:rhea-trace-processor:1.0.2`，已支持 UUID v4、`threadScope=main` 的主线程-only v3 产物，并已用客户端设备 ZIP 完成真实 UUID HTTP/ClickHouse 验收；生产制品仓库、Android 长期运行和持久重试仍需单独验收。
 
 ```http
 POST /ingest/v1/stack-artifacts:parse
@@ -75,7 +77,7 @@ fun uploadJankArtifact(baseUrl: HttpUrl, appKey: String, zip: File): Request {
 
 ## 5. 联调清单
 
-- 使用 `F:/AndroidStudioProjects/btrace/btrace-android/build/test-stack/demo-jank-2308233515248871.rheajank.zip` 完成 processor 1.0.1 的 v3 解析、字节和报告检查；服务端本地真实 HTTP 已验证首次 `accepted`、重复 `duplicate`、应用级 mapping、错误 Key、错误包名、旧 v2 拒绝和重启后的重复语义。
+- 现有 `F:/AndroidStudioProjects/btrace/btrace-android/build/test-stack/demo-jank-2308233515248871.rheajank.zip` 只证明旧 processor 对数值 PID v3 输入的解析、字节和报告检查；客户端设备 ZIP 已证明当前 `1.0.2` 对 UUID v4 manifest 的解析、HTTP 首次落库、重复上传和 Jank 详情回传。mapping、错误 Key、错误包名和重启语义仍需按生产配置单独验证。
 - 确认事件详情的质量字段是 `expectedSampleCount`、`parsedSampleCount`、`missingSampleCount`，没有 attempted/successful/dropped。
 - 样例 manifest 即使包含 `attemptedSampleCount=1`，服务端仍应从主线程得到 expected=460、parsed=454、missing=6。
 - 使用旧媒体类型、v2 manifest 或 v1 `.rheatrace.zip`，确认返回不可重试错误。

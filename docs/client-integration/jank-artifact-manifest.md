@@ -1,6 +1,6 @@
 # Android 卡顿压缩包 manifest v3 契约
 
-> 状态：服务端当前契约。服务端严格要求 v3 `.rheajank.zip`；apm-server 已固定并验证 `rhea-trace-processor:1.0.1` 与一份真实 v3 fixture，生产制品仓库、Android 真机、持久重试和容量仍需单独验收。
+> 状态：服务端当前契约。服务端严格要求 v3 `.rheajank.zip`、UUID v4 `processId` 和 `threadScope=main`；`rhea-trace-processor:1.0.2` 已通过客户端主线程-only 设备 ZIP 的 UUID 解析和云端落库验收，生产制品仓库、Android 长期运行、持久重试和容量仍需单独验收。
 
 本文定义一次主线程卡顿对应的 `.rheajank.zip` 及其最小 `manifest.json`。服务端仅依赖压缩包完成卡顿事件校验、解析、去重、指纹和落库，客户端不再同时构造 `/ingest/v1/batches` 的结构化 `jank` JSON。
 
@@ -40,7 +40,7 @@
   "thresholdNs": 200000000,
   "minSampleIntervalNs": 5000000,
   "attemptedSampleCount": 48,
-  "processId": 17137,
+  "processId": "11111111-1111-4111-8111-111111111111",
   "files": {
     "sampling": {
       "size": 34587,
@@ -68,6 +68,7 @@
 | `occurredAt` | integer，毫秒 | Unix Epoch 毫秒，取主线程消息结束或卡顿确认时的墙上时间 | Sampling 只有单调时钟，无法恢复墙上发生时间 |
 | `sessionId` | string | 1～128 字符；与客户端会话口径一致 | 用于受影响会话统计 |
 | `anonymousDeviceId` | string | 1～256 字符；只能使用不可逆匿名标识 | 用于受影响设备统计，服务端不能从请求连接推断设备身份 |
+| `processId` | string | 标准连字符 UUID v4；主进程可等于本次 `sessionId`，子进程每次创建独立生成；禁止 Android 数值 PID | 标识产生卡顿证据的进程实例，重试时保持原值 |
 
 `eventId` 和服务端认证得到的 `appId` 共同构成幂等键。客户端不得在 manifest 中自行声明 `appId`，也不得因上传重试重新生成 `eventId`、`occurredAt` 或其他事件字段。
 
@@ -96,7 +97,7 @@
 | `thresholdNs` | integer，纳秒 | 客户端本次实际采用的卡顿阈值，必须为正且不大于消息耗时 | 记录客户端为何判定为卡顿；固定阈值部署可按第 8 节省略 |
 | `minSampleIntervalNs` | integer，纳秒 | Native 采集器对本次产物实际采用的最小采样请求间隔，必须为正 | 服务端重建点采样有限覆盖范围 |
 | `attemptedSampleCount` | integer | 非负；processor v3 契约要求存在 | 仅供 processor 读取和校验；服务端业务映射、统计、指纹和存储全部忽略 |
-| `processId` | integer | Android 进程 ID，必须为正 | 当前 Sampling 数据使用主进程 tid 识别主线程 |
+| `processId` | string | 标准连字符 UUID v4；不能为空、不能是数值 PID 或其他 UUID 版本 | 由支持 UUID 的 processor 映射到唯一目标主线程；服务端不把它解释为数字 tid |
 
 `occurredAt` 使用墙上时钟；`messageStartNs`、`messageEndNs` 和 Sampling 记录使用单调时钟。客户端和服务端都不得用墙上时间与单调时间直接相减，也不得把跨设备的单调时钟绝对值放到同一时间轴比较。
 
@@ -120,7 +121,7 @@
 | `messageDurationNs` | `messageEndNs - messageStartNs` |
 | `samplingIntervalNs` | 使用 `minSampleIntervalNs` |
 | `expectedSampleCount` | 按服务端 `jank-artifact-v2` 算法，根据消息耗时和采样间隔计算 |
-| `parsedSampleCount` | `processId` 对应唯一目标主线程中，消息窗口内堆栈非空的有效 `segments` 数量 |
+| `parsedSampleCount` | UUID `processId` 对应唯一目标主线程中，消息窗口内堆栈非空的有效 `segments` 数量 |
 | `missingSampleCount` | `max(0, expectedSampleCount - parsedSampleCount)` |
 | `recordCount` | 解码 `sampling.bin` 后统计，不信任客户端重复声明 |
 | mapping 选择 | 服务端使用认证应用与 `buildId` 查找，不新增 manifest 字段 |
@@ -200,6 +201,7 @@
 - `messageEndNs > messageStartNs`，且两者都来自 `elapsedRealtimeNanos`。
 - `thresholdNs > 0` 且 `messageEndNs - messageStartNs >= thresholdNs`。
 - `minSampleIntervalNs > 0`，`attemptedSampleCount >= 0`。
+- `processId` 是标准连字符 UUID v4；同一进程实例的重试和补传保持原值，不使用 Android 数值 PID。
 - 两个二进制文件的声明大小和 SHA-256 与实际内容一致。
 - manifest、文件名和客户端日志不包含应用 Key、账号、手机号、原始设备 ID、业务正文或绝对文件路径。
 - 至少准备一个正常产物、一个采样存在明显空洞的产物和一个 `attemptedSampleCount` 大于服务端可解析成功轮次的产物，供服务端后续回归。

@@ -8,6 +8,7 @@ import com.shanshui.apmserver.jank.api.StackParserBusyException;
 import com.bytedance.rheatrace.stack.StackParser;
 import com.shanshui.apmserver.jank.internal.config.StackParserProperties;
 import com.shanshui.apmserver.telemetry.api.AppendResult;
+import com.shanshui.apmserver.telemetry.api.ProcessIdentity;
 import com.shanshui.apmserver.identity.api.AuthenticatedApp;
 import com.shanshui.apmserver.identity.api.PackageNameMismatchException;
 import com.shanshui.apmserver.jank.api.StackArtifactParseResponse;
@@ -209,6 +210,11 @@ public class StackArtifactParseService {
         }
         if (!app.packageName().equals(packageName.asText())) {
             throw new PackageNameMismatchException();
+        }
+        JsonNode processId = manifest.get("processId");
+        if (processId == null || !processId.isTextual() || !ProcessIdentity.isUuidV4(processId.asText())) {
+            throw new InvalidStackArtifactException(
+                    "INVALID_JANK_MANIFEST", "卡顿 manifest 缺少有效 UUID v4 processId");
         }
     }
 

@@ -364,10 +364,10 @@ if ($StorageMode -eq 'clickhouse') {
 $env:APM_STORAGE_MODE = $StorageMode
 $env:GRADLE_USER_HOME = Join-Path $repoRoot '.gradle-local'
 
-# 当前工程的 processor 制品位于被 Git 忽略的项目 Maven Local；如果外部环境已经
-# 设置 GRADLE_OPTS（例如 Gradle 镜像地址），只追加仓库参数，不覆盖原有选项。
-$projectMavenRepository = Join-Path $repoRoot '.m2\repository'
-$mavenRepositoryOption = "-Dmaven.repo.local=$projectMavenRepository"
+# Maven Local 由 backend/build.gradle.kts 中的 mavenLocal() 自动解析；当前托管
+# 环境的 Java user.home 可能不是 Windows 用户目录，因此显式指向系统级 Maven Local。
+$systemMavenRepository = Join-Path $env:USERPROFILE '.m2\repository'
+$mavenRepositoryOption = "-Dmaven.repo.local=$systemMavenRepository"
 if ([string]::IsNullOrWhiteSpace($env:GRADLE_OPTS)) {
     $env:GRADLE_OPTS = $mavenRepositoryOption
 } elseif ($env:GRADLE_OPTS -notmatch [regex]::Escape('-Dmaven.repo.local=')) {

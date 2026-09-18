@@ -27,7 +27,7 @@ class JankSecurityBoundaryTests {
         properties.setMaxSceneLength(5);
         properties.setMaxJankStackDepth(1);
         properties.setMaxJankDetailBytes(100);
-        EventEnvelope event = new EventEnvelope(1, "limit", "jank", Instant.now().toEpochMilli(), "session", "device",
+        EventEnvelope event = new EventEnvelope(1, "limit", "jank", Instant.now().toEpochMilli(), "session", CrashTestSupport.PROCESS_ID, "device",
                 "app", "1.0", 1, "build", "prod", "official", "16", "Pixel", "wifi", null, null, null,
                 new JankPayload("too-long-scene", "jank-v1", 200_000_000L, 100_000_000L, 100_000_000L,
                         List.of(new JankSample(0L, "stack")),

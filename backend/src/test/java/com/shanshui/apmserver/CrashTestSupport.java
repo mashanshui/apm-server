@@ -33,6 +33,9 @@ import java.util.List;
 
 final class CrashTestSupport {
 
+    /** 测试事件默认使用的合法进程实例 UUID v4。 */
+    static final String PROCESS_ID = "11111111-1111-4111-8111-111111111111";
+
     private CrashTestSupport() {
     }
 
@@ -78,7 +81,7 @@ final class CrashTestSupport {
 
     static EventEnvelope event(String eventId, String eventType, String sessionId,
                                String deviceId, String version, long occurredAt, CrashPayload crash) {
-        return new EventEnvelope(2, eventId, eventType, occurredAt, sessionId, deviceId,
+        return new EventEnvelope(2, eventId, eventType, occurredAt, sessionId, PROCESS_ID, deviceId,
                 "com.example.app", version, version.startsWith("3.2") ? 320 : 330,
                 version.startsWith("3.2") ? "build-320" : "build-330", "production", "official",
                 "16", "Pixel-8", "wifi", null, null, crash);
@@ -86,14 +89,14 @@ final class CrashTestSupport {
 
     static CrashIngestCommand crashCommand(EventEnvelope event) {
         return new CrashIngestCommand(event.schemaVersion(), event.eventId(), event.eventType(), event.occurredAt(),
-                event.sessionId(), event.anonymousDeviceId(), event.packageName(), event.appVersion(),
+                event.sessionId(), event.processId(), event.anonymousDeviceId(), event.packageName(), event.appVersion(),
                 event.versionCode(), event.buildId(), event.environment(), event.channel(), event.osVersion(),
                 event.deviceModel(), event.networkType(), event.measurements(), event.attributes(), event.crash());
     }
 
     static JankMetricIngestCommand metricCommand(EventEnvelope event) {
         return new JankMetricIngestCommand(event.schemaVersion(), event.eventId(), event.eventType(), event.occurredAt(),
-                event.sessionId(), event.anonymousDeviceId(), event.packageName(), event.appVersion(),
+                event.sessionId(), event.processId(), event.anonymousDeviceId(), event.packageName(), event.appVersion(),
                 event.versionCode(), event.buildId(), event.environment(), event.channel(), event.osVersion(),
                 event.deviceModel(), event.networkType(), event.measurements(), event.attributes(),
                 event.frameSceneSummary(), event.foregroundSuspensionSummary());

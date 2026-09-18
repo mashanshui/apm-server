@@ -9,6 +9,7 @@ public record JankEventDetailResponse(
         Instant occurredAt,
         Instant receivedAt,
         String sessionId,
+        String processId,
         String anonymousDeviceId,
         String appVersion,
         Integer versionCode,

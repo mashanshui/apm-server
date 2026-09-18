@@ -157,6 +157,15 @@ h2 { margin-bottom: 5px; color: var(--text-strong); font-size: 17px; }
 .meta-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
 .meta-item dt { margin-bottom: 5px; color: var(--muted); font-size: 11px; }
 .meta-item dd { margin: 0; overflow-wrap: anywhere; color: var(--text); font-size: 13px; }
+.identity-fields { margin-top: 16px; }
+.identity-value { display: flex; align-items: flex-start; gap: 8px; }
+.identity-value code { min-width: 0; overflow-wrap: anywhere; color: var(--text-strong); font-family: "SFMono-Regular", Consolas, monospace; font-size: 11px; line-height: 1.55; }
+.identity-copy-button { flex: 0 0 auto; border: 0; padding: 0; color: var(--primary); background: transparent; font-size: 11px; font-weight: 750; }
+.identity-copy-button:hover:not(:disabled) { text-decoration: underline; }
+.identity-copy-button:disabled { cursor: not-allowed; color: var(--muted); opacity: .65; }
+.identity-feedback { margin: 12px 0 0; font-size: 11px; }
+.identity-feedback-success { color: var(--success); }
+.identity-feedback-error { color: var(--danger); }
 .stack-section + .stack-section { margin-top: 18px; }
 .stack-title { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
 .stack-title h3 { margin-bottom: 0; color: var(--text-strong); font-size: 14px; }

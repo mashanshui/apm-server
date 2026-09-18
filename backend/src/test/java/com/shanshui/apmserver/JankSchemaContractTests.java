@@ -53,7 +53,7 @@ class JankSchemaContractTests {
     @Test
     void jsonJankUsesStableTransportErrorBeforeLegacyPayloadValidation() {
         IngestConfigurationProperties properties = properties();
-        EventEnvelope event = new EventEnvelope(2, "x", "jank", System.currentTimeMillis(), "s", "d",
+        EventEnvelope event = new EventEnvelope(2, "x", "jank", System.currentTimeMillis(), "s", CrashTestSupport.PROCESS_ID, "d",
                 "app", "1", 1, "b", "prod", "c", "1", "m", null, null, null, null,
                 null, null, null);
         var response = CrashTestSupport.ingestion(new InMemoryJankEventRepository(CrashTestSupport.storageProperties()), properties)

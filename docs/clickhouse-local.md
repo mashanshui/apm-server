@@ -2,7 +2,7 @@
 
 完整的 Grafana/ClickHouse 安装、只读用户、Dashboard 导入和 Spring Boot 接入流程见[《Grafana/ClickHouse 安装与项目接入教程》](grafana-clickhouse-install.md)。
 
-服务默认使用 `apm.storage.mode=clickhouse`，启动前需要准备 ClickHouse，并按版本顺序执行 `001_crash_schema.sql`、`002_jank_schema.sql`、`003_jank_sampling_quality.sql`、`004_application_identity_schema.sql` 和增量表 `005_memory_metrics.sql`。`004` 要求旧业务表为空，并将租户身份切换为 UUID `app_id`；旧项目数据不会自动迁移。`005` 只新增内存采样表，不改写既有迁移。如需不依赖外部数据库的临时联调，可显式设置 `APM_STORAGE_MODE=memory`：
+服务默认使用 `apm.storage.mode=clickhouse`，启动前需要准备 ClickHouse，并按版本顺序执行 `001_crash_schema.sql`、`002_jank_schema.sql`、`003_jank_sampling_quality.sql`、`004_application_identity_schema.sql`、`005_memory_metrics.sql`、`006_memory_leak_reports.sql` 和 `007_event_process_identity.sql`。`004` 要求旧业务表为空，并将租户身份切换为 UUID `app_id`；旧项目数据不会自动迁移。`005`/`006` 只新增内存相关表，`007` 只为六类事件/报告表追加 `process_id` 列，不改变排序键、TTL、去重键或聚合维度。如需不依赖外部数据库的临时联调，可显式设置 `APM_STORAGE_MODE=memory`：
 
 ```powershell
 docker run --name apm-clickhouse -d `
@@ -19,6 +19,10 @@ Get-Content backend/src/main/resources/db/clickhouse/003_jank_sampling_quality.s
 Get-Content backend/src/main/resources/db/clickhouse/004_application_identity_schema.sql |
   docker exec -i apm-clickhouse clickhouse-client --multiquery
 Get-Content backend/src/main/resources/db/clickhouse/005_memory_metrics.sql |
+  docker exec -i apm-clickhouse clickhouse-client --multiquery
+Get-Content backend/src/main/resources/db/clickhouse/006_memory_leak_reports.sql |
+  docker exec -i apm-clickhouse clickhouse-client --multiquery
+Get-Content backend/src/main/resources/db/clickhouse/007_event_process_identity.sql |
   docker exec -i apm-clickhouse clickhouse-client --multiquery
 ```
 

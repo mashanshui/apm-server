@@ -150,7 +150,7 @@ class JankMetricsApiIntegrationTests extends AppIngestApiTestSupport {
 
     private String frameJson(String eventId, long occurredAt, String scene, String algorithm, double fps) {
         return "{\"schemaVersion\":2,\"eventId\":\"" + eventId + "\",\"eventType\":\"frame_scene_summary\"," 
-                + "\"occurredAt\":" + occurredAt + ",\"sessionId\":\"session-metrics\",\"anonymousDeviceId\":\"device-metrics\","
+                + "\"occurredAt\":" + occurredAt + ",\"sessionId\":\"session-metrics\",\"processId\":\"11111111-1111-4111-8111-111111111111\",\"anonymousDeviceId\":\"device-metrics\","
                 + "\"packageName\":\"com.example.app\",\"appVersion\":\"1.0\",\"versionCode\":1,\"buildId\":\"build\","
                 + "\"environment\":\"production\",\"channel\":\"official\",\"osVersion\":\"16\",\"deviceModel\":\"Pixel\","
                 + "\"frameSceneSummary\":{\"scene\":\"" + scene + "\",\"algorithmVersion\":\"" + algorithm
@@ -160,7 +160,7 @@ class JankMetricsApiIntegrationTests extends AppIngestApiTestSupport {
     private String suspensionJson(String eventId, long occurredAt, String algorithm,
                                   long foregroundMs, long suspensionMs) {
         return "{\"schemaVersion\":2,\"eventId\":\"" + eventId + "\",\"eventType\":\"foreground_suspension_summary\"," 
-                + "\"occurredAt\":" + occurredAt + ",\"sessionId\":\"session-metrics\",\"anonymousDeviceId\":\"device-metrics\","
+                + "\"occurredAt\":" + occurredAt + ",\"sessionId\":\"session-metrics\",\"processId\":\"11111111-1111-4111-8111-111111111111\",\"anonymousDeviceId\":\"device-metrics\","
                 + "\"packageName\":\"com.example.app\",\"appVersion\":\"1.0\",\"versionCode\":1,\"buildId\":\"build\","
                 + "\"environment\":\"production\",\"channel\":\"official\",\"osVersion\":\"16\",\"deviceModel\":\"Pixel\","
                 + "\"foregroundSuspensionSummary\":{\"algorithmVersion\":\"" + algorithm + "\",\"foregroundDurationMs\":"

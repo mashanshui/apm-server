@@ -74,7 +74,7 @@ public class MemoryLeakReportIngestService {
         if (attachment != null) {
             MemoryLeakArtifactStore.StoredArtifact stored = artifactStore.store(appId, parsed.eventId(), attachment);
             storedReport = new MemoryLeakReport(parsed.appId(), parsed.eventId(), parsed.occurredAt(), parsed.receivedAt(),
-                    parsed.packageName(), parsed.appVersion(), parsed.versionCode(), parsed.anonymousDeviceId(), parsed.processName(),
+                    parsed.packageName(), parsed.appVersion(), parsed.versionCode(), parsed.anonymousDeviceId(), parsed.processId(), parsed.processName(),
                     parsed.sessionId(), parsed.buildId(), parsed.environment(), parsed.channel(), parsed.deviceModel(), parsed.scene(),
                     parsed.manufacturer(), parsed.sdkInt(), parsed.dumpReason(), parsed.report(), parsed.paths(), parsed.payloadHash(),
                     stored.digest(), stored.path(), stored.bytes());

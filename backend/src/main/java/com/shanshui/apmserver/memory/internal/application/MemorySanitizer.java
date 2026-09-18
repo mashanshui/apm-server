@@ -37,6 +37,7 @@ public class MemorySanitizer {
                 sanitizeName(sample.scene(), properties.getMaxSceneLength()));
         return new MemoryIngestCommand(event.schemaVersion(), sanitizeIdentifier(event.eventId(), 128),
                 sanitizeIdentifier(event.eventType(), 32), event.occurredAt(), sanitizeIdentifier(event.sessionId(), 128),
+                event.processId(),
                 hashDeviceId(event.anonymousDeviceId()), sanitizeIdentifier(event.packageName(), 255),
                 sanitizeText(event.appVersion(), 128), event.versionCode(), sanitizeText(event.buildId(), 256),
                 sanitizeIdentifier(event.environment(), 64), sanitizeIdentifier(event.channel(), 128),

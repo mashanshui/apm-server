@@ -10,6 +10,7 @@
 - `vssBytes`：进程虚拟地址空间大小，转换为字节后上传。
 - `javaHeapUsedBytes`：使用 `Runtime.totalMemory() - Runtime.freeMemory()` 计算的 Java 堆已使用字节，不是最大堆或累计分配量。
 - `processName`：被采样进程名，必填；多进程应用每个进程分别发送事件。
+- `processId`：被采样进程实例的 UUID v4，必填；不能使用 Android 数值 PID，同一事件重试必须保持不变。
 - `foreground`：采样瞬间的前后台状态，必填布尔值。
 - `scene`：可选，表示采样时当前应用的 Activity 名称；无法确定时省略或传 null。
 
@@ -28,6 +29,7 @@
   "eventType": "memory_sample",
   "occurredAt": 1788854400000,
   "sessionId": "session-01",
+  "processId": "11111111-1111-4111-8111-111111111111",
   "anonymousDeviceId": "device-local-id",
   "packageName": "com.example.app",
   "appVersion": "3.2.0",
@@ -51,7 +53,7 @@
 }
 ```
 
-`eventId` 必须在本地队列中持久保存。请求头使用创建应用后由 `OWNER`/`ADMIN` 查看得到的 `X-App-Key`，并携带 `X-Schema-Version: 2`。`packageName` 必须与 Key 绑定的包名完全一致；一个批次可以混合多种合法事件，但所有事件的包名必须一致。
+`eventId`、`anonymousDeviceId`、`sessionId` 和 `processId` 必须在本地队列中持久保存。请求头使用创建应用后由 `OWNER`/`ADMIN` 查看得到的 `X-App-Key`，并携带 `X-Schema-Version: 2`。`packageName` 必须与 Key 绑定的包名完全一致；一个批次可以混合多种合法事件，但所有事件的包名必须一致。
 
 ## 持久化、批量和重试
 

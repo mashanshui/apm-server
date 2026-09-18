@@ -198,7 +198,7 @@ class MemoryMetricsApiIntegrationTests extends AppIngestApiTestSupport {
         String vssValue = vss == null ? "null" : vss.toString();
         String javaValue = javaHeap == null ? "null" : javaHeap.toString();
         return "{\"schemaVersion\":2,\"eventId\":\"" + eventId + "\",\"eventType\":\"memory_sample\","
-                + "\"occurredAt\":" + occurredAt + ",\"sessionId\":\"memory-session\","
+                + "\"occurredAt\":" + occurredAt + ",\"sessionId\":\"memory-session\",\"processId\":\"11111111-1111-4111-8111-111111111111\","
                 + "\"anonymousDeviceId\":\"memory-device\",\"packageName\":\"com.example.app\","
                 + "\"appVersion\":\"1.0\",\"versionCode\":1,\"buildId\":\"build\","
                 + "\"environment\":\"production\",\"channel\":\"official\",\"osVersion\":\"16\","

@@ -36,7 +36,7 @@ public class JankMetricEventProcessor implements JankMetricEventProcessing {
         EventMetadata metadata = new EventMetadata(appId, sanitizer.sanitizeIdentifier(event.packageName(), 255),
                 sanitizer.sanitizeIdentifier(event.eventId(), 128), event.eventType(),
                 Instant.ofEpochMilli(event.occurredAt()), receivedAt, event.schemaVersion(),
-                sanitizer.sanitizeIdentifier(event.sessionId(), 128), sanitizer.hashDeviceId(event.anonymousDeviceId()),
+                sanitizer.sanitizeIdentifier(event.sessionId(), 128), event.processId(), sanitizer.hashDeviceId(event.anonymousDeviceId()),
                 sanitizer.sanitizeText(event.appVersion(), 128), event.versionCode(),
                 sanitizer.sanitizeText(event.buildId(), 256), sanitizer.sanitizeIdentifier(event.environment(), 64),
                 sanitizer.sanitizeIdentifier(event.channel(), 128), sanitizer.sanitizeIdentifier(event.osVersion(), 64),

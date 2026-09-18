@@ -6,5 +6,6 @@
   "appVersion": "1.0.0",
   "versionCode": 1,
   "anonymousDeviceId": "device-hash-a",
+  "processId": "22222222-2222-4222-8222-222222222222",
   "processName": "com.example.memoryleak"
 }

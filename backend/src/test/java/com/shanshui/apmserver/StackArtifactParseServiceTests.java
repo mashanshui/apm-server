@@ -141,12 +141,30 @@ class StackArtifactParseServiceTests {
         assertTrue(!parserCalled.get(), "包名不匹配时不得调用 processor");
     }
 
+    @Test
+    void rejectsMissingBlankNumericAndNonV4ZipProcessIdsBeforeProcessor() {
+        StackArtifactParseService service = service(parser(report()), repository(), 2);
+        for (String processIdJson : new String[]{null, "\"\"", "17100",
+                "\"11111111-1111-3111-8111-111111111111\"",
+                "\"11111111-1111-4111-7111-111111111111\""}) {
+            InvalidStackArtifactException failure = assertThrows(InvalidStackArtifactException.class,
+                    () -> service.parse(app("demo-app"),
+                            new ByteArrayInputStream(zipManifest("com.example.app", processIdJson))));
+            assertEquals("INVALID_JANK_MANIFEST", failure.getCode());
+        }
+    }
+
     private byte[] zipManifest(String packageName) throws IOException {
+        return zipManifest(packageName, null);
+    }
+
+    private byte[] zipManifest(String packageName, String processIdJson) throws IOException {
         ByteArrayOutputStream output = new ByteArrayOutputStream();
         try (ZipOutputStream zip = new ZipOutputStream(output)) {
             zip.putNextEntry(new ZipEntry("manifest.json"));
             zip.write(("{\"schemaVersion\":3,\"artifactType\":\"RHEA_JANK\","
-                    + "\"packageName\":\"" + packageName + "\"}")
+                    + "\"packageName\":\"" + packageName + "\""
+                    + (processIdJson == null ? "" : ",\"processId\":" + processIdJson) + "}")
                     .getBytes(java.nio.charset.StandardCharsets.UTF_8));
             zip.closeEntry();
         }
@@ -250,12 +268,12 @@ class StackArtifactParseServiceTests {
                   "actualEndNs":11000001,
                   "sourceManifest":{
                     "schemaVersion":3,"artifactType":"RHEA_JANK","eventId":"artifact-event",
-                    "occurredAt":%d,"sessionId":"session","anonymousDeviceId":"device",
+                    "occurredAt":%d,"sessionId":"session","processId":"11111111-1111-4111-8111-111111111111","anonymousDeviceId":"device",
                     "packageName":"com.example.app","appVersion":"1.0","versionCode":1,
                     "buildId":"build-1","environment":"test","channel":"official",
                     "osVersion":"16","deviceModel":"Pixel","scene":"checkout",
                     "messageStartNs":1000,"messageEndNs":11000001,"thresholdNs":10000000,
-                    "minSampleIntervalNs":10000000,"attemptedSampleCount":99,"processId":42,"files":{}
+                    "minSampleIntervalNs":10000000,"attemptedSampleCount":99,"processId":"11111111-1111-4111-8111-111111111111","files":{}
                   },
                   "warnings":["point samples"],
                   "threads":[{

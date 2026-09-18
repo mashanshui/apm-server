@@ -102,13 +102,13 @@ class JankIngestionTests {
         var ingestion = CrashTestSupport.ingestion(repository, CrashTestSupport.ingestProperties());
         EventEnvelope invalidFrame = frame("frame-invalid-algorithm", "device");
         invalidFrame = new EventEnvelope(invalidFrame.schemaVersion(), invalidFrame.eventId(), invalidFrame.eventType(),
-                invalidFrame.occurredAt(), invalidFrame.sessionId(), invalidFrame.anonymousDeviceId(), invalidFrame.packageName(),
+                invalidFrame.occurredAt(), invalidFrame.sessionId(), invalidFrame.processId(), invalidFrame.anonymousDeviceId(), invalidFrame.packageName(),
                 invalidFrame.appVersion(), invalidFrame.versionCode(), invalidFrame.buildId(), invalidFrame.environment(),
                 invalidFrame.channel(), invalidFrame.osVersion(), invalidFrame.deviceModel(), invalidFrame.networkType(),
                 null, null, null, null,
                 new FrameSceneSummaryPayload("scene", "fps-unknown", 1000L, 30, 60.0, 30.0, null), null);
         EventEnvelope invalidSuspension = new EventEnvelope(2, "suspension-invalid", "foreground_suspension_summary",
-                Instant.now().toEpochMilli(), "s", "d", "app", "1.0", 1, "build", "prod", "official", "16", "Pixel", "wifi",
+                Instant.now().toEpochMilli(), "s", CrashTestSupport.PROCESS_ID, "d", "app", "1.0", 1, "build", "prod", "official", "16", "Pixel", "wifi",
                 null, null, null, null, null,
                 new ForegroundSuspensionSummaryPayload("suspension-v1", 0L, 1L, 1, 200L));
         var response = ingestion.ingest(TestAppIds.id("app-a"), CrashTestSupport.batch(List.of(invalidFrame, invalidSuspension)));
@@ -122,7 +122,7 @@ class JankIngestionTests {
         InMemoryJankEventRepository repository = new InMemoryJankEventRepository(CrashTestSupport.storageProperties());
         var ingestion = CrashTestSupport.ingestion(repository, CrashTestSupport.ingestProperties());
         EventEnvelope invalid = new EventEnvelope(2, "frame-invalid-bucket", "frame_scene_summary",
-                Instant.now().toEpochMilli(), "session", "device", "app", "1.0", 1, "build", "prod",
+                Instant.now().toEpochMilli(), "session", CrashTestSupport.PROCESS_ID, "device", "app", "1.0", 1, "build", "prod",
                 "official", "16", "Pixel", "wifi", null, null, null, null,
                 new FrameSceneSummaryPayload("checkout", "fps-v1", 1000L, 50, 60.0, 50.0,
                         java.util.Map.of("0-16", -1)), null);
@@ -132,14 +132,14 @@ class JankIngestionTests {
     }
 
     private EventEnvelope frame(String eventId, String deviceId) {
-        return new EventEnvelope(2, eventId, "frame_scene_summary", Instant.now().toEpochMilli(), "session", deviceId,
+        return new EventEnvelope(2, eventId, "frame_scene_summary", Instant.now().toEpochMilli(), "session", CrashTestSupport.PROCESS_ID, deviceId,
                 "app", "1.0", 1, "build", "prod", "official", "16", "Pixel", "wifi", null, null, null, null,
                 new FrameSceneSummaryPayload("checkout", "fps-v1", 1000L, 50, 60.0, 50.0,
                         java.util.Map.of("0-16", 40)), null);
     }
 
     private EventEnvelope suspension(String eventId, String deviceId) {
-        return new EventEnvelope(2, eventId, "foreground_suspension_summary", Instant.now().toEpochMilli(), "session", deviceId,
+        return new EventEnvelope(2, eventId, "foreground_suspension_summary", Instant.now().toEpochMilli(), "session", CrashTestSupport.PROCESS_ID, deviceId,
                 "app", "1.0", 1, "build", "prod", "official", "16", "Pixel", "wifi", null, null, null, null, null,
                 new ForegroundSuspensionSummaryPayload("suspension-v1", 3_600_000L, 2_000L, 2, 200L));
     }
@@ -151,7 +151,7 @@ class JankIngestionTests {
                         offset == 0L ? "stack" : "missing")),
                 java.util.Map.of("stack", List.of(new StackFrame("com.example.Payment", "submit", "Checkout.kt", 10, true))),
                 2, 2, 0);
-        return new EventEnvelope(2, eventId, "jank", Instant.now().toEpochMilli(), "session", deviceId,
+        return new EventEnvelope(2, eventId, "jank", Instant.now().toEpochMilli(), "session", CrashTestSupport.PROCESS_ID, deviceId,
                 "app", "1.0", 1, "build", "prod", "official", "16", "Pixel", "wifi", null, null,
                 null, payload, null, null);
     }

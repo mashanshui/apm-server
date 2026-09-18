@@ -115,7 +115,7 @@ public class JankQueryService {
                 .filter(JankEvent::isJank)
                 .orElseThrow(() -> new QueryValidationException("EVENT_NOT_FOUND", "卡顿事件不存在", 404));
         return new JankEventDetailResponse(event.appId(), event.eventId(), event.packageName(), event.occurredAt(),
-                event.receivedAt(), event.sessionId(), event.anonymousDeviceId(), event.appVersion(), event.versionCode(),
+                event.receivedAt(), event.sessionId(), event.processId(), event.anonymousDeviceId(), event.appVersion(), event.versionCode(),
                 event.buildId(), event.channel(), event.environment(), event.osVersion(), event.deviceModel(),
                 event.networkType(), event.jank().scene(), event.jank().algorithmVersion(), event.crashFingerprint(),
                 event.fingerprintVersion(), event.jank(), event.jankAnalysis());

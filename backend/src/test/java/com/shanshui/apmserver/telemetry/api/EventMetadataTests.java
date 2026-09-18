@@ -18,7 +18,7 @@ class EventMetadataTests {
         Instant occurredAt = Instant.parse("2026-09-03T01:02:03Z");
         Instant receivedAt = occurredAt.plusSeconds(2);
         EventMetadata metadata = new EventMetadata(appId, "com.example.app", "event-1", "app_start",
-                occurredAt, receivedAt, 2, "session-1", "device-1", "1.2.3", 123,
+                occurredAt, receivedAt, 2, "session-1", "11111111-1111-4111-8111-111111111111", "device-1", "1.2.3", 123,
                 "build-1", "prod", "stable", "16", "Pixel", "wifi",
                 Map.of("duration", 12), Map.of("region", "cn"));
         AppStartEvent existing = new AppStartEvent(metadata);

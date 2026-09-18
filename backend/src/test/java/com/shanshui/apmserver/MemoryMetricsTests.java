@@ -73,11 +73,11 @@ class MemoryMetricsTests {
         IngestConfigurationProperties properties = properties();
         var validator = new MemoryEventValidator(properties, new ObjectMapper(), Clock.fixed(NOW, ZoneOffset.UTC));
         validator.validate(new com.shanshui.apmserver.memory.api.MemoryIngestCommand(2, "zero", "memory_sample",
-                NOW.toEpochMilli(), "session", "device", "com.example.app", "1.0", 1, "build", "prod",
+                NOW.toEpochMilli(), "session", CrashTestSupport.PROCESS_ID, "device", "com.example.app", "1.0", 1, "build", "prod",
                 "official", "16", "Pixel", "wifi", null, null,
                 new MemorySamplePayload(0L, null, null, "com.example.app", false, null)));
         assertThatThrownBy(() -> validator.validate(new com.shanshui.apmserver.memory.api.MemoryIngestCommand(2,
-                "missing", "memory_sample", NOW.toEpochMilli(), "session", "device", "com.example.app", "1.0",
+                "missing", "memory_sample", NOW.toEpochMilli(), "session", CrashTestSupport.PROCESS_ID, "device", "com.example.app", "1.0",
                 1, "build", "prod", "official", "16", "Pixel", "wifi", null, null,
                 new MemorySamplePayload(null, null, null, "com.example.app", true, null))))
                 .isInstanceOf(EventValidationException.class)
@@ -89,13 +89,13 @@ class MemoryMetricsTests {
         IngestConfigurationProperties properties = properties();
         var validator = new MemoryEventValidator(properties, new ObjectMapper(), Clock.fixed(NOW, ZoneOffset.UTC));
         assertThatThrownBy(() -> validator.validate(new com.shanshui.apmserver.memory.api.MemoryIngestCommand(2,
-                "negative", "memory_sample", NOW.toEpochMilli(), "session", "device", "com.example.app", "1.0",
+                "negative", "memory_sample", NOW.toEpochMilli(), "session", CrashTestSupport.PROCESS_ID, "device", "com.example.app", "1.0",
                 1, "build", "prod", "official", "16", "Pixel", "wifi", null, null,
                 new MemorySamplePayload(-1L, null, null, "com.example.app", true, null))))
                 .isInstanceOf(EventValidationException.class)
                 .hasMessageContaining("非负整数");
         assertThatThrownBy(() -> validator.validate(new com.shanshui.apmserver.memory.api.MemoryIngestCommand(2,
-                "too-large", "memory_sample", NOW.toEpochMilli(), "session", "device", "com.example.app", "1.0",
+                "too-large", "memory_sample", NOW.toEpochMilli(), "session", CrashTestSupport.PROCESS_ID, "device", "com.example.app", "1.0",
                 1, "build", "prod", "official", "16", "Pixel", "wifi", null, null,
                 new MemorySamplePayload(properties.getMaxMemoryMetricBytes() + 1, null, null,
                         "com.example.app", true, null))))
@@ -106,7 +106,7 @@ class MemoryMetricsTests {
         assertThatThrownBy(() -> schema.validateBatch(new ObjectMapper().readTree(
                 "{\"requestId\":\"fraction\",\"events\":[{\"schemaVersion\":2,"
                         + "\"eventId\":\"fraction\",\"eventType\":\"memory_sample\","
-                        + "\"occurredAt\":1,\"sessionId\":\"s\",\"anonymousDeviceId\":\"d\","
+                        + "\"occurredAt\":1,\"sessionId\":\"s\",\"processId\":\"11111111-1111-4111-8111-111111111111\",\"anonymousDeviceId\":\"d\","
                         + "\"packageName\":\"com.example.app\",\"appVersion\":\"1\",\"versionCode\":1,"
                         + "\"buildId\":\"b\",\"environment\":\"p\",\"channel\":\"c\","
                         + "\"osVersion\":\"16\",\"deviceModel\":\"m\",\"memorySample\":{"
@@ -120,7 +120,7 @@ class MemoryMetricsTests {
         IngestConfigurationProperties properties = properties();
         InMemoryMemoryMetricsRepository repository = new InMemoryMemoryMetricsRepository(CrashTestSupport.storageProperties());
         BatchIngestionService ingestion = ingestion(properties, repository);
-        EventEnvelope conflicting = new EventEnvelope(2, "conflict", "memory_sample", NOW.toEpochMilli(), "session",
+        EventEnvelope conflicting = new EventEnvelope(2, "conflict", "memory_sample", NOW.toEpochMilli(), "session", CrashTestSupport.PROCESS_ID,
                 "device-conflict", "com.example.app", "1.0", 1, "build", "prod", "official", "16", "Pixel",
                 "wifi", null, null, CrashTestSupport.crash("java.lang.IllegalStateException", "boom", 1, "A"),
                 null, null, null, new MemorySamplePayload(10L, null, null, "com.example.app", true, null));
@@ -137,6 +137,7 @@ class MemoryMetricsTests {
         BatchIngestionService ingestion = ingestion(properties, repository);
         ingestion.ingest(APP_ID, CrashTestSupport.batch(List.of(memory("hash", 1L, null, null))));
         var stored = repository.findByEventId(APP_ID, "hash").orElseThrow();
+        assertThat(stored.processId()).isEqualTo(CrashTestSupport.PROCESS_ID);
         assertThat(stored.metadata().anonymousDeviceId())
                 .isEqualTo(new MemorySanitizer(properties).hashDeviceId("device-hash"));
     }
@@ -146,7 +147,7 @@ class MemoryMetricsTests {
         IngestConfigurationProperties properties = properties();
         InMemoryMemoryMetricsRepository repository = new InMemoryMemoryMetricsRepository(CrashTestSupport.storageProperties());
         BatchIngestionService ingestion = ingestion(properties, repository);
-        EventEnvelope event = new EventEnvelope(2, "named", "memory_sample", NOW.toEpochMilli(), "session",
+        EventEnvelope event = new EventEnvelope(2, "named", "memory_sample", NOW.toEpochMilli(), "session", CrashTestSupport.PROCESS_ID,
                 "device-named", "com.example.app2", "1.0", 1, "build", "prod", "official", "16", "Pixel",
                 "wifi", null, null, null, null, null, null,
                 new MemorySamplePayload(42L, null, null, "com.example.app2:worker", true,
@@ -203,7 +204,7 @@ class MemoryMetricsTests {
     }
 
     private EventEnvelope memoryAt(String id, Instant occurredAt, Long pss, Long vss, Long javaHeap) {
-        return new EventEnvelope(2, id, "memory_sample", occurredAt.toEpochMilli(), "session", "device-" + id,
+        return new EventEnvelope(2, id, "memory_sample", occurredAt.toEpochMilli(), "session", CrashTestSupport.PROCESS_ID, "device-" + id,
                 "com.example.app", "1.0", 1, "build", "prod", "official", "16", "Pixel", "wifi", null, null,
                 null, null, null, null, new MemorySamplePayload(pss, vss, javaHeap, "com.example.app", true,
                         "com.example.HomeActivity"));

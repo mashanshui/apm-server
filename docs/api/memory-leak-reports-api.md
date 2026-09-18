@@ -29,6 +29,7 @@ X-App-Key: <应用上报 Key>
   "appVersion": "1.0.0",
   "versionCode": 1,
   "anonymousDeviceId": "device-hash",
+  "processId": "11111111-1111-4111-8111-111111111111",
   "processName": "com.example.memoryleak"
 }
 ```
@@ -44,7 +45,7 @@ X-App-Key: <应用上报 Key>
 }
 ```
 
-`metadata` 必须包含 `schemaVersion=1`、UUID `eventId`、Unix 毫秒 `occurredAt`、`packageName`、`appVersion`、非负整数 `versionCode`、`anonymousDeviceId` 和 `processName`；可选 `sessionId`、`buildId`、`environment`、`channel`。metadata 不允许出现 `report` 或未知外层字段。
+`metadata` 必须包含 `schemaVersion=1`、UUID `eventId`、Unix 毫秒 `occurredAt`、`packageName`、`appVersion`、非负整数 `versionCode`、`anonymousDeviceId`、UUID v4 `processId` 和 `processName`；可选 `sessionId`、`buildId`、`environment`、`channel`。metadata 不允许出现 `report` 或未知外层字段。缺失、空值、数值 PID 和非 v4 的 `processId` 返回永久的 `INVALID_MEMORY_LEAK_REPORT`；服务端不会用可选 `sessionId` 补值。
 
 `report` 必须包含 `runningInfo` 对象和 `gcPaths`、`classInfos`、`leakObjects` 数组。GC 路径要求 `signature`、`gcRoot`、`leakReason`、正整数 `instanceCount` 和非空 `path`；节点要求 `reference`、`referenceType`。`classInfos.instanceCount`、`leakObjects.size` 可用十进制数字字符串或整数，`objectId` 按字符串保存。未知的报告内部字段会在大小限制内保留；文件名不参与解析或存储路径。
 

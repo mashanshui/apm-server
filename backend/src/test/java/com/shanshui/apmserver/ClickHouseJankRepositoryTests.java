@@ -64,6 +64,7 @@ class ClickHouseJankRepositoryTests {
             String factInsert = requests.stream()
                     .filter(request -> request.contains("INSERT INTO apm_jank_event"))
                     .findFirst().orElseThrow();
+            assertTrue(factInsert.contains("\"process_id\":\"" + CrashTestSupport.PROCESS_ID + "\""));
             assertTrue(factInsert.contains("\"parsed_sample_count\":1"));
             assertTrue(factInsert.contains("\"missing_sample_count\":0"));
             assertFalse(factInsert.contains("attempted_sample_count"));
@@ -188,7 +189,7 @@ class ClickHouseJankRepositoryTests {
 
     private JankEvent event() {
         EventEnvelope envelope = new EventEnvelope(1, "ch-jank", "jank", Instant.now().toEpochMilli(),
-                "session", "device", "app", "1.0", 1, "build", "prod", "official", "16", "Pixel", "wifi",
+                "session", CrashTestSupport.PROCESS_ID, "device", "app", "1.0", 1, "build", "prod", "official", "16", "Pixel", "wifi",
                 null, null, null, new JankPayload("scene", "jank-v1", 200_000_000L, 100_000_000L,
                 100_000_000L, List.of(new JankSample(0L, "stack")),
                 java.util.Map.of("stack", List.of(new StackFrame("com.example.App", "run", null, null, true))),

@@ -61,6 +61,7 @@ public class ClickHouseMemoryLeakReportRepository implements MemoryLeakReportRep
         row.put("app_version", report.appVersion());
         row.put("version_code", report.versionCode());
         row.put("anonymous_device_id", report.anonymousDeviceId());
+        row.put("process_id", valueOrEmpty(report.processId()));
         row.put("process_name", report.processName());
         row.put("session_id", valueOrEmpty(report.sessionId()));
         row.put("build_id", valueOrEmpty(report.buildId()));
@@ -83,7 +84,7 @@ public class ClickHouseMemoryLeakReportRepository implements MemoryLeakReportRep
     @Override
     public Optional<MemoryLeakReport> findByEventId(UUID appId, UUID eventId) {
         String sql = "SELECT app_id, event_id, event_time, received_time, package_name, app_version, version_code, "
-                + "anonymous_device_id, process_name, session_id, build_id, environment, channel, device_model, scene, "
+                + "anonymous_device_id, process_id, process_name, session_id, build_id, environment, channel, device_model, scene, "
                 + "manufacturer, sdk_int, dump_reason, report_json, gc_paths_json, payload_hash, attachment_digest, "
                 + "attachment_path, attachment_bytes FROM apm_memory_report FINAL WHERE app_id = '"
                 + escape(appId.toString()) + "' AND event_id = '" + escape(eventId.toString())
@@ -105,7 +106,7 @@ public class ClickHouseMemoryLeakReportRepository implements MemoryLeakReportRep
         exact(where, "anonymous_device_id", filter.anonymousDeviceId());
         if (filter.sdkInt() != null) where.append(" AND sdk_int = ").append(filter.sdkInt());
         String sql = "SELECT app_id, event_id, event_time, received_time, package_name, app_version, version_code, "
-                + "anonymous_device_id, process_name, session_id, build_id, environment, channel, device_model, scene, "
+                + "anonymous_device_id, process_id, process_name, session_id, build_id, environment, channel, device_model, scene, "
                 + "manufacturer, sdk_int, dump_reason, report_json, gc_paths_json, payload_hash, attachment_digest, "
                 + "attachment_path, attachment_bytes FROM apm_memory_report FINAL WHERE " + where
                 + " ORDER BY event_time, event_id FORMAT JSONEachRow";
@@ -132,7 +133,7 @@ public class ClickHouseMemoryLeakReportRepository implements MemoryLeakReportRep
                     UUID.fromString(required(row, "event_id")), parseTime(required(row, "event_time")),
                     parseTime(required(row, "received_time")), required(row, "package_name"),
                     required(row, "app_version"), row.path("version_code").asLong(),
-                    required(row, "anonymous_device_id"), required(row, "process_name"), nullable(row, "session_id"),
+                    required(row, "anonymous_device_id"), nullable(row, "process_id"), required(row, "process_name"), nullable(row, "session_id"),
                     nullable(row, "build_id"), nullable(row, "environment"), nullable(row, "channel"),
                     nullable(row, "device_model"), nullable(row, "scene"), nullable(row, "manufacturer"),
                     nullableInteger(row, "sdk_int"), nullable(row, "dump_reason"), reportNode, paths,

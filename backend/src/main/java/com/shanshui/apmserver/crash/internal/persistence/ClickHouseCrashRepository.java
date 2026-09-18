@@ -79,7 +79,7 @@ public class ClickHouseCrashRepository implements CrashWritePort, CrashQueryPort
                 + "r.event_type AS event_type, r.event_time AS event_time, r.received_time AS received_time, "
                 + "r.schema_version AS schema_version, r.app_version AS app_version, r.version_code AS version_code, "
                 + "r.build_id AS build_id, r.channel AS channel, r.environment AS environment, r.session_id AS session_id, "
-                + "r.anonymous_device_id AS anonymous_device_id, r.os_version AS os_version, "
+                + "r.process_id AS process_id, r.anonymous_device_id AS anonymous_device_id, r.os_version AS os_version, "
                 + "r.device_model AS device_model, r.network_type AS network_type, r.crash_kind AS crash_kind, "
                 + "r.crash_fatal AS crash_fatal, r.crash_exception_type AS crash_exception_type, "
                 + "r.crash_fingerprint AS crash_fingerprint, r.fingerprint_version AS fingerprint_version, "
@@ -131,6 +131,7 @@ public class ClickHouseCrashRepository implements CrashWritePort, CrashQueryPort
         row.put("channel", event.channel());
         row.put("environment", event.environment());
         row.put("session_id", event.sessionId());
+        row.put("process_id", valueOrEmpty(event.processId()));
         row.put("anonymous_device_id", event.anonymousDeviceId());
         row.put("os_version", event.osVersion());
         row.put("device_model", event.deviceModel());
@@ -190,7 +191,7 @@ public class ClickHouseCrashRepository implements CrashWritePort, CrashQueryPort
         return new EventMetadata(UUID.fromString(text(row, "app_id")), text(row, "package_name"),
                 text(row, "event_id"), text(row, "event_type"), parseTime(text(row, "event_time")),
                 parseTime(text(row, "received_time")), row.path("schema_version").asInt(), text(row, "session_id"),
-                text(row, "anonymous_device_id"), text(row, "app_version"), row.path("version_code").asInt(),
+                emptyToNull(text(row, "process_id")), text(row, "anonymous_device_id"), text(row, "app_version"), row.path("version_code").asInt(),
                 text(row, "build_id"), text(row, "environment"), text(row, "channel"), text(row, "os_version"),
                 text(row, "device_model"), text(row, "network_type"), Map.of(), Map.of());
     }

@@ -158,9 +158,10 @@ $env:JAVA_HOME = Resolve-Java21Home
 $env:Path = (Join-Path $env:JAVA_HOME 'bin') + ';' + $env:Path
 $env:GRADLE_USER_HOME = Join-Path $repoRoot '.gradle-local'
 
-# 保留外部环境中已有的 Gradle 镜像等选项，只在没有指定时补充项目 Maven Local。
-$projectMavenRepository = Join-Path $repoRoot '.m2\repository'
-$mavenRepositoryOption = "-Dmaven.repo.local=$projectMavenRepository"
+# 保留外部环境中已有的 Gradle 镜像等选项，只在没有指定时补充系统 Maven Local。
+# 内部 processor 由发布流程安装到当前 Windows 用户的 Maven Local，不能指向仓库内不存在的临时目录。
+$systemMavenRepository = Join-Path $env:USERPROFILE '.m2\repository'
+$mavenRepositoryOption = "-Dmaven.repo.local=$systemMavenRepository"
 if ([string]::IsNullOrWhiteSpace($env:GRADLE_OPTS)) {
     $env:GRADLE_OPTS = $mavenRepositoryOption
 } elseif ($env:GRADLE_OPTS -notmatch [regex]::Escape('-Dmaven.repo.local=')) {

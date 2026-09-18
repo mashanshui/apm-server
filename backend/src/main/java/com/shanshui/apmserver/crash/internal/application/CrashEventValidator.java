@@ -7,6 +7,7 @@ import com.shanshui.apmserver.crash.api.CrashIngestConfiguration;
 import com.shanshui.apmserver.crash.api.CrashIngestCommand;
 import com.shanshui.apmserver.crash.api.CrashPayload;
 import com.shanshui.apmserver.telemetry.api.StackFrame;
+import com.shanshui.apmserver.telemetry.api.ProcessIdentity;
 import com.shanshui.apmserver.crash.api.ThrowableNode;
 import com.shanshui.apmserver.telemetry.api.ValidationIssue;
 import org.springframework.stereotype.Service;
@@ -48,6 +49,7 @@ public class CrashEventValidator {
         require(event.eventId(), "eventId", 128, issues);
         require(event.eventType(), "eventType", 32, issues);
         require(event.sessionId(), "sessionId", 128, issues);
+        requireProcessId(event.processId(), issues);
         require(event.anonymousDeviceId(), "anonymousDeviceId", 256, issues);
         require(event.packageName(), "packageName", 255, issues);
         require(event.appVersion(), "appVersion", 128, issues);
@@ -176,6 +178,15 @@ public class CrashEventValidator {
             issues.add(issue("MISSING_" + field.toUpperCase().replace('.', '_'), field + " 不能为空"));
         } else if (value.length() > maxLength) {
             issues.add(issue("FIELD_TOO_LONG", field + " 超过长度上限"));
+        }
+    }
+
+    /** 校验进程实例身份，空值与非 UUID v4 值都必须作为永久错误拒绝。 */
+    private void requireProcessId(String value, List<ValidationIssue> issues) {
+        if (value == null || value.isBlank()) {
+            issues.add(issue("MISSING_PROCESS_ID", "processId 不能为空"));
+        } else if (!ProcessIdentity.isUuidV4(value)) {
+            issues.add(issue("INVALID_PROCESS_ID", "processId 必须是 UUID v4"));
         }
     }
 

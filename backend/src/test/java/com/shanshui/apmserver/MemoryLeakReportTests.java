@@ -42,6 +42,7 @@ class MemoryLeakReportTests {
         assertThat(report.report().get("classInfos")).hasSize(1);
         assertThat(report.report().get("leakObjects")).hasSize(1);
         assertThat(report.report().get("leakObjects").get(0).get("objectId").asText()).isEqualTo("obj-1");
+        assertThat(report.processId()).isEqualTo("11111111-1111-4111-8111-111111111111");
     }
 
     @Test
@@ -110,6 +111,25 @@ class MemoryLeakReportTests {
     }
 
     @Test
+    void treatsProcessIdentityAsPartOfTheExistingEventConflictContent() {
+        StorageProperties storage = new StorageProperties();
+        InMemoryMemoryLeakReportRepository repository = new InMemoryMemoryLeakReportRepository(storage);
+        var service = new com.shanshui.apmserver.memory.internal.application.MemoryLeakReportIngestService(
+                parser, repository,
+                new com.shanshui.apmserver.memory.internal.application.MemoryLeakArtifactStore(config));
+        var report = objectMapper.readTree(reportJson("[\"A\"]", "[]", "[]"));
+        String original = metadata("same-event", "device-a");
+        String changed = original.replace("11111111-1111-4111-8111-111111111111",
+                "22222222-2222-4222-8222-222222222222");
+
+        service.ingest(APP_ID, "com.example.app", objectMapper.readTree(original), report, null);
+
+        assertThatThrownBy(() -> service.ingest(APP_ID, "com.example.app",
+                objectMapper.readTree(changed), report, null))
+                .isInstanceOf(com.shanshui.apmserver.memory.api.MemoryLeakEventConflictException.class);
+    }
+
+    @Test
     void createsUtcEmptyBucketsAndUsesLiteralKeywordMatching() {
         StorageProperties storage = new StorageProperties();
         InMemoryMemoryLeakReportRepository repository = new InMemoryMemoryLeakReportRepository(storage);
@@ -140,7 +160,7 @@ class MemoryLeakReportTests {
     private String metadata(String eventId, String device, long occurredAt) {
         return "{\"schemaVersion\":1,\"eventId\":\"" + UUID.nameUUIDFromBytes(eventId.getBytes())
                 + "\",\"occurredAt\":" + occurredAt + ",\"packageName\":\"com.example.app\",\"appVersion\":\"1\","
-                + "\"versionCode\":1,\"anonymousDeviceId\":\"" + device + "\",\"processName\":\"p\"}";
+                + "\"versionCode\":1,\"anonymousDeviceId\":\"" + device + "\",\"processId\":\"11111111-1111-4111-8111-111111111111\",\"processName\":\"p\"}";
     }
 
     private String reportJson(String paths, String classInfos, String leakObjects) {

@@ -9,6 +9,7 @@ public record MemoryIngestCommand(
         String eventType,
         Long occurredAt,
         String sessionId,
+        String processId,
         String anonymousDeviceId,
         String packageName,
         String appVersion,

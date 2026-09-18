@@ -2,6 +2,8 @@
 
 本目录集中保存已经发布的服务端 HTTP 接口契约、请求与响应字段、统计口径和错误语义。客户端如何采集、持久化、重试和上传数据，统一从[客户端接入文档](../client-integration/README.md)进入。
 
+跨入口身份约定：JSON 批量事件、卡顿 manifest 和内存报告 metadata 的 `processId` 均为必填 UUID v4；服务端不从 Android 数值 PID、进程名称或上传连接补值。内存报告原有可选 `sessionId` 边界保持不变。
+
 ## 文档目录
 
 | 领域 | 文档 | 主要内容 |

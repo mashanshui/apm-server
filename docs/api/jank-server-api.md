@@ -37,7 +37,7 @@ X-App-Key: <从应用设置页获取的应用级 Key>
 
 压缩包入口默认限制为 64 MiB、同步解析并发 2；归一化详情仍受卡顿详情 512 KiB、卡顿采样 2000 个、堆栈字典 2000 项、单堆栈 128 帧、堆栈总帧 10000 和场景 128 字符等限制。完整上传契约见[卡顿压缩包解析与落库 API](stack-artifact-api.md)。
 
-压缩包的 manifest `packageName` 必填且必须与 appKey 绑定包名完全一致；不一致返回不可重试的 `403 PACKAGE_NAME_MISMATCH`，不生成指纹或写入事实/详情。压缩包首次写入返回 `{"success":true,"status":"accepted"}`，重复请求返回 `duplicate`；二者都是 HTTP 200。上报 appKey 错误返回 401，鉴权数据库不可用返回带 `Retry-After: 30` 的 `503 APP_AUTH_UNAVAILABLE`，空请求返回 400，请求过大返回 413，旧媒体类型返回 415，产物或证据错误返回 422，解析繁忙或存储暂时不可用返回带 `Retry-After` 的 503。服务端以 `appId + eventId` 去重，同一事件重试不会增加事件、Issue 或受影响设备数。
+压缩包的 manifest `packageName` 必填且必须与 appKey 绑定包名完全一致；`processId` 必须是标准连字符 UUID v4，缺失、空值、数值 PID 和非 v4 UUID 都是不可重试的 `422 INVALID_JANK_MANIFEST`；不一致返回不可重试的 `403 PACKAGE_NAME_MISMATCH`，不生成指纹或写入事实/详情。压缩包首次写入返回 `{"success":true,"status":"accepted"}`，重复请求返回 `duplicate`；二者都是 HTTP 200。上报 appKey 错误返回 401，鉴权数据库不可用返回带 `Retry-After: 30` 的 `503 APP_AUTH_UNAVAILABLE`，空请求返回 400，请求过大返回 413，旧媒体类型返回 415，产物或证据错误返回 422，解析繁忙或存储暂时不可用返回带 `Retry-After` 的 503。服务端以 `appId + eventId` 去重，同一事件重试不会增加事件、Issue 或受影响设备数。
 
 ## 卡顿查询 API
 
@@ -72,7 +72,7 @@ GET /api/v1/apps/{appId}/janks/events/{eventId}
 
 Issue 结果同时返回 `exactMessageDuration` 和 `estimatedStackDuration` 两组分位数；前者来自消息精确耗时，后者来自采样估算。卡顿算法标识为 `jank-artifact-v2`，指纹继续使用服务端稳定关键路径，行号、地址、动态文本和采样次数不会拆分相同关键路径。
 
-没有合法卡顿事件时，响应状态为 `no_data`，结果为空且分位数字段为 `null`，不能用零伪造。事件详情返回公共信息、卡顿载荷、采样片段、调用树、堆栈字典和采集质量计数；详情中的匿名设备 ID 已按应用盐哈希，服务端日志不输出完整载荷、堆栈或设备标识。
+没有合法卡顿事件时，响应状态为 `no_data`，结果为空且分位数字段为 `null`，不能用零伪造。事件详情返回公共信息、设备 ID、启动 ID、进程实例 `processId`、卡顿载荷、采样片段、调用树、堆栈字典和采集质量计数；详情中的匿名设备 ID 已按应用盐哈希，服务端日志不输出完整载荷、堆栈或设备标识。缺失的历史进程 ID 返回缺失值，不以启动 ID补造，也不提供身份关联跳转。
 
 ## FPS、设备日挂起率和多维查询
 

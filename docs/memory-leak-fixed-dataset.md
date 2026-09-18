@@ -2,6 +2,8 @@
 
 该数据集只用于服务端和前端验收，不来自真实设备，不包含真实 App Key、token 或用户标识。multipart 的最小参数见 `docs/fixtures/memory-leak-metadata.example.json`，报告文件见 `docs/fixtures/memory-leak-report.example.json`。
 
+metadata 使用必填 UUID v4 `processId` 标识进程实例；`sessionId` 仍可选。持久队列、重试和重复检测必须保留 `anonymousDeviceId`、`processId` 与可选 `sessionId`，不能因补传或重启重新生成身份。
+
 ## 数据内容
 
 - `classInfos`、`gcPaths`、`leakObjects` 和 `runningInfo` 四个 SDK 顶层字段均存在。

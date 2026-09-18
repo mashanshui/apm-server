@@ -20,6 +20,7 @@ public sealed interface CrashStoredSignal permits CrashEvent, AppStartEvent {
     default Instant receivedAt() { return metadata().receivedAt(); }
     default int schemaVersion() { return metadata().schemaVersion(); }
     default String sessionId() { return metadata().sessionId(); }
+    default String processId() { return metadata().processId(); }
     default String anonymousDeviceId() { return metadata().anonymousDeviceId(); }
     default String appVersion() { return metadata().appVersion(); }
     default Integer versionCode() { return metadata().versionCode(); }

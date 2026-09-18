@@ -12,6 +12,9 @@ public record MemoryEvent(EventMetadata metadata, MemorySamplePayload payload) {
 
     public java.time.Instant occurredAt() { return metadata.occurredAt(); }
 
+    /** 返回事件所属的进程实例 UUID，历史行缺失时保持 null。 */
+    public String processId() { return metadata.processId(); }
+
     public String packageName() { return metadata.packageName(); }
 
     public String appVersion() { return metadata.appVersion(); }

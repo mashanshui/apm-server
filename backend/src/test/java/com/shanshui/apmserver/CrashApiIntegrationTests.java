@@ -50,12 +50,12 @@ class CrashApiIntegrationTests extends AppIngestApiTestSupport {
     void acceptsJsonGzipAndReturnsPartialAcceptance() throws Exception {
         String body = "{\"requestId\":\"api-test\",\"events\":["
                         + "{\"schemaVersion\":2,\"eventId\":\"api-start\",\"eventType\":\"app_start\","
-                + "\"occurredAt\":" + System.currentTimeMillis() + ",\"sessionId\":\"api-session\","
+                + "\"occurredAt\":" + System.currentTimeMillis() + ",\"sessionId\":\"api-session\",\"processId\":\"11111111-1111-4111-8111-111111111111\","
                 + "\"anonymousDeviceId\":\"api-device\",\"packageName\":\"com.example.app\",\"appVersion\":\"3.2.0\",\"versionCode\":320,"
                 + "\"buildId\":\"build-320\",\"environment\":\"production\",\"channel\":\"official\","
                 + "\"osVersion\":\"16\",\"deviceModel\":\"Pixel-8\"},"
                 + "{\"schemaVersion\":2,\"eventId\":\"api-native\",\"eventType\":\"crash\","
-                + "\"occurredAt\":" + System.currentTimeMillis() + ",\"sessionId\":\"api-session\","
+                + "\"occurredAt\":" + System.currentTimeMillis() + ",\"sessionId\":\"api-session\",\"processId\":\"11111111-1111-4111-8111-111111111111\","
                 + "\"anonymousDeviceId\":\"api-device\",\"packageName\":\"com.example.app\",\"appVersion\":\"3.2.0\",\"versionCode\":320,"
                 + "\"buildId\":\"build-320\",\"environment\":\"production\",\"channel\":\"official\","
                 + "\"osVersion\":\"16\",\"deviceModel\":\"Pixel-8\",\"crash\":{\"kind\":\"native\",\"fatal\":true,"
@@ -79,10 +79,17 @@ class CrashApiIntegrationTests extends AppIngestApiTestSupport {
     void protectsQueryByMembershipAndReturnsOverview() throws Exception {
         String event = "{\"requestId\":\"api-query\",\"events\":["
                 + "{\"schemaVersion\":2,\"eventId\":\"query-start\",\"eventType\":\"app_start\","
-                + "\"occurredAt\":" + System.currentTimeMillis() + ",\"sessionId\":\"query-session\","
+                + "\"occurredAt\":" + System.currentTimeMillis() + ",\"sessionId\":\"query-session\",\"processId\":\"11111111-1111-4111-8111-111111111111\","
                 + "\"anonymousDeviceId\":\"query-device\",\"packageName\":\"com.example.app\",\"appVersion\":\"3.2.0\",\"versionCode\":320,"
                 + "\"buildId\":\"build-320\",\"environment\":\"production\",\"channel\":\"official\","
-                + "\"osVersion\":\"16\",\"deviceModel\":\"Pixel-8\"}]}";
+                + "\"osVersion\":\"16\",\"deviceModel\":\"Pixel-8\"},"
+                + "{\"schemaVersion\":2,\"eventId\":\"query-crash\",\"eventType\":\"crash\","
+                + "\"occurredAt\":" + System.currentTimeMillis() + ",\"sessionId\":\"query-session\",\"processId\":\"11111111-1111-4111-8111-111111111111\","
+                + "\"anonymousDeviceId\":\"query-device\",\"packageName\":\"com.example.app\",\"appVersion\":\"3.2.0\",\"versionCode\":320,"
+                + "\"buildId\":\"build-320\",\"environment\":\"production\",\"channel\":\"official\","
+                + "\"osVersion\":\"16\",\"deviceModel\":\"Pixel-8\",\"crash\":{\"kind\":\"jvm\",\"fatal\":true,"
+                + "\"throwableChain\":[{\"type\":\"java.lang.IllegalStateException\",\"message\":\"query failure\","
+                + "\"frames\":[{\"className\":\"com.example.Main\",\"methodName\":\"run\",\"fileName\":\"Main.java\",\"lineNumber\":1,\"applicationFrame\":true}]}]}}]}";
         mockMvc.perform(MockMvcRequestBuilders.post("/ingest/v1/batches")
                         .header("X-App-Key", appKey())
                         .contentType(MediaType.APPLICATION_JSON)
@@ -96,6 +103,12 @@ class CrashApiIntegrationTests extends AppIngestApiTestSupport {
                 .andExpect(jsonPath("$.stats.startedSessions").value(1))
                 .andExpect(jsonPath("$.stats.status").value("ok"));
 
+        mockMvc.perform(MockMvcRequestBuilders.get("/api/v1/apps/" + appId() + "/crashes/events/query-crash")
+                        .session(session))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.sessionId").value("query-session"))
+                .andExpect(jsonPath("$.processId").value("11111111-1111-4111-8111-111111111111"));
+
         mockMvc.perform(MockMvcRequestBuilders.get("/api/v1/apps/" + java.util.UUID.randomUUID() + "/crashes/overview")
                         .session(session)
                         .header("X-App-Id", "other-app")
@@ -108,12 +121,12 @@ class CrashApiIntegrationTests extends AppIngestApiTestSupport {
     void rejectsWholeBatchWhenAnyEventUsesAnotherApplication() throws Exception {
         String body = "{\"requestId\":\"package-mismatch\",\"events\":["
                 + "{\"schemaVersion\":2,\"eventId\":\"matching-event\",\"eventType\":\"app_start\","
-                + "\"occurredAt\":" + System.currentTimeMillis() + ",\"sessionId\":\"session\","
+                + "\"occurredAt\":" + System.currentTimeMillis() + ",\"sessionId\":\"session\",\"processId\":\"11111111-1111-4111-8111-111111111111\","
                 + "\"anonymousDeviceId\":\"device\",\"packageName\":\"com.example.app\",\"appVersion\":\"1.0\","
                 + "\"versionCode\":1,\"buildId\":\"build\",\"environment\":\"test\",\"channel\":\"official\","
                 + "\"osVersion\":\"16\",\"deviceModel\":\"Pixel\"},"
                 + "{\"schemaVersion\":2,\"eventId\":\"wrong-event\",\"eventType\":\"app_start\","
-                + "\"occurredAt\":" + System.currentTimeMillis() + ",\"sessionId\":\"session\","
+                + "\"occurredAt\":" + System.currentTimeMillis() + ",\"sessionId\":\"session\",\"processId\":\"11111111-1111-4111-8111-111111111111\","
                 + "\"anonymousDeviceId\":\"device\",\"packageName\":\"com.other.app\",\"appVersion\":\"1.0\","
                 + "\"versionCode\":1,\"buildId\":\"build\",\"environment\":\"test\",\"channel\":\"official\","
                 + "\"osVersion\":\"16\",\"deviceModel\":\"Pixel\"}]}";

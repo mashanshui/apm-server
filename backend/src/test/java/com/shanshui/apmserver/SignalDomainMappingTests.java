@@ -29,8 +29,10 @@ class SignalDomainMappingTests {
         var crash = (CrashEvent) repository.findByEventId(TestAppIds.id("app-a"), "crash-map").orElseThrow();
         var start = (AppStartEvent) repository.findByEventId(TestAppIds.id("app-a"), "start-map").orElseThrow();
         assertThat(crash.metadata().eventId()).isEqualTo("crash-map");
+        assertThat(crash.processId()).isEqualTo(CrashTestSupport.PROCESS_ID);
         assertThat(crash.payload().throwableChain()).hasSize(1);
         assertThat(start.metadata().eventType()).isEqualTo("app_start");
+        assertThat(start.processId()).isEqualTo(CrashTestSupport.PROCESS_ID);
     }
 
     @Test
@@ -48,7 +50,10 @@ class SignalDomainMappingTests {
         var suspension = (ForegroundSuspensionSummary) events.stream()
                 .filter(ForegroundSuspensionSummary.class::isInstance).findFirst().orElseThrow();
         assertThat(jank.payload()).isNotNull();
+        assertThat(jank.processId()).isEqualTo(CrashTestSupport.PROCESS_ID);
         assertThat(frame.payload().algorithmVersion()).isNotBlank();
+        assertThat(frame.processId()).isEqualTo(CrashTestSupport.PROCESS_ID);
         assertThat(suspension.payload().foregroundDurationMs()).isPositive();
+        assertThat(suspension.processId()).isEqualTo(CrashTestSupport.PROCESS_ID);
     }
 }

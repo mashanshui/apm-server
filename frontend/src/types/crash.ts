@@ -107,6 +107,7 @@ export interface CrashEventDetailResponse {
   occurredAt: string
   receivedAt: string
   sessionId: string | null
+  processId: string | null
   anonymousDeviceId: string | null
   appVersion: string
   versionCode: number | null

@@ -19,6 +19,10 @@
 
 首期不接收 NDK/native Crash、ANR、非致命异常和 Protobuf。Crash 统计以 `app_start` 的去重 `sessionId` 作为分母，因此客户端需要同时上报启动事件。
 
+### 身份生命周期
+
+`anonymousDeviceId` 在首次安装时生成并持久化，所有进程共用；每次应用启动生成新的 UUID v4 `sessionId`。主进程的 `processId` 使用本次 `sessionId`，子进程每次创建都生成新的 UUID v4。三者在事件入队时固定，跨启动补传不能改成当前上传进程的身份；服务端不接受 Android 数值 PID，也不会补造 `processId`。
+
 ## 2. 推荐接入流程
 
 ```mermaid
@@ -87,6 +91,7 @@ X-Schema-Version: 2
       "eventType": "crash",
       "occurredAt": 1786963200000,
       "sessionId": "session-20260817-0001",
+      "processId": "11111111-1111-4111-8111-111111111111",
       "anonymousDeviceId": "install-9d1a0b2c",
       "packageName": "com.example.app",
       "appVersion": "3.2.0",
@@ -144,6 +149,7 @@ X-Schema-Version: 2
 | `eventType` | 是 | 只能是 `crash` 或 `app_start` |
 | `occurredAt` | 是 | Unix Epoch 毫秒，使用 `System.currentTimeMillis()`；不能使用客户端本地格式化时间 |
 | `sessionId` | 是 | 1～128 个字符；同一次会话的 `app_start` 和 Crash 必须一致 |
+| `processId` | 是 | 标准连字符 UUID v4；主进程可与本次 `sessionId` 相同，子进程每次创建独立生成；禁止使用 Android 数值 PID |
 | `anonymousDeviceId` | 是 | 1～256 个字符；建议使用应用安装级随机 ID，不要使用 IMEI、Android ID 等直接设备标识 |
 | `packageName` | 是 | 必须等于 appKey 绑定的 Android application ID；服务端不提供默认值 |
 | `appVersion` | 是 | 最长 128 个字符，例如 `3.2.0` |
@@ -187,9 +193,10 @@ X-Schema-Version: 2
   "schemaVersion": 2,
   "eventId": "start-6c8c9c2c",
   "eventType": "app_start",
-  "occurredAt": 1786963200000,
-  "sessionId": "session-20260817-0001",
-  "anonymousDeviceId": "install-9d1a0b2c",
+      "occurredAt": 1786963200000,
+      "sessionId": "session-20260817-0001",
+      "processId": "11111111-1111-4111-8111-111111111111",
+      "anonymousDeviceId": "install-9d1a0b2c",
   "packageName": "com.example.app",
   "appVersion": "3.2.0",
   "versionCode": 320,
@@ -313,6 +320,7 @@ crashFreeSessionRate = 1 - crashedSessions / startedSessions
 - gzip 请求可以成功处理；错误的 gzip 或未知 JSON 字段不会被无限重试。
 - 事件时间使用 Epoch 毫秒；模拟超过 7 天的历史事件和超过 15 分钟的未来事件，能够识别为永久错误。
 - 缺失 `sessionId`、`buildId`、堆栈帧等必填字段时，客户端能够记录失败原因并停止原样重试。
+- 缺失、空值、数值 PID 或非 v4 `processId` 时，客户端能够记录永久错误并停止原样重试；合法事件的重试保持原 `processId`。
 - 异常消息和自定义属性中的敏感内容不会出现在客户端或服务端日志中。
 
 可使用以下命令发送未压缩 JSON 进行联调：

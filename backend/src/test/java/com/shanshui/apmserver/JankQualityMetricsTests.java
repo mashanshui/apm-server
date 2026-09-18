@@ -62,7 +62,7 @@ class JankQualityMetricsTests {
     }
 
     private EventEnvelope jank(String eventId, String algorithm) {
-        return new EventEnvelope(1, eventId, "jank", Instant.now().toEpochMilli(), "session", "device",
+        return new EventEnvelope(1, eventId, "jank", Instant.now().toEpochMilli(), "session", CrashTestSupport.PROCESS_ID, "device",
                 "app", "1.0", 1, "build", "prod", "official", "16", "Pixel", "wifi", null, null, null,
                 new JankPayload("scene", algorithm, 200_000_000L, 100_000_000L, 100_000_000L,
                         List.of(new JankSample(0L, "stack")),

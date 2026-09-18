@@ -2,6 +2,8 @@
 
 本文说明客户端如何分别上传卡顿个例和卡顿指标。服务端查询字段与统计口径见[卡顿监控服务端 API](../api/jank-server-api.md)。
 
+客户端必须在安装、启动和进程创建时维护 `anonymousDeviceId`、`sessionId` 和 `processId`：设备 ID 为安装级 UUID v4，启动 ID 为每次启动 UUID v4，主进程进程 ID 等于启动 ID，子进程每次创建使用新的 UUID v4。所有事件和 ZIP 入队后固定身份，不能使用 Android 数值 PID 或在重试时重写。
+
 ## 1. 两条接收链路
 
 | 数据 | 接口 | 请求体 |
@@ -36,6 +38,7 @@ missingSampleCount = max(0, expectedSampleCount - parsedSampleCount)
 | `eventType` | string | 两种指标类型之一 |
 | `occurredAt` | integer，毫秒 | UTC Unix epoch 毫秒 |
 | `sessionId` | string | 会话标识 |
+| `processId` | string | 必填 UUID v4；主进程可等于 `sessionId`，子进程实例必须独立 |
 | `anonymousDeviceId` | string | 安装级随机标识；服务端按应用盐哈希 |
 | `packageName` | string | 必填，必须与 appKey 绑定的 Android application ID 完全一致 |
 | `appVersion` / `versionCode` | string / integer | 发布版本 |
@@ -86,6 +89,7 @@ missingSampleCount = max(0, expectedSampleCount - parsedSampleCount)
       "eventType": "frame_scene_summary",
       "occurredAt": 1788080400000,
       "sessionId": "session-0001",
+      "processId": "11111111-1111-4111-8111-111111111111",
       "anonymousDeviceId": "install-0001",
       "packageName": "com.example.app",
       "appVersion": "3.2.0",
@@ -110,6 +114,7 @@ missingSampleCount = max(0, expectedSampleCount - parsedSampleCount)
       "eventType": "foreground_suspension_summary",
       "occurredAt": 1788080400000,
       "sessionId": "session-0001",
+      "processId": "11111111-1111-4111-8111-111111111111",
       "anonymousDeviceId": "install-0001",
       "packageName": "com.example.app",
       "appVersion": "3.2.0",
@@ -168,6 +173,7 @@ X-Schema-Version: 2
 - 同一指标 eventId 重复发送，确认返回 duplicate 且统计不增加。
 - 验证损坏 gzip、超限批次、无效应用 Key 和存储 503 的处理。
 - 检查日志中不存在应用 Key、原始设备标识、ZIP、完整堆栈或业务正文。
+- 检查三个身份字段在事件入队、跨启动补传和重试中保持不变；数值 PID、缺失和非 v4 `processId` 必须作为永久错误处理。
 
 ## 9. 协议资源
 

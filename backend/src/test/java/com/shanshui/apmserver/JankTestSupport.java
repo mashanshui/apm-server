@@ -32,7 +32,7 @@ final class JankTestSupport {
         EventMetadata metadata = new EventMetadata(appId, packageName,
                 sanitizer.sanitizeIdentifier(source.eventId(), 128), "jank",
                 Instant.ofEpochMilli(source.occurredAt()), Instant.now(), source.schemaVersion(),
-                sanitizer.sanitizeIdentifier(source.sessionId(), 128), sanitizer.hashDeviceId(source.anonymousDeviceId()),
+                sanitizer.sanitizeIdentifier(source.sessionId(), 128), source.processId(), sanitizer.hashDeviceId(source.anonymousDeviceId()),
                 sanitizer.sanitizeText(source.appVersion(), 128), source.versionCode(),
                 sanitizer.sanitizeText(source.buildId(), 256), sanitizer.sanitizeIdentifier(source.environment(), 64),
                 sanitizer.sanitizeIdentifier(source.channel(), 128), sanitizer.sanitizeIdentifier(source.osVersion(), 64),

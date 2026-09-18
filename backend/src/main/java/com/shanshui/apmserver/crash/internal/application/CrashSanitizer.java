@@ -39,6 +39,7 @@ public class CrashSanitizer {
                 sanitizeIdentifier(event.eventType(), 32),
                 event.occurredAt(),
                 sanitizeIdentifier(event.sessionId(), 128),
+                event.processId(),
                 hashDeviceId(event.anonymousDeviceId()),
                 sanitizeIdentifier(event.packageName(), 255),
                 sanitizeText(event.appVersion(), 128),

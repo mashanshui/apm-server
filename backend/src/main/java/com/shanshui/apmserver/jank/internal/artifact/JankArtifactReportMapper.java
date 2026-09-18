@@ -12,6 +12,7 @@ import com.shanshui.apmserver.jank.api.JankSample;
 import com.shanshui.apmserver.jank.api.JankSampleSlice;
 import com.shanshui.apmserver.jank.internal.domain.JankEvent;
 import com.shanshui.apmserver.telemetry.api.EventMetadata;
+import com.shanshui.apmserver.telemetry.api.ProcessIdentity;
 import com.shanshui.apmserver.telemetry.api.StackFrame;
 import org.springframework.stereotype.Service;
 import tools.jackson.databind.JsonNode;
@@ -68,6 +69,7 @@ public class JankArtifactReportMapper {
 
         String eventId = requireText(manifest, "eventId");
         String packageName = requireText(manifest, "packageName");
+        String processId = requireProcessId(manifest);
         long occurredAt = requireLong(manifest, "occurredAt");
         long start = requireLong(manifest, "messageStartNs");
         long end = requireLong(manifest, "messageEndNs");
@@ -78,8 +80,7 @@ public class JankArtifactReportMapper {
         long threshold = requireLong(manifest, "thresholdNs");
         long interval = requireLong(manifest, "minSampleIntervalNs");
         long attempted = requireLong(manifest, "attemptedSampleCount");
-        long processId = requireLong(manifest, "processId");
-        if (threshold <= 0 || threshold > duration || interval <= 0 || attempted < 0 || processId <= 0) {
+        if (threshold <= 0 || threshold > duration || interval <= 0 || attempted < 0) {
             throw invalid("INVALID_JANK_TIME_RANGE", "卡顿消息或采样参数无效");
         }
         if (duration > properties.getMaxJankMessageDurationNs()
@@ -171,6 +172,7 @@ public class JankArtifactReportMapper {
             EventMetadata metadata = new EventMetadata(appId, sanitizedAppId,
                     sanitizer.sanitizeIdentifier(eventId, 128), "jank", Instant.ofEpochMilli(occurredAt), receivedAt,
                     MANIFEST_SCHEMA_VERSION, sanitizer.sanitizeText(requireText(manifest, "sessionId"), 128),
+                    processId,
                     sanitizer.hashDeviceId(requireText(manifest, "anonymousDeviceId")),
                     sanitizer.sanitizeText(requireText(manifest, "appVersion"), 128), (int) versionCode,
                     sanitizer.sanitizeText(requireText(manifest, "buildId"), 256),
@@ -203,6 +205,7 @@ public class JankArtifactReportMapper {
                 || !"RHEA_JANK".equals(requireText(manifest, "artifactType"))) {
             throw invalid("UNSUPPORTED_JANK_ARTIFACT", "只支持 v3 RHEA_JANK 产物");
         }
+        requireProcessId(manifest);
         return requireText(manifest, "packageName");
     }
 
@@ -212,14 +215,21 @@ public class JankArtifactReportMapper {
         }
     }
 
-    private JsonNode findMainThread(JsonNode threads, long processId) {
+    /**
+     * 按处理器输出的主线程标记选择证据线程；processId 只表示进程实例，不再解释为数字 tid。
+     * 外部 processor 必须输出唯一 threadName=main（或同等的 UUID processId 标记）。
+     */
+    private JsonNode findMainThread(JsonNode threads, String processId) {
         if (threads == null || !threads.isArray()) {
             throw invalid("INVALID_STACK_REPORT", "解析结果缺少线程证据");
         }
         JsonNode result = null;
         for (JsonNode thread : threads) {
-            if (thread != null && thread.isObject() && thread.path("tid").isIntegralNumber()
-                    && thread.path("tid").asLong() == processId) {
+            boolean identityMarked = thread != null && thread.isObject()
+                    && processId.equals(thread.path("processId").asText(null));
+            boolean mainNamed = thread != null && thread.isObject()
+                    && "main".equals(thread.path("threadName").asText());
+            if (identityMarked || mainNamed) {
                 if (result != null) {
                     throw invalid("INVALID_JANK_EVIDENCE", "解析结果包含重复目标主线程");
                 }
@@ -371,6 +381,15 @@ public class JankArtifactReportMapper {
             throw invalid("INVALID_JANK_MANIFEST", "卡顿 manifest 字段无效: " + field);
         }
         return value.asText();
+    }
+
+    /** 读取并校验 manifest 中的进程实例 UUID，保留客户端传入的原始大小写。 */
+    private String requireProcessId(JsonNode manifest) {
+        String processId = requireText(manifest, "processId");
+        if (!ProcessIdentity.isUuidV4(processId)) {
+            throw invalid("INVALID_JANK_MANIFEST", "卡顿 manifest processId 必须是 UUID v4");
+        }
+        return processId;
     }
 
     private long requireLong(JsonNode node, String field) {

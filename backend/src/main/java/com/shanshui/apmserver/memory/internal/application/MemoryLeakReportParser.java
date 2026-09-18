@@ -5,6 +5,7 @@ import com.shanshui.apmserver.memory.api.MemoryLeakReportConfiguration;
 import com.shanshui.apmserver.memory.api.MemoryLeakReportValidationException;
 import com.shanshui.apmserver.memory.internal.domain.MemoryLeakPath;
 import com.shanshui.apmserver.memory.internal.domain.MemoryLeakReport;
+import com.shanshui.apmserver.telemetry.api.ProcessIdentity;
 import org.springframework.stereotype.Service;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
@@ -24,7 +25,7 @@ import java.util.UUID;
 @Service
 public class MemoryLeakReportParser {
     private static final Set<String> METADATA_FIELDS = Set.of("schemaVersion", "eventId", "occurredAt",
-            "packageName", "appVersion", "versionCode", "anonymousDeviceId", "processName",
+            "packageName", "appVersion", "versionCode", "anonymousDeviceId", "processId", "processName",
             "sessionId", "buildId", "environment", "channel");
     private final ObjectMapper objectMapper;
     private final MemoryLeakReportConfiguration config;
@@ -50,6 +51,8 @@ public class MemoryLeakReportParser {
         String appVersion = text(metadata, "appVersion");
         long versionCode = integer(metadata.get("versionCode"), "versionCode", 0, 9_007_199_254_740_991L);
         String device = text(metadata, "anonymousDeviceId");
+        String processId = text(metadata, "processId");
+        if (!ProcessIdentity.isUuidV4(processId)) throw invalid("processId 必须是 UUID v4");
         String process = text(metadata, "processName");
         if (report == null || report.isNull()) throw invalid("report 文件不能为空");
         validateReportShape(report);
@@ -61,7 +64,7 @@ public class MemoryLeakReportParser {
         Integer sdkInt = optionalInteger(running == null ? null : running.get("sdkInt"));
         String dumpReason = optionalText(running, "dumpReason");
         return new MemoryLeakReport(appId, eventId, occurredAt, receivedAt, packageName, appVersion,
-                versionCode, device, process, optionalText(metadata, "sessionId"), optionalText(metadata, "buildId"),
+                versionCode, device, processId, process, optionalText(metadata, "sessionId"), optionalText(metadata, "buildId"),
                 optionalText(metadata, "environment"), optionalText(metadata, "channel"), deviceModel, scene,
                 manufacturer, sdkInt, dumpReason, report, paths,
                 sha256("{\"metadata\":" + canonical(metadata) + ",\"report\":" + canonical(report) + "}"),

@@ -43,7 +43,7 @@ public class CrashEventProcessor implements CrashEventProcessing {
                 : null;
         EventMetadata metadata = new EventMetadata(appId, sanitized.packageName(), sanitized.eventId(),
                 sanitized.eventType(), Instant.ofEpochMilli(sanitized.occurredAt()), receivedAt,
-                sanitized.schemaVersion(), sanitized.sessionId(), sanitized.anonymousDeviceId(),
+                sanitized.schemaVersion(), sanitized.sessionId(), sanitized.processId(), sanitized.anonymousDeviceId(),
                 sanitized.appVersion(), sanitized.versionCode(), sanitized.buildId(), sanitized.environment(),
                 sanitized.channel(), sanitized.osVersion(), sanitized.deviceModel(), sanitized.networkType(),
                 sanitized.measurements() == null ? Map.of() : sanitized.measurements(),

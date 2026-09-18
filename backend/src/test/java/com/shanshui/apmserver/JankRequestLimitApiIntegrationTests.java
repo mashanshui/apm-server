@@ -63,7 +63,7 @@ class JankRequestLimitApiIntegrationTests extends AppIngestApiTestSupport {
     @Test
     void rejectsLegacyJsonJankWithoutPersistingIt() throws Exception {
         String event = "{\"schemaVersion\":2,\"eventId\":\"large-event\",\"eventType\":\"jank\"," 
-                + "\"occurredAt\":" + System.currentTimeMillis() + ",\"sessionId\":\"s\",\"anonymousDeviceId\":\"d\","
+                + "\"occurredAt\":" + System.currentTimeMillis() + ",\"sessionId\":\"s\",\"processId\":\"11111111-1111-4111-8111-111111111111\",\"anonymousDeviceId\":\"d\","
                 + "\"packageName\":\"com.example.app\",\"appVersion\":\"1.0\",\"versionCode\":1,\"buildId\":\"build\","
                 + "\"environment\":\"prod\",\"channel\":\"official\",\"osVersion\":\"16\",\"deviceModel\":\"Pixel\","
                 + "\"jank\":{\"scene\":\"checkout\",\"algorithmVersion\":\"jank-v1\",\"messageDurationNs\":200000000,"

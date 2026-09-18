@@ -8,13 +8,13 @@
 - 服务端校验并解析 ZIP，将归一化后的卡顿事实、采样证据和详情按 `appId + eventId` 幂等写入事件仓库。
 - 成功时只返回 `accepted` 或 `duplicate`，不返回完整 `RHEA_STACK_REPORT`。
 - 首版不保存原始 ZIP，不引入对象存储、消息队列或异步任务。
-- v1 `.rheatrace.zip`、v2 卡顿 manifest、旧媒体类型和旧报告响应不兼容。
+- v1 `.rheatrace.zip`、v2 卡顿 manifest、旧媒体类型、数值 PID manifest 和旧报告响应不兼容。
 
-服务端固定使用 `io.github.mashanshui:rhea-trace-processor:1.0.1`，并已用真实 v3 fixture 验证 processor 的严格解析、声明文件/采样字节和报告关键字段。当前验证使用本机 Maven Local；生产构建仍必须把同坐标制品放入受控 Maven 仓库，不得依赖开发机缓存或通过服务端兼容层放宽 v3 校验。
+服务端当前固定使用 `io.github.mashanshui:rhea-trace-processor:1.0.2`。该版本已支持客户端主线程-only v3 manifest 的 UUID v4 `processId` 与 `threadScope=main`，并已完成真实设备 ZIP 的本机解析和云端 HTTP/ClickHouse 闭环。生产制品仓库、容量、持久重试和 Android 长期运行仍需单独验收。
 
-本次真实验证输入为 `F:/AndroidStudioProjects/btrace/btrace-android/build/test-stack/demo-jank-2308233515248871.rheajank.zip`：11,189 字节，SHA-256 为 `1445628B2FA6D4ED055FDEDE218F950B1B44D20FFE6AE990F05869ACEB6C16FE`；manifest 为 `schemaVersion=3`、`artifactType=RHEA_JANK`、`packageName=rhea.sample.android`、`eventId=demo-jank-2308233515248871`，且不含旧 `appId`。服务端实际解析到的 processor fat JAR SHA-256 为 `e31cc2b2bf9a4015419fa8d0cd07f89978f9000a8cc8bcf3952c1933e7a568f3`。
+本次存档的真实验证输入为 `F:/AndroidStudioProjects/btrace/btrace-android/build/test-stack/demo-jank-2308233515248871.rheajank.zip`：11,189 字节，SHA-256 为 `1445628B2FA6D4ED055FDEDE218F950B1B44D20FFE6AE990F05869ACEB6C16FE`；manifest 为 `schemaVersion=3`、`artifactType=RHEA_JANK`、`packageName=rhea.sample.android`、`eventId=demo-jank-2308233515248871`，且 `processId` 是数值 PID。该记录只证明旧 processor 输入可解析，不证明当前 UUID v4 契约可用；processor fat JAR SHA-256 为 `e31cc2b2bf9a4015419fa8d0cd07f89978f9000a8cc8bcf3952c1933e7a568f3`。
 
-2026-09-01 使用 `scripts/start-dev.ps1 -StorageMode clickhouse` 完成本地真实 HTTP 验收：该 ZIP 首次返回 `200 accepted`，原始 ZIP 重传返回 `200 duplicate`；为同一应用和 `buildId` 预置 mapping 后，另一 eventId 返回 `200 accepted`，ClickHouse `FINAL` 查询确认 `symbolication_status=symbolicated`。未知格式 Key 返回 `401 INVALID_APP_KEY`，其他应用 Key 上传该 ZIP 返回 `403 PACKAGE_NAME_MISMATCH`，旧 v2 fixture 返回 `422 INVALID_JANK_MANIFEST`；服务重启后原始 ZIP 再传仍返回 `200 duplicate`，事件详情返回 200。appKey 仅在测试进程内存中使用，未写入输出。
+此前 2026-09-01 的本地真实 HTTP 验收针对数值 PID 的旧 fixture，不能作为本变更 UUID v4 契约的通过证据。2026-09-15 使用客户端设备 ZIP `F:/AndroidStudioProjects/btrace/btrace-android/build/device-zip-demo-jank-3539183284831898/demo-jank-3539183284831898.rheajank.zip` 完成首次落库、同字节重复和 Jank 详情 HTTP 验收；manifest `processId` 原值为 `ec8237be-8ac8-4592-82ad-993b69ac3732`，详情和 ClickHouse `process_id` 均一致。
 
 ## 2. 请求
 

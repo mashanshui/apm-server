@@ -14,6 +14,7 @@ public record EventMetadata(
         Instant receivedAt,
         int schemaVersion,
         String sessionId,
+        String processId,
         String anonymousDeviceId,
         String appVersion,
         Integer versionCode,

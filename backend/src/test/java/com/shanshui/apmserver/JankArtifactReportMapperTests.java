@@ -71,7 +71,7 @@ class JankArtifactReportMapperTests {
     @Test
     void rejectsMissingDuplicateMainThreadAndEmptyStack() throws Exception {
         JsonNode missing = report(1_000L, 20_000_000L);
-        ((ObjectNode) missing.path("threads").get(0)).put("tid", 7);
+        ((ObjectNode) missing.path("threads").get(0)).put("threadName", "worker");
         assertCode("INVALID_JANK_EVIDENCE", missing);
 
         JsonNode duplicate = report(1_000L, 20_000_000L);
@@ -159,15 +159,15 @@ class JankArtifactReportMapperTests {
                   "actualStartNs":%d,"actualEndNs":%d,
                   "sourceManifest":{
                     "schemaVersion":3,"artifactType":"RHEA_JANK","eventId":"event-1",
-                    "occurredAt":1788006588468,"sessionId":"session","anonymousDeviceId":"device-raw",
+                    "occurredAt":1788006588468,"sessionId":"session","processId":"11111111-1111-4111-8111-111111111111","anonymousDeviceId":"device-raw",
                     "packageName":"app","appVersion":"1.0","versionCode":1,"buildId":"build-1",
                     "environment":"test","channel":"official","osVersion":"16","deviceModel":"Pixel",
                     "scene":"checkout","messageStartNs":%d,"messageEndNs":%d,"thresholdNs":10000000,
-                    "minSampleIntervalNs":10000000,"attemptedSampleCount":1,"processId":42
+                    "minSampleIntervalNs":10000000,"attemptedSampleCount":1
                   },
                   "warnings":["processor warning"],
                   "threads":[
-                    {"tid":42,"estimatedCoveredDurationNs":20000000,
+                    {"tid":42,"threadName":"main","estimatedCoveredDurationNs":20000000,
                      "segments":[
                        {"startOffsetNs":0,"estimatedEndOffsetNs":10000000,"eventType":"kObjectAllocation",
                         "stack":[{"method":"app.Main.run(Main.java:10)","sourceFile":"Main.java","lineNumber":10}]},

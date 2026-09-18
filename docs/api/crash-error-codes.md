@@ -11,7 +11,8 @@
 | `UNSUPPORTED_MEDIA_TYPE` | 415 | 批次 | 否 | 首期只接受 JSON，可带 gzip |
 | `PAYLOAD_TOO_LARGE` | 413 | 批次 | 否 | 压缩前请求、解压后请求或单事件超过上限 |
 | `UNSUPPORTED_SCHEMA_VERSION` | 200/400 | 单条 | 否 | 服务端不支持该事件 Schema 版本 |
-| `MISSING_*` | 200 | 单条 | 否 | 缺少统计必需字段 |
+| `MISSING_PROCESS_ID` / `INVALID_PROCESS_ID` | 200 | 单条 | 否 | `processId` 缺失、为空、不是标准连字符 UUID v4 或使用数值 PID |
+| `MISSING_*` | 200 | 单条 | 否 | 其他缺少统计必需字段 |
 | `UNSUPPORTED_CRASH_KIND` | 200 | 单条 | 否 | 首期不接受 native 等 Crash 类型 |
 | `NON_FATAL_CRASH` | 200 | 单条 | 否 | 首期只接受 JVM 致命 Crash |
 | `EVENT_TIME_TOO_OLD` / `EVENT_TIME_IN_FUTURE` | 200 | 单条 | 否 | 事件时间超出窗口 |

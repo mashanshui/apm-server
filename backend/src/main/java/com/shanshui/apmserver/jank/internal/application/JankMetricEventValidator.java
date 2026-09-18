@@ -6,6 +6,7 @@ import com.shanshui.apmserver.jank.api.FrameSceneSummaryPayload;
 import com.shanshui.apmserver.jank.api.JankMetricIngestCommand;
 import com.shanshui.apmserver.telemetry.api.EventValidationException;
 import com.shanshui.apmserver.telemetry.api.ValidationIssue;
+import com.shanshui.apmserver.telemetry.api.ProcessIdentity;
 import org.springframework.stereotype.Service;
 import org.springframework.beans.factory.annotation.Autowired;
 import tools.jackson.databind.ObjectMapper;
@@ -45,6 +46,7 @@ public class JankMetricEventValidator {
         }
         require(event.eventId(), "eventId", 128, issues);
         require(event.sessionId(), "sessionId", 128, issues);
+        requireProcessId(event.processId(), issues);
         require(event.anonymousDeviceId(), "anonymousDeviceId", 256, issues);
         require(event.packageName(), "packageName", 255, issues);
         require(event.appVersion(), "appVersion", 128, issues);
@@ -172,6 +174,15 @@ public class JankMetricEventValidator {
             issues.add(issue("MISSING_" + field.toUpperCase().replace('.', '_'), field + " 不能为空"));
         } else if (value.length() > maxLength) {
             issues.add(issue("FIELD_TOO_LONG", field + " 超过长度上限"));
+        }
+    }
+
+    /** 校验进程实例身份，避免把数字 PID 或其他文本当作进程生命周期标识。 */
+    private void requireProcessId(String value, List<ValidationIssue> issues) {
+        if (value == null || value.isBlank()) {
+            issues.add(issue("MISSING_PROCESS_ID", "processId 不能为空"));
+        } else if (!ProcessIdentity.isUuidV4(value)) {
+            issues.add(issue("INVALID_PROCESS_ID", "processId 必须是 UUID v4"));
         }
     }
 

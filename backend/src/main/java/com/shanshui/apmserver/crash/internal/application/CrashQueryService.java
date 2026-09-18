@@ -122,7 +122,7 @@ public class CrashQueryService {
                 .orElseThrow(() -> new QueryValidationException("EVENT_NOT_FOUND", "Crash 事件不存在", 404));
         return new CrashEventDetailResponse(
                 event.appId(), event.eventId(), event.packageName(), event.occurredAt(), event.receivedAt(),
-                event.sessionId(), event.anonymousDeviceId(), event.appVersion(), event.versionCode(),
+                event.sessionId(), event.processId(), event.anonymousDeviceId(), event.appVersion(), event.versionCode(),
                 event.buildId(), event.channel(), event.environment(), event.osVersion(), event.deviceModel(),
                 event.networkType(), event.crashExceptionType(), event.crashFingerprint(),
                 event.fingerprintVersion(), event.symbolicationStatus(), event.crash());

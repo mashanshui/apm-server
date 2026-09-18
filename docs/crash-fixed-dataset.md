@@ -2,6 +2,8 @@
 
 测试夹具位于 `backend/src/test/resources/fixtures/crash-dataset.json`，故意包含 13 条上报记录：8 条 `app_start`、4 个唯一 Crash `eventId`，以及 `crash-202` 的一次重复上报。
 
+身份字段固定为合法 UUID v4：设备身份在安装范围内保持不变，启动身份按 `sessionId` 区分，主进程可以令 `processId=sessionId`；跨启动补传和重复上传必须保留原始 `processId`，不使用数值 PID 替换。
+
 ## 期望结果
 
 | 层级 | 启动会话 | 唯一 Crash 事件 | 崩溃会话 | 受影响设备 | 每千会话崩溃率 | 无崩溃会话率 |

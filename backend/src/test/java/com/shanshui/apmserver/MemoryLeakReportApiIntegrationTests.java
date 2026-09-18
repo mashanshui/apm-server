@@ -206,7 +206,7 @@ class MemoryLeakReportApiIntegrationTests extends AppIngestApiTestSupport {
     private String metadata(UUID eventId, Instant occurredAt) {
         return "{\"schemaVersion\":1,\"eventId\":\"" + eventId + "\",\"occurredAt\":"
                 + occurredAt.toEpochMilli() + ",\"packageName\":\"com.example.memoryleak\","
-                + "\"appVersion\":\"1.0\",\"versionCode\":1,\"anonymousDeviceId\":\"device-1\","
+                + "\"appVersion\":\"1.0\",\"versionCode\":1,\"anonymousDeviceId\":\"device-1\",\"processId\":\"11111111-1111-4111-8111-111111111111\","
                 + "\"processName\":\"com.example.memoryleak\"}";
     }
 

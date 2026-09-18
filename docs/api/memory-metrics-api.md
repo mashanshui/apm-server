@@ -23,6 +23,7 @@ X-Schema-Version: 2
   "eventType": "memory_sample",
   "occurredAt": 1788854400000,
   "sessionId": "session-01",
+  "processId": "11111111-1111-4111-8111-111111111111",
   "anonymousDeviceId": "device-hash-input",
   "packageName": "com.example.app",
   "appVersion": "3.2.0",
@@ -53,6 +54,7 @@ X-Schema-Version: 2
 | `eventType` | string | 固定为 `memory_sample` |
 | `occurredAt` | integer | 采样时刻 Unix 毫秒；查询按它过滤和分桶 |
 | `eventId` | string | 同一事件重试必须保持不变；服务端按 `appId + eventId` 去重 |
+| `processId` | string | 必填标准连字符 UUID v4；不能填 Android 数值 PID，重试和补传保持原值 |
 | `packageName` | string | 必须与 `X-App-Key` 绑定的应用包名一致；不一致整批拒绝 |
 | `pssBytes` | integer/null | 进程 PSS，0 至 `9007199254740991`；可缺失 |
 | `vssBytes` | integer/null | 进程虚拟地址空间，0 至 `9007199254740991`；可缺失 |
@@ -66,6 +68,8 @@ X-Schema-Version: 2
 `javaHeapUsedBytes` 的客户端口径是 `Runtime.totalMemory() - Runtime.freeMemory()`；它不表示最大堆或累计分配量。PSS/VSS 在客户端转换为字节后上传，服务端不接收 KB、MiB 字符串或单位字段。
 
 批次响应沿用既有部分接受格式：合法事件计入 `accepted`，重复事件计入 `duplicate`，单条永久校验错误计入 `rejected` 并在 `errors` 中返回 `retryable=false`。批内包名错误、无效 App Key 和批次结构错误不会写入任何内存事件。
+
+缺失、空值、数值 PID 或非 v4 的 `processId` 属于事件级永久错误；服务端不随机补值。存量 ClickHouse 记录没有进程列时，查询只返回缺失值语义，不影响已有统计分母和聚合维度。
 
 ## 概览
 

@@ -74,7 +74,7 @@ GET /api/v1/apps/{appId}/memory-leaks/trend?interval=5m|hour|day
 
 ## 类型边界
 
-`src/types/crash.ts` 定义 Crash 契约；`src/types/jank.ts` 定义卡顿总览、趋势、Issue、事件、采样片段、调用树、堆栈字典、FPS、挂起率、多维、统一指标趋势和筛选类型。卡顿详情采样质量只使用服务端派生的 `expectedSampleCount`、`parsedSampleCount` 和 `missingSampleCount`，不保留 attempted/successful/dropped。统一趋势点只填充当前指标对应的 FPS 或秒/小时前台时长字段；挂起率点的 `validRecords` 表示有效设备日数。后端响应字段变化时，应在同一改动中：
+`src/types/crash.ts` 定义 Crash 契约；`src/types/jank.ts` 定义卡顿总览、趋势、Issue、事件、采样片段、调用树、堆栈字典、FPS、挂起率、多维、统一指标趋势和筛选类型。Crash/Jank 事件详情的 `processId` 为可空字符串，用于兼容迁移前历史记录；前端不生成替代值。卡顿详情采样质量只使用服务端派生的 `expectedSampleCount`、`parsedSampleCount` 和 `missingSampleCount`，不保留 attempted/successful/dropped。统一趋势点只填充当前指标对应的 FPS 或秒/小时前台时长字段；挂起率点的 `validRecords` 表示有效设备日数。后端响应字段变化时，应在同一改动中：
 
 1. 核对后端 API 文档和 JSON 语义。
 2. 更新 TypeScript 类型。
@@ -115,6 +115,8 @@ Pinia 只管理跨页面的认证和应用状态；路由查询参数保存可�
 - `useMemoryMetrics.ts` 将 summary 与 trend 分成两个请求区域，各自维护加载/错误/重试和 `AbortController`；旧响应按查询令牌丢弃。`MemoryMetricsView.vue` 将时间和筛选保存到 URL，百分位切换只改变显示列，不触发重新聚合。
 
 当前不把 Crash 或卡顿查询结果写入全局 Store；如果未来需要跨页面缓存、预取或失效策略，再评估专用请求缓存库。
+
+详情页通过 `EventIdentityFields.vue` 消费三个身份字段。组件复制完整原值，不修改大小写、不截断剪贴板内容；空值显示统一占位并禁用按钮，剪贴板拒绝只显示失败反馈。组件不创建链接，也不改变路由或权限请求。
 
 凭据响应受服务端 `no-store, private` 保护。前端不把完整 Key 写入 Pinia、URL、路由 state、`localStorage`、`sessionStorage`、日志或错误对象；会话失效事件会立即清理设置页局部 Key。
 

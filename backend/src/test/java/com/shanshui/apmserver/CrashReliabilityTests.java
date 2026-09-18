@@ -28,6 +28,8 @@ class CrashReliabilityTests {
         var retry = ingestion.ingest(TestAppIds.id("app-a"), CrashTestSupport.batch(List.of(event)));
         assertEquals(0, retry.accepted());
         assertEquals(1, retry.duplicate());
+        assertEquals(CrashTestSupport.PROCESS_ID,
+                repository.findByEventId(TestAppIds.id("app-a"), "retry-event").orElseThrow().processId());
     }
 
     @Test

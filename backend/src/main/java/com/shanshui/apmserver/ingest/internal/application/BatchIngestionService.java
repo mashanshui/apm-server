@@ -168,7 +168,7 @@ public class BatchIngestionService implements EventIngestionService {
                 || "foreground_suspension_summary".equals(event.eventType()))) {
             return jankMetricProcessor.ingest(appId, new JankMetricIngestCommand(
                     event.schemaVersion(), event.eventId(), event.eventType(), event.occurredAt(),
-                    event.sessionId(), event.anonymousDeviceId(), event.packageName(), event.appVersion(),
+                    event.sessionId(), event.processId(), event.anonymousDeviceId(), event.packageName(), event.appVersion(),
                     event.versionCode(), event.buildId(), event.environment(), event.channel(), event.osVersion(),
                     event.deviceModel(), event.networkType(), event.measurements(), event.attributes(),
                     event.frameSceneSummary(), event.foregroundSuspensionSummary()), receivedAt);
@@ -181,14 +181,14 @@ public class BatchIngestionService implements EventIngestionService {
             }
             return memoryProcessor.ingest(appId, new MemoryIngestCommand(
                     event.schemaVersion(), event.eventId(), event.eventType(), event.occurredAt(),
-                    event.sessionId(), event.anonymousDeviceId(), event.packageName(), event.appVersion(),
+                    event.sessionId(), event.processId(), event.anonymousDeviceId(), event.packageName(), event.appVersion(),
                     event.versionCode(), event.buildId(), event.environment(), event.channel(), event.osVersion(),
                     event.deviceModel(), event.networkType(), event.measurements(), event.attributes(),
                     event.memorySample()), receivedAt);
         }
         CrashIngestCommand command = event == null ? null : new CrashIngestCommand(
                 event.schemaVersion(), event.eventId(), event.eventType(), event.occurredAt(), event.sessionId(),
-                event.anonymousDeviceId(), event.packageName(), event.appVersion(), event.versionCode(),
+                event.processId(), event.anonymousDeviceId(), event.packageName(), event.appVersion(), event.versionCode(),
                 event.buildId(), event.environment(), event.channel(), event.osVersion(), event.deviceModel(),
                 event.networkType(), event.measurements(), event.attributes(), event.crash());
         return crashProcessor.ingest(appId, command, receivedAt);

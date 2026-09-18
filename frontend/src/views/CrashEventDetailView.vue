@@ -2,6 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import AppLayout from '../components/AppLayout.vue'
+import EventIdentityFields from '../components/EventIdentityFields.vue'
 import StackTrace from '../components/StackTrace.vue'
 import StatusMessage from '../components/StatusMessage.vue'
 import { crashApi, errorMessage, isAbortError } from '../api/crashApi'
@@ -114,11 +115,14 @@ watch(() => route.fullPath, () => { void load() }, { immediate: true })
           <div class="meta-item"><dt>渠道 / 环境</dt><dd>{{ event.channel || '—' }} / {{ event.environment || '—' }}</dd></div>
           <div class="meta-item"><dt>Android / 设备</dt><dd>{{ event.osVersion || '—' }} / {{ event.deviceModel || '—' }}</dd></div>
           <div class="meta-item"><dt>网络类型</dt><dd>{{ event.networkType || '—' }}</dd></div>
-          <div class="meta-item"><dt>会话 ID</dt><dd>{{ event.sessionId || '—' }}</dd></div>
-          <div class="meta-item"><dt>匿名设备 ID</dt><dd>{{ event.anonymousDeviceId || '—' }}</dd></div>
           <div class="meta-item"><dt>指纹</dt><dd class="fingerprint" :title="event.fingerprint">{{ event.fingerprint }}</dd></div>
           <div class="meta-item"><dt>指纹版本</dt><dd>{{ event.fingerprintVersion || '—' }}</dd></div>
         </dl>
+        <EventIdentityFields
+          :anonymous-device-id="event.anonymousDeviceId"
+          :session-id="event.sessionId"
+          :process-id="event.processId"
+        />
       </section>
 
       <StackTrace :crash="event.rawCrash" />

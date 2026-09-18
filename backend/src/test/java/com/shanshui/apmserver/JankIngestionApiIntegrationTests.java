@@ -113,7 +113,7 @@ class JankIngestionApiIntegrationTests extends AppIngestApiTestSupport {
     void rejectsJsonV1AndLegacyAppIdWithoutWriting() throws Exception {
         String legacyBody = "{\"requestId\":\"legacy-json\",\"events\":[{"
                 + "\"schemaVersion\":1,\"eventId\":\"legacy-event\",\"eventType\":\"app_start\","
-                + "\"occurredAt\":" + System.currentTimeMillis() + ",\"sessionId\":\"session\","
+                + "\"occurredAt\":" + System.currentTimeMillis() + ",\"sessionId\":\"session\",\"processId\":\"11111111-1111-4111-8111-111111111111\","
                 + "\"anonymousDeviceId\":\"device\",\"packageName\":\"com.example.app\","
                 + "\"appVersion\":\"1.0\",\"versionCode\":1,\"buildId\":\"build\","
                 + "\"environment\":\"test\",\"channel\":\"official\",\"osVersion\":\"16\","
@@ -139,7 +139,7 @@ class JankIngestionApiIntegrationTests extends AppIngestApiTestSupport {
 
     private String eventJson(String eventId, String sampleStackId) {
         return "{\"schemaVersion\":2,\"eventId\":\"" + eventId + "\",\"eventType\":\"jank\"," 
-                + "\"occurredAt\":" + System.currentTimeMillis() + ",\"sessionId\":\"session-api\","
+                + "\"occurredAt\":" + System.currentTimeMillis() + ",\"sessionId\":\"session-api\",\"processId\":\"11111111-1111-4111-8111-111111111111\","
                 + "\"anonymousDeviceId\":\"device-api\",\"packageName\":\"com.example.app\",\"appVersion\":\"1.0\","
                 + "\"versionCode\":1,\"buildId\":\"build\",\"environment\":\"prod\",\"channel\":\"official\","
                 + "\"osVersion\":\"16\",\"deviceModel\":\"Pixel\",\"jank\":{"

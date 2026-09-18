@@ -17,6 +17,7 @@ public record EventEnvelope(
         String eventType,
         Long occurredAt,
         String sessionId,
+        String processId,
         String anonymousDeviceId,
         String packageName,
         String appVersion,
@@ -43,6 +44,7 @@ public record EventEnvelope(
                          String eventType,
                          Long occurredAt,
                          String sessionId,
+                         String processId,
                          String anonymousDeviceId,
                          String packageName,
                          String appVersion,
@@ -56,7 +58,7 @@ public record EventEnvelope(
                          Map<String, Object> measurements,
                          Map<String, Object> attributes,
                          CrashPayload crash) {
-        this(schemaVersion, eventId, eventType, occurredAt, sessionId, anonymousDeviceId,
+        this(schemaVersion, eventId, eventType, occurredAt, sessionId, processId, anonymousDeviceId,
                 packageName, appVersion, versionCode, buildId, environment, channel, osVersion,
                 deviceModel, networkType, measurements, attributes, crash, null, null, null, null);
     }
@@ -67,6 +69,7 @@ public record EventEnvelope(
                          String eventType,
                          Long occurredAt,
                          String sessionId,
+                         String processId,
                          String anonymousDeviceId,
                          String packageName,
                          String appVersion,
@@ -83,7 +86,7 @@ public record EventEnvelope(
                          JankPayload jank,
                          FrameSceneSummaryPayload frameSceneSummary,
                          ForegroundSuspensionSummaryPayload foregroundSuspensionSummary) {
-        this(schemaVersion, eventId, eventType, occurredAt, sessionId, anonymousDeviceId,
+        this(schemaVersion, eventId, eventType, occurredAt, sessionId, processId, anonymousDeviceId,
                 packageName, appVersion, versionCode, buildId, environment, channel, osVersion,
                 deviceModel, networkType, measurements, attributes, crash, jank, frameSceneSummary,
                 foregroundSuspensionSummary, null);

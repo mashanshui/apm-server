@@ -77,4 +77,18 @@ class ClickHouseSchemaTests {
             assertTrue(sql.contains("TTL event_time + INTERVAL 90 DAY"));
         }
     }
+
+    @Test
+    void processIdentityMigrationAddsOnlyStringColumnsWithoutChangingDeduplication() throws Exception {
+        try (InputStream input = getClass().getResourceAsStream("/db/clickhouse/007_event_process_identity.sql")) {
+            String sql = new String(input.readAllBytes(), StandardCharsets.UTF_8);
+            for (String table : new String[]{"apm_event_raw", "apm_jank_event", "apm_frame_scene_summary",
+                    "apm_device_suspension_segment", "apm_memory_sample", "apm_memory_report"}) {
+                assertTrue(sql.contains("ALTER TABLE apm." + table));
+            }
+            assertTrue(sql.contains("ADD COLUMN IF NOT EXISTS process_id String DEFAULT ''"));
+            assertTrue(!sql.contains("ORDER BY"));
+            assertTrue(!sql.contains("DROP TABLE"));
+        }
+    }
 }

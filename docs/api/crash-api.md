@@ -25,6 +25,7 @@ Crash 事件最小结构如下：
     "eventType": "crash",
     "occurredAt": 1786788600000,
     "sessionId": "session-001",
+    "processId": "11111111-1111-4111-8111-111111111111",
     "anonymousDeviceId": "device-001",
     "packageName": "com.example.app",
     "appVersion": "3.2.0",
@@ -69,6 +70,8 @@ GET /api/v1/apps/{appId}/crashes/events/{eventId}
 
 查询支持 `from`、`to`（ISO-8601）、`appVersion`、`channel`、`environment`、`osVersion`、`deviceModel`、`fingerprint`、`limit`、`cursor` 和 `timeoutMs`。网页查询必须携带登录 Session，并由服务端依据当前用户与 `app_member` 的成员关系授权；无成员关系统一返回 404，避免泄露应用存在性。`X-App-Id`、`X-User-App-Ids` 和 `X-App-Key` 不参与网页查询授权。
 
+Crash 事件详情响应保留设备 ID、启动 ID和新增的进程实例 `processId`；存量记录没有该列时返回缺失值，不把 `sessionId` 自动填入。详情字段不提供身份关联跳转。
+
 ## 统计公式
 
 ```text
@@ -85,6 +88,7 @@ crashFreeSessionRate = 1 - crashedSessions / startedSessions
 ## 脱敏与兼容性
 
 - `anonymousDeviceId` 使用应用盐的 SHA-256 保存；原始设备标识不进入分析存储。
+- `processId` 必须是标准连字符 UUID v4，服务端保留客户端原值；缺失、数值 PID 和非 v4 值按永久校验错误拒绝。
 - 异常消息替换邮箱、URL、用户路径、手机号、UUID，并按配置截断。
 - 属性名只接受字母、数字、下划线、点和连字符；测量值只保存数字。
 - 指纹由服务端生成，首期版本为 v1，忽略堆栈行号并归一化动态消息。

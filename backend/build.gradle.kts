@@ -15,10 +15,11 @@ java {
 }
 
 repositories {
-    providers.environmentVariable("RHEA_PROCESSOR_REPOSITORY_URL").orNull
-        ?.takeIf { it.isNotBlank() }
-        ?.let { repositoryUrl -> maven { url = uri(repositoryUrl) } }
+    // 优先从 Maven Local 解析本地构建的内部制品，例如 rhea-trace-processor。
     mavenLocal()
+    // 使用阿里云公共 Maven 镜像优先解析远程依赖，减少对 Maven Central 直连的依赖。
+    maven { url = uri("https://maven.aliyun.com/repository/public") }
+    // 阿里云镜像未命中或暂时不可用时，使用 Maven Central 兜底。
     mavenCentral()
 }
 
@@ -32,7 +33,7 @@ dependencies {
     implementation("org.springframework.session:spring-session-jdbc")
     implementation("org.springframework.boot:spring-boot-starter-flyway")
     implementation("org.flywaydb:flyway-database-postgresql")
-    implementation("io.github.mashanshui:rhea-trace-processor:1.0.1") {
+    implementation("io.github.mashanshui:rhea-trace-processor:1.0.2") {
         isTransitive = false
     }
     runtimeOnly("org.postgresql:postgresql")

@@ -1,6 +1,7 @@
 package com.shanshui.apmserver.ingest.internal.protocol;
 
 import com.shanshui.apmserver.ingest.api.InvalidBatchException;
+import com.shanshui.apmserver.telemetry.api.ProcessIdentity;
 
 import tools.jackson.databind.JsonNode;
 import org.springframework.stereotype.Service;
@@ -17,7 +18,7 @@ public class EventSchemaValidator {
 
     private static final Set<String> BATCH_FIELDS = Set.of("requestId", "events");
     private static final Set<String> EVENT_FIELDS = Set.of(
-            "schemaVersion", "eventId", "eventType", "occurredAt", "sessionId", "anonymousDeviceId",
+            "schemaVersion", "eventId", "eventType", "occurredAt", "sessionId", "processId", "anonymousDeviceId",
             "packageName", "appVersion", "versionCode", "buildId", "environment", "channel", "osVersion",
             "deviceModel", "networkType", "measurements", "attributes", "crash", "jank",
             "frameSceneSummary", "foregroundSuspensionSummary", "memorySample");
@@ -52,6 +53,7 @@ public class EventSchemaValidator {
         requireInteger(event, "schemaVersion");
         requireInteger(event, "occurredAt");
         requireText(event, "sessionId");
+        requireUuidV4(event, "processId");
         requireText(event, "anonymousDeviceId");
         requirePresentText(event, "packageName");
         requireText(event, "appVersion");
@@ -192,6 +194,14 @@ public class EventSchemaValidator {
         JsonNode value = object.get(name);
         if (value == null || value.isNull() || !value.isString() || value.asText().isBlank()) {
             throw new InvalidBatchException(name + " 必须是非空字符串");
+        }
+    }
+
+    /** 校验必须使用标准连字符 UUID v4 的进程实例标识，不为缺失值生成替代身份。 */
+    private void requireUuidV4(JsonNode object, String name) {
+        JsonNode value = object.get(name);
+        if (value == null || value.isNull() || !value.isString() || !ProcessIdentity.isUuidV4(value.asText())) {
+            throw new InvalidBatchException(name + " 必须是 UUID v4");
         }
     }
 

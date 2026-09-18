@@ -99,7 +99,9 @@ class JankApiIntegrationTests extends AppIngestApiTestSupport {
                 .andExpect(jsonPath("$.analysis.parsedSampleCount").value(1))
                 .andExpect(jsonPath("$.analysis.missingSampleCount").value(1))
                 .andExpect(jsonPath("$.analysis.attemptedSampleCount").doesNotExist())
-                .andExpect(jsonPath("$.jank.scene").value("checkout"));
+                .andExpect(jsonPath("$.jank.scene").value("checkout"))
+                .andExpect(jsonPath("$.sessionId").value("session"))
+                .andExpect(jsonPath("$.processId").value("11111111-1111-4111-8111-111111111111"));
     }
 
     @Test
@@ -168,14 +170,14 @@ class JankApiIntegrationTests extends AppIngestApiTestSupport {
                               "actualStartNs":1000,"actualEndNs":20001000,
                               "sourceManifest":{
                                 "schemaVersion":3,"artifactType":"RHEA_JANK","eventId":"fake-1",
-                                "occurredAt":1788006588468,"sessionId":"session","anonymousDeviceId":"device",
+                                "occurredAt":1788006588468,"sessionId":"session","processId":"11111111-1111-4111-8111-111111111111","anonymousDeviceId":"device",
                                 "packageName":"rhea.sample.android","appVersion":"1.0","versionCode":1,
                                 "buildId":"build-1","environment":"test","channel":"official",
                                 "osVersion":"16","deviceModel":"Pixel","scene":"checkout",
                                 "messageStartNs":1000,"messageEndNs":20001000,"thresholdNs":10000000,
-                                "minSampleIntervalNs":10000000,"attemptedSampleCount":99,"processId":42
+                                "minSampleIntervalNs":10000000,"attemptedSampleCount":99
                               },
-                              "warnings":[],"threads":[{"tid":42,"estimatedCoveredDurationNs":10000000,
+                              "warnings":[],"threads":[{"tid":42,"threadName":"main","estimatedCoveredDurationNs":10000000,
                                 "segments":[{"startOffsetNs":0,"estimatedEndOffsetNs":10000000,
                                   "eventType":"kCustom","stack":[{"method":"rhea.sample.android.Main.run(Main.java:10)",
                                   "sourceFile":"Main.java","lineNumber":10}]}],

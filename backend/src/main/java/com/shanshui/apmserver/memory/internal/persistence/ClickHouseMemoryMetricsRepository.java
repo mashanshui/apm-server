@@ -65,7 +65,7 @@ public class ClickHouseMemoryMetricsRepository implements MemoryEventRepository,
 
     @Override
     public Optional<MemoryEvent> findByEventId(UUID appId, String eventId) {
-        String sql = "SELECT app_id, package_name, event_id, event_time, received_time, schema_version, session_id, "
+        String sql = "SELECT app_id, package_name, event_id, event_time, received_time, schema_version, session_id, process_id, "
                 + "anonymous_device_id, app_version, version_code, build_id, channel, environment, os_version, "
                 + "device_model, network_type, pss_bytes, vss_bytes, java_heap_used_bytes, process_name, foreground, scene "
                 + "FROM apm_memory_sample FINAL WHERE app_id = '" + escape(appId.toString()) + "' AND event_id = '"
@@ -150,6 +150,7 @@ public class ClickHouseMemoryMetricsRepository implements MemoryEventRepository,
             row.put("received_time", formatTime(event.metadata().receivedAt()));
             row.put("schema_version", event.metadata().schemaVersion());
             row.put("session_id", event.metadata().sessionId());
+            row.put("process_id", valueOrEmpty(event.processId()));
             row.put("anonymous_device_id", event.metadata().anonymousDeviceId());
             row.put("app_version", event.appVersion());
             row.put("version_code", event.metadata().versionCode());
@@ -171,7 +172,7 @@ public class ClickHouseMemoryMetricsRepository implements MemoryEventRepository,
     }
 
     private String selectAll(UUID appId) {
-        return "SELECT app_id, package_name, event_id, event_time, received_time, schema_version, session_id, "
+        return "SELECT app_id, package_name, event_id, event_time, received_time, schema_version, session_id, process_id, "
                 + "anonymous_device_id, app_version, version_code, build_id, channel, environment, os_version, "
                 + "device_model, network_type, pss_bytes, vss_bytes, java_heap_used_bytes, process_name, foreground, scene "
                 + "FROM apm_memory_sample FINAL WHERE app_id = '" + escape(appId.toString())
@@ -185,7 +186,7 @@ public class ClickHouseMemoryMetricsRepository implements MemoryEventRepository,
                 EventMetadata metadata = new EventMetadata(UUID.fromString(text(row, "app_id")),
                         text(row, "package_name"), text(row, "event_id"), "memory_sample",
                         parseTime(row, "event_time"), parseTime(row, "received_time"), row.path("schema_version").asInt(),
-                        text(row, "session_id"), text(row, "anonymous_device_id"), text(row, "app_version"),
+                         text(row, "session_id"), emptyToNull(text(row, "process_id")), text(row, "anonymous_device_id"), text(row, "app_version"),
                         row.path("version_code").asInt(), text(row, "build_id"), text(row, "environment"),
                         text(row, "channel"), text(row, "os_version"), text(row, "device_model"),
                         text(row, "network_type"), Map.of(), Map.of());
@@ -253,5 +254,15 @@ public class ClickHouseMemoryMetricsRepository implements MemoryEventRepository,
 
     private String escape(String value) {
         return value == null ? "" : value.replace("\\", "\\\\").replace("'", "\\'");
+    }
+
+    /** 将历史或测试对象中的缺失身份转换为空字符串，适配 ClickHouse String 列。 */
+    private String valueOrEmpty(String value) {
+        return value == null ? "" : value;
+    }
+
+    /** 将 ClickHouse 默认空字符串还原为 API 语义中的缺失身份。 */
+    private String emptyToNull(String value) {
+        return value == null || value.isBlank() ? null : value;
     }
 }

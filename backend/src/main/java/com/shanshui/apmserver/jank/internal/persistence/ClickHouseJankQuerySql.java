@@ -32,7 +32,7 @@ public final class ClickHouseJankQuerySql {
 
     public static String selectEvents(JankQueryFilter filter) {
         StringBuilder sql = new StringBuilder("SELECT app_id, package_name, event_id, event_time, received_time, "
-                + "schema_version, session_id, anonymous_device_id, app_version, version_code, build_id, channel, "
+                + "schema_version, session_id, process_id, anonymous_device_id, app_version, version_code, build_id, channel, "
                 + "environment, os_version, device_model, network_type, scene, algorithm_version, "
                 + "message_duration_ns, threshold_ns, sampling_interval_ns, estimated_duration_ns, "
                 + "estimated_unattributed_duration_ns, covered_duration_ns, uncovered_duration_ns, "

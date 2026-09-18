@@ -30,7 +30,7 @@ final class TestJankSignals {
             String fingerprintVersion, String symbolicationStatus, CrashPayload crash, JankPayload jank,
             JankAnalysis analysis, FrameSceneSummaryPayload frame, ForegroundSuspensionSummaryPayload suspension) {
         EventMetadata metadata = new EventMetadata(appId, packageName, eventId, eventType, occurredAt, receivedAt,
-                schemaVersion, sessionId, anonymousDeviceId, appVersion, versionCode, buildId, environment, channel,
+                schemaVersion, sessionId, CrashTestSupport.PROCESS_ID, anonymousDeviceId, appVersion, versionCode, buildId, environment, channel,
                 osVersion, deviceModel, networkType, measurements, attributes);
         return switch (eventType) {
             case "jank" -> new JankEvent(metadata, fingerprint, fingerprintVersion, symbolicationStatus, jank, analysis);

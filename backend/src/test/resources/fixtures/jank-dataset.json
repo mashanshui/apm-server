@@ -3,7 +3,7 @@
   "events": [
     {
       "schemaVersion": 2, "eventId": "jank-001", "eventType": "jank", "occurredAt": 1786788000000,
-      "sessionId": "session-a", "anonymousDeviceId": "device-a", "packageName": "com.example.app", "appVersion": "3.2.0", "versionCode": 320,
+      "sessionId": "session-a", "processId": "11111111-1111-4111-8111-111111111111", "anonymousDeviceId": "device-a", "packageName": "com.example.app", "appVersion": "3.2.0", "versionCode": 320,
       "buildId": "build-320", "environment": "production", "channel": "official", "osVersion": "16", "deviceModel": "Pixel-8",
       "jank": {
         "scene": "checkout", "algorithmVersion": "jank-artifact-v2", "messageDurationNs": 500000000, "thresholdNs": 100000000,
@@ -18,7 +18,7 @@
     },
     {
       "schemaVersion": 2, "eventId": "jank-001", "eventType": "jank", "occurredAt": 1786788000000,
-      "sessionId": "session-a", "anonymousDeviceId": "device-a", "packageName": "com.example.app", "appVersion": "3.2.0", "versionCode": 320,
+      "sessionId": "session-a", "processId": "11111111-1111-4111-8111-111111111111", "anonymousDeviceId": "device-a", "packageName": "com.example.app", "appVersion": "3.2.0", "versionCode": 320,
       "buildId": "build-320", "environment": "production", "channel": "official", "osVersion": "16", "deviceModel": "Pixel-8",
       "jank": {
         "scene": "checkout", "algorithmVersion": "jank-artifact-v2", "messageDurationNs": 500000000, "thresholdNs": 100000000,
@@ -33,7 +33,7 @@
     },
     {
       "schemaVersion": 2, "eventId": "jank-002", "eventType": "jank", "occurredAt": 1786788060000,
-      "sessionId": "session-b", "anonymousDeviceId": "device-b", "packageName": "com.example.app", "appVersion": "3.2.0", "versionCode": 320,
+      "sessionId": "session-b", "processId": "11111111-1111-4111-8111-111111111111", "anonymousDeviceId": "device-b", "packageName": "com.example.app", "appVersion": "3.2.0", "versionCode": 320,
       "buildId": "build-320", "environment": "production", "channel": "official", "osVersion": "16", "deviceModel": "Pixel-8",
       "jank": {
         "scene": "checkout", "algorithmVersion": "jank-artifact-v2", "messageDurationNs": 700000000, "thresholdNs": 100000000,
@@ -48,7 +48,7 @@
     },
     {
       "schemaVersion": 2, "eventId": "jank-003", "eventType": "jank", "occurredAt": 1786838340000,
-      "sessionId": "session-c", "anonymousDeviceId": "device-a", "packageName": "com.example.app", "appVersion": "3.3.0", "versionCode": 330,
+      "sessionId": "session-c", "processId": "11111111-1111-4111-8111-111111111111", "anonymousDeviceId": "device-a", "packageName": "com.example.app", "appVersion": "3.3.0", "versionCode": 330,
       "buildId": "build-330", "environment": "production", "channel": "beta", "osVersion": "16", "deviceModel": "Pixel-8",
       "jank": {
         "scene": "order", "algorithmVersion": "jank-artifact-v2", "messageDurationNs": 300000000, "thresholdNs": 100000000,
@@ -62,43 +62,43 @@
     },
     {
       "schemaVersion": 2, "eventId": "frame-001", "eventType": "frame_scene_summary", "occurredAt": 1786788120000,
-      "sessionId": "session-a", "anonymousDeviceId": "device-a", "packageName": "com.example.app", "appVersion": "3.2.0", "versionCode": 320,
+      "sessionId": "session-a", "processId": "11111111-1111-4111-8111-111111111111", "anonymousDeviceId": "device-a", "packageName": "com.example.app", "appVersion": "3.2.0", "versionCode": 320,
       "buildId": "build-320", "environment": "production", "channel": "official", "osVersion": "16", "deviceModel": "Pixel-8",
       "frameSceneSummary": {"scene": "checkout", "algorithmVersion": "fps-v1", "activeDurationMs": 1000, "uiRefreshFrameCount": 50, "refreshRateHz": 60.0, "normalizedFps60": 50.0, "frameDurationHistogram": {"0-16": 40, "17-32": 10}}
     },
     {
       "schemaVersion": 2, "eventId": "frame-002", "eventType": "frame_scene_summary", "occurredAt": 1786838400000,
-      "sessionId": "session-c", "anonymousDeviceId": "device-a", "packageName": "com.example.app", "appVersion": "3.3.0", "versionCode": 330,
+      "sessionId": "session-c", "processId": "11111111-1111-4111-8111-111111111111", "anonymousDeviceId": "device-a", "packageName": "com.example.app", "appVersion": "3.3.0", "versionCode": 330,
       "buildId": "build-330", "environment": "production", "channel": "beta", "osVersion": "16", "deviceModel": "Pixel-8",
       "frameSceneSummary": {"scene": "order", "algorithmVersion": "fps-v2", "activeDurationMs": 1000, "uiRefreshFrameCount": 45, "refreshRateHz": 60.0, "normalizedFps60": 45.0}
     },
     {
       "schemaVersion": 2, "eventId": "susp-001", "eventType": "foreground_suspension_summary", "occurredAt": 1786788180000,
-      "sessionId": "session-a", "anonymousDeviceId": "device-a", "packageName": "com.example.app", "appVersion": "3.2.0", "versionCode": 320,
+      "sessionId": "session-a", "processId": "11111111-1111-4111-8111-111111111111", "anonymousDeviceId": "device-a", "packageName": "com.example.app", "appVersion": "3.2.0", "versionCode": 320,
       "buildId": "build-320", "environment": "production", "channel": "official", "osVersion": "16", "deviceModel": "Pixel-8",
       "foregroundSuspensionSummary": {"algorithmVersion": "suspension-v1", "foregroundDurationMs": 3600000, "suspensionDurationMs": 2000, "suspensionCount": 3, "thresholdMs": 200}
     },
     {
       "schemaVersion": 2, "eventId": "susp-002", "eventType": "foreground_suspension_summary", "occurredAt": 1786838460000,
-      "sessionId": "session-c", "anonymousDeviceId": "device-a", "packageName": "com.example.app", "appVersion": "3.3.0", "versionCode": 330,
+      "sessionId": "session-c", "processId": "11111111-1111-4111-8111-111111111111", "anonymousDeviceId": "device-a", "packageName": "com.example.app", "appVersion": "3.3.0", "versionCode": 330,
       "buildId": "build-330", "environment": "production", "channel": "beta", "osVersion": "16", "deviceModel": "Pixel-8",
       "foregroundSuspensionSummary": {"algorithmVersion": "suspension-v2", "foregroundDurationMs": 1800000, "suspensionDurationMs": 1000, "suspensionCount": 1, "thresholdMs": 200}
     },
     {
       "schemaVersion": 2, "eventId": "frame-001", "eventType": "frame_scene_summary", "occurredAt": 1786788120000,
-      "sessionId": "session-a", "anonymousDeviceId": "device-a", "packageName": "com.example.app", "appVersion": "3.2.0", "versionCode": 320,
+      "sessionId": "session-a", "processId": "11111111-1111-4111-8111-111111111111", "anonymousDeviceId": "device-a", "packageName": "com.example.app", "appVersion": "3.2.0", "versionCode": 320,
       "buildId": "build-320", "environment": "production", "channel": "official", "osVersion": "16", "deviceModel": "Pixel-8",
       "frameSceneSummary": {"scene": "checkout", "algorithmVersion": "fps-v1", "activeDurationMs": 1000, "uiRefreshFrameCount": 50, "refreshRateHz": 60.0, "normalizedFps60": 50.0, "frameDurationHistogram": {"0-16": 40, "17-32": 10}}
     },
     {
       "schemaVersion": 2, "eventId": "frame-003", "eventType": "frame_scene_summary", "occurredAt": 1786788300000,
-      "sessionId": "session-b", "anonymousDeviceId": "device-b", "packageName": "com.example.app", "appVersion": "3.2.0", "versionCode": 320,
+      "sessionId": "session-b", "processId": "11111111-1111-4111-8111-111111111111", "anonymousDeviceId": "device-b", "packageName": "com.example.app", "appVersion": "3.2.0", "versionCode": 320,
       "buildId": "build-320", "environment": "production", "channel": "official", "osVersion": "16", "deviceModel": "Pixel-8",
       "frameSceneSummary": {"scene": "checkout", "algorithmVersion": "fps-v1", "activeDurationMs": 1000, "uiRefreshFrameCount": 30, "refreshRateHz": 60.0, "normalizedFps60": 30.0}
     },
     {
       "schemaVersion": 2, "eventId": "susp-003", "eventType": "foreground_suspension_summary", "occurredAt": 1786788360000,
-      "sessionId": "session-b", "anonymousDeviceId": "device-a", "packageName": "com.example.app", "appVersion": "3.2.0", "versionCode": 320,
+      "sessionId": "session-b", "processId": "11111111-1111-4111-8111-111111111111", "anonymousDeviceId": "device-a", "packageName": "com.example.app", "appVersion": "3.2.0", "versionCode": 320,
       "buildId": "build-320", "environment": "production", "channel": "official", "osVersion": "16", "deviceModel": "Pixel-8",
       "foregroundSuspensionSummary": {"algorithmVersion": "suspension-v1", "foregroundDurationMs": 3600000, "suspensionDurationMs": 4000, "suspensionCount": 2, "thresholdMs": 200}
     }
