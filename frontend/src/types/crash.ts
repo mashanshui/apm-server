@@ -121,6 +121,10 @@ export interface CrashEventDetailResponse {
   fingerprint: string
   fingerprintVersion: string
   symbolicationStatus: string
+  symbolicatedStackText: string | null
+  symbolFileId: string | null
+  symbolFileRevision: number | null
+  symbolicationReason: string | null
   rawCrash: CrashPayload | null
 }
 

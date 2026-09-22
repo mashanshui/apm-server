@@ -57,6 +57,8 @@ GET /api/v1/apps/{appId}/memory-leaks/trend?interval=5m|hour|day
 
 已发布契约、统计公式和服务端限制以[服务端 API 文档](../../../docs/api/README.md)、[Crash API 文档](../../../docs/api/crash-api.md)、[卡顿服务端 API](../../../docs/api/jank-server-api.md)及[平台查询与 Dashboard](../../../docs/knowledge-base/05-查询与Dashboard.md)为准；本页只记录前端消费方式。
 
+符号表使用 `src/api/symbolApi.ts` 调用 `/api/v1/apps/{appId}/symbols` 的列表、multipart 首次上传和 `expectedRevision` 替换接口。`http.ts` 对 `FormData` 不设置 JSON `Content-Type`，继续携带同源 Session/CSRF；`ApiError.details` 保存冲突响应的当前元数据，页面据此展示摘要并等待明确确认。Crash 详情类型包含 `symbolicationStatus`、`symbolicatedStackText`、`symbolFileRevision` 和 `symbolicationReason`，还原结果仅在页面状态中展示。
+
 ## 请求约定
 
 - API 基地址来自 `VITE_API_BASE_URL`，未配置时使用当前站点相对路径。
@@ -74,7 +76,7 @@ GET /api/v1/apps/{appId}/memory-leaks/trend?interval=5m|hour|day
 
 ## 类型边界
 
-`src/types/crash.ts` 定义 Crash 契约；`src/types/jank.ts` 定义卡顿总览、趋势、Issue、事件、采样片段、调用树、堆栈字典、FPS、挂起率、多维、统一指标趋势和筛选类型。Crash/Jank 事件详情的 `processId` 为可空字符串，用于兼容迁移前历史记录；前端不生成替代值。卡顿详情采样质量只使用服务端派生的 `expectedSampleCount`、`parsedSampleCount` 和 `missingSampleCount`，不保留 attempted/successful/dropped。统一趋势点只填充当前指标对应的 FPS 或秒/小时前台时长字段；挂起率点的 `validRecords` 表示有效设备日数。后端响应字段变化时，应在同一改动中：
+`src/types/crash.ts` 定义 Crash 契约；`src/types/jank.ts` 定义卡顿总览、趋势、Issue、事件、采样片段、调用树、堆栈字典、FPS、挂起率、多维、统一指标趋势和筛选类型；`src/types/symbol.ts` 定义 mapping 当前版本元数据和列表响应。Crash/Jank 事件详情的 `processId` 为可空字符串，用于兼容迁移前历史记录；前端不生成替代值。卡顿详情采样质量只使用服务端派生的 `expectedSampleCount`、`parsedSampleCount` 和 `missingSampleCount`，不保留 attempted/successful/dropped。统一趋势点只填充当前指标对应的 FPS 或秒/小时前台时长字段；挂起率点的 `validRecords` 表示有效设备日数。后端响应字段变化时，应在同一改动中：
 
 1. 核对后端 API 文档和 JSON 语义。
 2. 更新 TypeScript 类型。

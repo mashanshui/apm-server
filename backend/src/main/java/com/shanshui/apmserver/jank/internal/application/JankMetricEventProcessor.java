@@ -38,7 +38,7 @@ public class JankMetricEventProcessor implements JankMetricEventProcessing {
                 Instant.ofEpochMilli(event.occurredAt()), receivedAt, event.schemaVersion(),
                 sanitizer.sanitizeIdentifier(event.sessionId(), 128), event.processId(), sanitizer.hashDeviceId(event.anonymousDeviceId()),
                 sanitizer.sanitizeText(event.appVersion(), 128), event.versionCode(),
-                sanitizer.sanitizeText(event.buildId(), 256), sanitizer.sanitizeIdentifier(event.environment(), 64),
+                sanitizer.sanitizeIdentifier(event.buildId(), 256), sanitizer.sanitizeIdentifier(event.environment(), 64),
                 sanitizer.sanitizeIdentifier(event.channel(), 128), sanitizer.sanitizeIdentifier(event.osVersion(), 64),
                 sanitizer.sanitizeText(event.deviceModel(), 256), sanitizer.sanitizeIdentifier(event.networkType(), 32),
                 event.measurements() == null ? Map.of() : Map.copyOf(event.measurements()),

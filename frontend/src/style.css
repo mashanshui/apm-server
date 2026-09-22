@@ -237,6 +237,19 @@ h2 { margin-bottom: 5px; color: var(--text-strong); font-size: 17px; }
 .settings-meta-list dt { color: var(--muted); font-size: 11px; }
 .settings-meta-list dd { margin: 0; color: var(--text-strong); font-size: 12px; font-weight: 650; text-align: right; }
 .settings-meta-list code { color: var(--primary); font-family: "SFMono-Regular", Consolas, monospace; font-size: 11px; }
+.symbol-upload-panel, .symbol-conflict-panel, .symbol-list-panel { overflow: hidden; margin-bottom: 20px; }
+.symbol-upload-form { padding-top: 20px; }
+.symbol-upload-form > .field { margin: 0 24px 20px; }
+.symbol-upload-form small { display: block; margin-top: 6px; color: var(--muted); font-size: 11px; }
+.symbol-filter-form { display: flex; align-items: center; gap: 10px; padding: 0 24px 18px; color: var(--muted-strong); font-size: 12px; }
+.symbol-filter-form input { min-width: 260px; }
+.symbol-files-table { min-width: 1220px; }
+.symbol-files-table .symbol-hash { white-space: normal; overflow-wrap: anywhere; }
+.symbol-conflict-panel { border-color: #f0c778; background: #fffdf7; }
+.symbol-hash { display: inline-block; max-width: 190px; overflow-wrap: anywhere; color: var(--muted-strong); font-size: 10px; }
+.symbolicated-panel { overflow: hidden; margin-bottom: 20px; }
+.symbolicated-stack { max-height: 620px; overflow: auto; margin: 0; padding: 18px 20px; border: 1px solid var(--line); border-radius: 9px; color: var(--text-strong); background: #f7f9fc; font: 12px/1.65 "SFMono-Regular", Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+.detail-actions { display: flex; justify-content: flex-end; margin-top: 14px; }
 .credential-panel { border-top: 1px solid var(--border); padding: 20px 22px 24px; }
 .credential-panel h3 { margin: 0 0 8px; color: var(--text-strong); font-size: 14px; }
 .credential-value { margin-top: 14px; padding: 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-muted); overflow-wrap: anywhere; }

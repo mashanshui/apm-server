@@ -65,6 +65,7 @@
 | 数据与验收 | [Crash 固定数据集](../crash-fixed-dataset.md)、[内存固定数据集](../memory-fixed-dataset.md)、[内存泄漏固定数据](../memory-leak-fixed-dataset.md)、[卡顿固定数据集](../jank-fixed-dataset.md)、[卡顿指标性能基线](../../backend/docs/knowledge-base/jank-performance-baseline.md) |
 | ClickHouse 与 Grafana | [ClickHouse 本地初始化](../clickhouse-local.md)、[Grafana/ClickHouse 安装与应用接入](../grafana-clickhouse-install.md)、[灰度、开关与回滚](../crash-rollout.md) |
 | Web 前端开发 | [前端知识库](../../frontend/docs/knowledge-base/README.md) |
+| Android 符号表 | [符号表管理 API](../api/symbol-api.md)、[网页上传与生效语义](../client-integration/symbol-mapping.md) |
 
 ## 推荐阅读路径
 

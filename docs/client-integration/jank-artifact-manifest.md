@@ -163,13 +163,13 @@
 
 `sampling-mapping.bin` 保存运行时方法指针、符号和线程名称映射，不是 ProGuard/R8 mapping。
 
-最小协议默认约定 ProGuard/R8 mapping 的业务标识等于 `buildId`：
+最小协议默认约定 ProGuard/R8 mapping 的业务标识等于 `buildId`。当前服务端网页上传的 mapping 注册表按 `appId + buildId` 选择当前版本；以下旧目录示例仅用于说明客户端不发送路径，不是生产存储结构：
 
 ```text
 <mapping-root>/<appId>/<buildId>.txt
 ```
 
-`appId` 由应用 Key 认证得到，客户端不能提供 mapping 标识或路径。对应文件不存在时，服务端继续保存未解混淆证据。
+`appId` 由应用 Key 认证得到，客户端不能提供 mapping 标识或路径。网页上传和替换步骤见[符号表网页上传与生效语义](symbol-mapping.md)；对应 mapping 不存在时，服务端继续保存未解混淆证据。
 
 ## 8. 可按部署约束进一步省略的字段
 
@@ -180,7 +180,7 @@
 | `thresholdNs` | v3 在所有客户端和场景中使用不可配置的固定阈值，服务端按协议版本得到同一值 |
 | `appVersion`、`versionCode`、`channel`、`environment` | 服务端存在经过发布流程维护的 `buildId` 注册表，且能稳定反查这些字段 |
 
-当前 `packageName` 不可省略：服务端使用它与 appKey 绑定的包名做逐字符匹配，不会用绑定值静默补齐 manifest。系统生成的 `appId` 不写入 manifest；`apm-server` 尚无完整构建和 mapping 注册中心，因此客户端仍应按第 3 节提供其余字段，不能只上传 `buildId` 后依赖不存在的服务端元数据。
+当前 `packageName` 不可省略：服务端使用它与 appKey 绑定的包名做逐字符匹配，不会用绑定值静默补齐 manifest。系统生成的 `appId` 不写入 manifest；mapping 注册中心由网页管理员维护，客户端仍应按第 3 节提供其余字段，不能在产物中携带 mapping 路径或内容。
 
 ## 9. 客户端生成顺序
 

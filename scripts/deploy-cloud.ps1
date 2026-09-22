@@ -235,6 +235,58 @@ if ($LASTEXITCODE -ne 0) {
     throw "部署包上传失败（退出码 $LASTEXITCODE）。"
 }
 
+# 部署后等待 Compose 健康检查，只有所有服务就绪后才报告成功。
+$remoteHealthCheck = @'
+# 最多等待 10 分钟，每 5 秒检查 PostgreSQL、ClickHouse、后端和 Web 容器。
+health_timeout_seconds=600
+health_poll_interval_seconds=5
+health_elapsed_seconds=0
+health_services='postgres clickhouse backend web'
+
+while [ "$health_elapsed_seconds" -le "$health_timeout_seconds" ]; do
+    all_services_healthy=true
+    health_summary=''
+
+    for service in $health_services; do
+        if ! container_id="$(sudo -n docker compose --env-file .env.cloud -f compose.cloud.yaml ps -aq "$service")"; then
+            service_status='compose-query-error'
+        elif [ -z "$container_id" ]; then
+            service_status='missing'
+        elif ! service_status="$(sudo -n docker inspect --format '{{.State.Status}} {{if .State.Health}}{{.State.Health.Status}}{{else}}no-healthcheck{{end}}' "$container_id" 2>/dev/null)"; then
+            service_status='inspect-error'
+        fi
+
+        health_summary="$health_summary $service=$service_status"
+        if [ "$service_status" != 'running healthy' ]; then
+            all_services_healthy=false
+        fi
+    done
+
+    if [ "$all_services_healthy" = true ]; then
+        break
+    fi
+
+    if [ "$((health_elapsed_seconds % 30))" -eq 0 ]; then
+        printf '等待云端服务健康：已等待 %s 秒，当前状态：%s\n' "$health_elapsed_seconds" "$health_summary"
+    fi
+
+    if [ "$health_elapsed_seconds" -ge "$health_timeout_seconds" ]; then
+        break
+    fi
+
+    sleep "$health_poll_interval_seconds"
+    health_elapsed_seconds=$((health_elapsed_seconds + health_poll_interval_seconds))
+done
+
+if [ "$all_services_healthy" != true ]; then
+    echo '云端服务在 600 秒内未全部达到 running/healthy，当前 Compose 状态：' >&2
+    sudo -n docker compose --env-file .env.cloud -f compose.cloud.yaml ps --all
+    exit 1
+fi
+
+echo 'PostgreSQL、ClickHouse、后端和 Web 容器均已 healthy。'
+'@
+
 # 远程只清理本次部署包和项目运行文件目录，保留 .env.cloud 与 Docker 数据卷。
 $remoteCommand = @"
 set -eu
@@ -253,10 +305,11 @@ cp -a '$remoteStage/.dockerignore' '$RemoteDirectory/'
 rm -rf '$remoteStage' '$remoteArchive'
 cd '$RemoteDirectory'
 sudo -n docker compose --env-file .env.cloud -f compose.cloud.yaml up -d --build
+$remoteHealthCheck
 "@
 Invoke-RemoteCommand -Command $remoteCommand
 
 # 临时 staging 目录只用于打包，部署包本身保留在 build/cloud-deploy 便于回滚或追溯。
 Remove-Item -LiteralPath $stagingRoot -Recurse -Force
-Write-Host '云端部署命令已完成。脚本未执行测试、容器状态检查、健康检查或业务验收。'
-Write-Host '如需验收，请单独检查云端 Compose、/healthz 和业务接口。'
+Write-Host '云端部署命令与四个容器健康检查均已完成。脚本未执行测试或业务验收。'
+Write-Host '如需业务验收，请单独检查业务接口与真实业务链路。'

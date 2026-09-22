@@ -78,10 +78,17 @@ services:
       APM_BOOTSTRAP_ADMIN_DISPLAY_NAME: ${APM_BOOTSTRAP_ADMIN_DISPLAY_NAME:-平台管理员}
       APM_SESSION_COOKIE_SECURE: ${APM_SESSION_COOKIE_SECURE:-false}
       APM_SESSION_SAME_SITE: ${APM_SESSION_SAME_SITE:-lax}
+      APM_MULTIPART_MAX_FILE_SIZE: ${APM_MULTIPART_MAX_FILE_SIZE:-32MB}
+      APM_MULTIPART_MAX_REQUEST_SIZE: ${APM_MULTIPART_MAX_REQUEST_SIZE:-34MB}
+      APM_SYMBOL_DIRECTORY: /var/lib/apm/symbols
+      APM_SYMBOL_MAX_FILE_BYTES: ${APM_SYMBOL_MAX_FILE_BYTES:-33554432}
+      APM_SYMBOL_MAX_OUTPUT_BYTES: ${APM_SYMBOL_MAX_OUTPUT_BYTES:-1048576}
+      APM_SYMBOL_MAX_CONCURRENT_OPERATIONS: ${APM_SYMBOL_MAX_CONCURRENT_OPERATIONS:-2}
       APM_MEMORY_REPORT_ARTIFACT_DIRECTORY: /var/lib/apm/memory-report-artifacts
       JAVA_TOOL_OPTIONS: ${JAVA_TOOL_OPTIONS:--XX:MaxRAMPercentage=65 -XX:+ExitOnOutOfMemoryError}
     volumes:
       - apm-memory-report-artifacts:/var/lib/apm/memory-report-artifacts
+      - apm-symbols:/var/lib/apm/symbols
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8080/actuator/health >/dev/null"]
       interval: 10s
@@ -114,6 +121,7 @@ volumes:
   apm-postgres-data:
   apm-clickhouse-data:
   apm-memory-report-artifacts:
+  apm-symbols:
 
 networks:
   apm-internal:

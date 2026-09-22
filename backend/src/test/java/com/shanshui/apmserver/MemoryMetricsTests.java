@@ -148,7 +148,7 @@ class MemoryMetricsTests {
         InMemoryMemoryMetricsRepository repository = new InMemoryMemoryMetricsRepository(CrashTestSupport.storageProperties());
         BatchIngestionService ingestion = ingestion(properties, repository);
         EventEnvelope event = new EventEnvelope(2, "named", "memory_sample", NOW.toEpochMilli(), "session", CrashTestSupport.PROCESS_ID,
-                "device-named", "com.example.app2", "1.0", 1, "build", "prod", "official", "16", "Pixel",
+                "device-named", "com.example.app2", "1.0", 1, "symbol-validation-2026-09-20", "prod", "official", "16", "Pixel",
                 "wifi", null, null, null, null, null, null,
                 new MemorySamplePayload(42L, null, null, "com.example.app2:worker", true,
                         "com.example.MainActivity2"));
@@ -158,6 +158,7 @@ class MemoryMetricsTests {
         var stored = repository.findByEventId(APP_ID, "named").orElseThrow();
         assertThat(stored.processName()).isEqualTo("com.example.app2:worker");
         assertThat(stored.scene()).isEqualTo("com.example.MainActivity2");
+        assertThat(stored.metadata().buildId()).isEqualTo("symbol-validation-2026-09-20");
     }
 
     @Test

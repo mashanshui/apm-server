@@ -106,8 +106,13 @@ class CrashApiIntegrationTests extends AppIngestApiTestSupport {
         mockMvc.perform(MockMvcRequestBuilders.get("/api/v1/apps/" + appId() + "/crashes/events/query-crash")
                         .session(session))
                 .andExpect(status().isOk())
+                .andExpect(MockMvcResultMatchers.header().string("Cache-Control",
+                        org.hamcrest.Matchers.containsString("no-store")))
+                .andExpect(MockMvcResultMatchers.header().string("Pragma", "no-cache"))
                 .andExpect(jsonPath("$.sessionId").value("query-session"))
-                .andExpect(jsonPath("$.processId").value("11111111-1111-4111-8111-111111111111"));
+                .andExpect(jsonPath("$.processId").value("11111111-1111-4111-8111-111111111111"))
+                .andExpect(jsonPath("$.symbolicationStatus").value("raw_only"))
+                .andExpect(jsonPath("$.symbolicationReason").value("mapping_missing"));
 
         mockMvc.perform(MockMvcRequestBuilders.get("/api/v1/apps/" + java.util.UUID.randomUUID() + "/crashes/overview")
                         .session(session)

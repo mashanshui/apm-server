@@ -121,6 +121,6 @@ Grafana 适合趋势、排行、筛选、临时分析和告警；Vue 更适合�
 
 ## JVM Crash 查询与 Dashboard 实现
 
-已增加以下查询语义：Crash 总览、小时或天趋势、问题排行、按指纹的事件列表和单事件详情。查询支持版本、渠道、环境、Android 版本、设备型号和指纹筛选，并限制时间范围、limit、游标和超时。比例使用 `app_start` 会话分母；分母为空时返回 `null` 和 `denominator_insufficient` 状态；没有任何事件时状态为 `no_data`。
+已增加以下查询语义：Crash 总览、小时或天趋势、问题排行、按指纹的事件列表和单事件详情。查询支持版本、渠道、环境、Android 版本、设备型号和指纹筛选，并限制时间范围、limit、游标和超时。比例使用 `app_start` 会话分母；分母为空时返回 `null` 和 `denominator_insufficient` 状态；没有任何事件时状态为 `no_data`。Crash 事件详情还会按当前 `appId + buildId` mapping 在请求内 Retrace，结果只存在响应中，不写回事件或缓存；列表、上传和替换契约见[符号表管理 API](../api/symbol-api.md)。
 
 Grafana JSON 位于 `backend/src/main/resources/grafana/dashboards/jvm-crash.json`，包含总览卡片、趋势、问题排行、版本对比、状态说明和下钻链接，当前数据源类型为 `vertamedia-clickhouse-datasource`。Dashboard 验收应覆盖固定数据集中的正常、无数据、分母不足和堆栈下钻状态；这些验收不等同于多租户生产权限或大规模性能验收。

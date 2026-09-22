@@ -25,6 +25,28 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class JankIngestionTests {
 
+    /** Jank 指标入库时保留与 mapping 注册表精确匹配的 buildId。 */
+    @Test
+    void preservesBuildIdThatMatchesPhonePattern() {
+        /** Jank 内存仓库。 */
+        InMemoryJankEventRepository repository = new InMemoryJankEventRepository(CrashTestSupport.storageProperties());
+        /** 使用真实事件处理链构造批次接收器。 */
+        var ingestion = CrashTestSupport.ingestion(repository, CrashTestSupport.ingestProperties());
+        /** 构造合法帧指标事件，并替换成包含日期数字的构建标识。 */
+        EventEnvelope source = frame("frame-build-id", "device");
+        EventEnvelope event = new EventEnvelope(source.schemaVersion(), source.eventId(), source.eventType(),
+                source.occurredAt(), source.sessionId(), source.processId(), source.anonymousDeviceId(),
+                source.packageName(), source.appVersion(), source.versionCode(), "symbol-validation-2026-09-20",
+                source.environment(), source.channel(), source.osVersion(), source.deviceModel(), source.networkType(),
+                source.measurements(), source.attributes(), null, null, source.frameSceneSummary(), null, null);
+        /** 批次入库响应。 */
+        var response = ingestion.ingest(TestAppIds.id("app-build-id"), CrashTestSupport.batch(List.of(event)));
+
+        /** 事件必须被接收，且保存的构建标识不得被电话号码规则改写。 */
+        assertEquals(1, response.accepted());
+        assertEquals("symbol-validation-2026-09-20", repository.findAll(TestAppIds.id("app-build-id")).get(0).buildId());
+    }
+
     @Test
     void rejectsJsonJankAndPointsClientToArtifactEndpoint() {
         InMemoryJankEventRepository repository = new InMemoryJankEventRepository(CrashTestSupport.storageProperties());

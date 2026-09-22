@@ -70,7 +70,7 @@ GET /api/v1/apps/{appId}/crashes/events/{eventId}
 
 查询支持 `from`、`to`（ISO-8601）、`appVersion`、`channel`、`environment`、`osVersion`、`deviceModel`、`fingerprint`、`limit`、`cursor` 和 `timeoutMs`。网页查询必须携带登录 Session，并由服务端依据当前用户与 `app_member` 的成员关系授权；无成员关系统一返回 404，避免泄露应用存在性。`X-App-Id`、`X-User-App-Ids` 和 `X-App-Key` 不参与网页查询授权。
 
-Crash 事件详情响应保留设备 ID、启动 ID和新增的进程实例 `processId`；存量记录没有该列时返回缺失值，不把 `sessionId` 自动填入。详情字段不提供身份关联跳转。
+Crash 事件详情响应保留设备 ID、启动 ID和新增的进程实例 `processId`；存量记录没有该列时返回缺失值，不把 `sessionId` 自动填入。详情字段不提供身份关联跳转。详情还返回本次请求的 `symbolicationStatus`、`symbolicatedStackText`、`symbolFileId`、`symbolFileRevision` 和 `symbolicationReason`；这些字段来自实时 Retrace，不改变事件存储。
 
 ## 统计公式
 
@@ -92,6 +92,7 @@ crashFreeSessionRate = 1 - crashedSessions / startedSessions
 - 异常消息替换邮箱、URL、用户路径、手机号、UUID，并按配置截断。
 - 属性名只接受字母、数字、下划线、点和连字符；测量值只保存数字。
 - 指纹由服务端生成，首期版本为 v1，忽略堆栈行号并归一化动态消息。
-- 详情保留脱敏后的原始异常链，`symbolicationStatus` 首期为 `raw_only`；`buildId` 为后续 mapping 关联键。
+- `buildId` 是符号表精确匹配键，按结构化标识清理和限长，不套用面向自然语言的电话号码脱敏，避免合法构建标识被改写后无法匹配 mapping。
+- 详情保留脱敏后的原始异常链，按事件 `buildId` 每次请求查找当前 mapping 并尝试 R8 Retrace；还原文本不保存。`mapping_missing`、`mapping_unavailable`、`parser_busy`、`output_limit` 和 `retrace_failed` 均降级为原始详情，上传或替换 mapping 后旧事件下次查询即可使用新版本。上传接口见[Android 符号表管理 API](symbol-api.md)。
 
 服务端只接受 `schemaVersion=2`、`eventType=crash`、`crash.kind=jvm`、`crash.fatal=true`。旧 schema v1、正文旧字段 `appId`、native、ANR、非致命异常、Protobuf 和完整 Issue 生命周期均不兼容。

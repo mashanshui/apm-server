@@ -37,7 +37,7 @@ public class MemoryEventProcessor implements MemoryEventProcessing {
                 // MemorySanitizer 已经完成匿名设备哈希，这里直接复用结果，避免同一设备因重复哈希产生不同 ID。
                 sanitizer.sanitizeIdentifier(sanitized.sessionId(), 128), sanitized.processId(), sanitized.anonymousDeviceId(),
                 sanitizer.sanitizeText(sanitized.appVersion(), 128), sanitized.versionCode(),
-                sanitizer.sanitizeText(sanitized.buildId(), 256), sanitizer.sanitizeIdentifier(sanitized.environment(), 64),
+                sanitizer.sanitizeIdentifier(sanitized.buildId(), 256), sanitizer.sanitizeIdentifier(sanitized.environment(), 64),
                 sanitizer.sanitizeIdentifier(sanitized.channel(), 128), sanitizer.sanitizeIdentifier(sanitized.osVersion(), 64),
                 sanitizer.sanitizeText(sanitized.deviceModel(), 256), sanitizer.sanitizeIdentifier(sanitized.networkType(), 32),
                 sanitized.measurements() == null ? Map.of() : sanitized.measurements(),

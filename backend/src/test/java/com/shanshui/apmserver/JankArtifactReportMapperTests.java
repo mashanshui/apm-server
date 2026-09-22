@@ -32,6 +32,21 @@ class JankArtifactReportMapperTests {
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
+    /** RHEA manifest 中用于 mapping 精确查找的 buildId 必须原样保存。 */
+    @Test
+    void preservesBuildIdThatMatchesPhonePattern() throws Exception {
+        /** 构造合法 RHEA 报告。 */
+        JsonNode report = report(1_000L, 20_000_000L);
+        /** 将 manifest buildId 设成包含日期式数字序列的值。 */
+        ((ObjectNode) report.path("sourceManifest")).put("buildId", "symbol-validation-2026-09-20");
+        /** 使用真实报告映射器转换为存储事件。 */
+        JankEvent event = mapper(CrashTestSupport.ingestProperties()).map(
+                TestAppIds.id("app-build-id"), report, Instant.now(), false);
+
+        /** 详情查询仍需要使用与 mapping 注册表相同的精确构建标识。 */
+        assertEquals("symbol-validation-2026-09-20", event.buildId());
+    }
+
     @Test
     void countsAllTargetThreadSegmentsAndDeduplicatesStacks() throws Exception {
         JsonNode report = report(1_000L, 20_000_000L);

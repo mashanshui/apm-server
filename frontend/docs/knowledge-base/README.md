@@ -7,14 +7,14 @@
 | 应用 | 状态 | 说明 |
 |---|---|---|
 | 工程形态 | 已落地 | 独立的 Vue 3 + TypeScript + Vite 单页应用 |
-| 页面范围 | 登录、应用工作区、JVM Crash、卡顿和内存分析闭环 | 除管理和 Crash 页面外，已提供卡顿指标、问题列表、Issue 事件、单事件采样证据及 PSS/VSS/Java 堆内存指标页面 |
+| 页面范围 | 登录、应用工作区、JVM Crash、卡顿、内存分析和符号表管理闭环 | 除管理和 Crash 页面外，已提供卡顿指标、问题列表、Issue 事件、单事件采样证据、PSS/VSS/Java 堆内存指标及 Android mapping 网页管理页面 |
 | 数据访问 | 已落地 | 统一 HTTP 客户端携带同源 Session Cookie 和 CSRF；已具备管理、Crash、卡顿及内存 summary/trend API 客户端，不直连 ClickHouse |
 | 图表 | 已落地 | ECharts 展示 Crash/卡顿问题趋势、多算法指标趋势和 PSS/VSS/Java 堆趋势；原生 SVG 展示采样估算火焰图 |
 | 视觉范围 | 已落地 | 浅色语义 Token、固定 1280px PC 设计基线；不承诺移动端适配 |
 | 自动化验证 | 已覆盖关键行为 | Vitest、Vue Test Utils、`vue-tsc` 和 Vite 构建；页面、Store、路由、Crash API、卡顿状态/证据/应用切换、内存筛选和统计卡片均有测试 |
 | 生产能力 | 部分完成 | 登录/应用成员授权已由后端强制执行；生产同源网关、HTTPS、静态资源部署和 OIDC 仍待实现 |
 
-当前实现基线：2026-09-11。Crash 页面、卡顿指标/问题/Issue/事件证据页面、PSS/VSS/Java 堆内存指标页面和 SDK 内存异常报告页面均已落地；卡顿详情质量字段已切换为 expected/parsed/missing。代码与已发布 API 是当前事实，本文档中的“目标”或“待确认”不代表已经实现。内存异常页面不包含 HPROF 解析或内存详情入口。
+当前实现基线：2026-09-19。Crash 页面、卡顿指标/问题/Issue/事件证据页面、PSS/VSS/Java 堆内存指标页面、SDK 内存异常报告页面和 Android mapping 网页管理页面均已落地；卡顿详情质量字段已切换为 expected/parsed/missing。代码与已发布 API 是当前事实，本文档中的“目标”或“待确认”不代表已经实现。内存异常页面不包含 HPROF 解析或内存详情入口。
 
 ## 知识导航
 
@@ -42,7 +42,7 @@
 - 页面：`src/views/`
 - 复用组件：`src/components/`
 - 查询编排：`src/composables/`
-- API 客户端：`src/api/crashApi.ts`、`src/api/jankApi.ts`、`src/api/memoryApi.ts`、`src/api/memoryLeakApi.ts`
+- API 客户端：`src/api/crashApi.ts`、`src/api/jankApi.ts`、`src/api/memoryApi.ts`、`src/api/memoryLeakApi.ts`、`src/api/symbolApi.ts`
 - 认证/应用 API：`src/api/http.ts`、`src/api/authApi.ts`、`src/api/appApi.ts`
 - 接口类型：`src/types/crash.ts`、`src/types/jank.ts`、`src/types/memory.ts`
 - 用户/应用状态：`src/stores/pinia.ts`、`src/stores/session.ts`、`src/stores/apps.ts`

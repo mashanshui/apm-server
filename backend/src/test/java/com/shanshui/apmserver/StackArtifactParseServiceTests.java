@@ -4,6 +4,7 @@ import com.shanshui.apmserver.platform.api.StorageProperties;
 import com.shanshui.apmserver.jank.api.JankAnalysis;
 
 import com.bytedance.rheatrace.stack.StackMappingResolver;
+import com.bytedance.rheatrace.stack.StackArtifactMetadata;
 import com.bytedance.rheatrace.stack.StackParser;
 import com.shanshui.apmserver.bootstrap.internal.config.IngestConfigurationProperties;
 import com.shanshui.apmserver.jank.internal.config.StackParserProperties;
@@ -18,6 +19,10 @@ import com.shanshui.apmserver.jank.internal.artifact.AppStackMappingResolver;
 import com.shanshui.apmserver.identity.api.PackageNameMismatchException;
 import com.shanshui.apmserver.jank.internal.artifact.StackArtifactParseService;
 import com.shanshui.apmserver.jank.api.StackParserBusyException;
+import com.shanshui.apmserver.symbol.api.SymbolFileLease;
+import com.shanshui.apmserver.symbol.api.SymbolRegistry;
+import com.shanshui.apmserver.symbol.api.SymbolicationResult;
+import com.shanshui.apmserver.symbol.api.SymbolStoreUnavailableException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import tools.jackson.databind.ObjectMapper;
@@ -28,11 +33,16 @@ import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Path;
+import java.nio.file.Files;
 import java.time.Instant;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
@@ -116,6 +126,75 @@ class StackArtifactParseServiceTests {
                 "version", "jank-artifact-v2").count());
     }
 
+    /** 统一注册表命中时，解析器必须在整个 processor 调用期间持有固定版本租约。 */
+    @Test
+    void usesRegisteredMappingAndReleasesLeaseAfterProcessor() throws Exception {
+        Path mapping = Files.writeString(mappingRoot.resolve("registered.mapping"), "mapping");
+        AtomicInteger closed = new AtomicInteger();
+        InMemoryJankEventRepository repository = repository();
+        StackArtifactParseService service = serviceWithRegistry(
+                parserThatResolvesMapping(mapping), repository, registry(mapping, closed, true), 2);
+
+        assertEquals("accepted", service.parse(app("demo-app"), new ByteArrayInputStream(new byte[]{1})).status());
+        assertEquals(1, closed.get());
+        assertEquals("symbolicated", repository.findJankByEventId(TestAppIds.id("demo-app"), "artifact-event")
+                .orElseThrow().symbolicationStatus());
+    }
+
+    /** mapping 缺失仍保存未解混淆证据，注册表故障则按可重试错误传播。 */
+    @Test
+    void distinguishesMissingMappingFromRegistryFailure() throws Exception {
+        SymbolRegistry missing = new SymbolRegistry() {
+            @Override
+            public Optional<SymbolFileLease> acquire(UUID appId, String buildId) {
+                return Optional.empty();
+            }
+
+            @Override
+            public SymbolicationResult retrace(SymbolFileLease lease, List<String> stackLines) {
+                throw new AssertionError("缺失 mapping 不应执行 Retrace");
+            }
+        };
+        InMemoryJankEventRepository missingRepository = repository();
+        StackArtifactParseService missingService = serviceWithRegistry(
+                parserThatResolvesMapping(null), missingRepository, missing, 2);
+        assertEquals("accepted", missingService.parse(app("demo-app"), new ByteArrayInputStream(new byte[]{1})).status());
+        assertEquals("raw_only", missingRepository.findJankByEventId(TestAppIds.id("demo-app"), "artifact-event")
+                .orElseThrow().symbolicationStatus());
+
+        SymbolRegistry unavailable = new SymbolRegistry() {
+            @Override
+            public Optional<SymbolFileLease> acquire(UUID appId, String buildId) {
+                throw new SymbolStoreUnavailableException("registry unavailable");
+            }
+
+            @Override
+            public SymbolicationResult retrace(SymbolFileLease lease, List<String> stackLines) {
+                throw new AssertionError("注册表故障时不应执行 Retrace");
+            }
+        };
+        StackArtifactParseService unavailableService = serviceWithRegistry(
+                parserThatResolvesMapping(null), repository(), unavailable, 2);
+        assertThrows(SymbolStoreUnavailableException.class,
+                () -> unavailableService.parse(app("demo-app"), new ByteArrayInputStream(new byte[]{1})));
+    }
+
+    /** 同一事件在 mapping 替换后再次上传仍按既有幂等语义返回 duplicate。 */
+    @Test
+    void duplicateUploadDoesNotReplaceSavedJankEvidence() throws Exception {
+        Path mapping = Files.writeString(mappingRoot.resolve("duplicate.mapping"), "mapping");
+        AtomicInteger closed = new AtomicInteger();
+        InMemoryJankEventRepository repository = repository();
+        StackArtifactParseService service = serviceWithRegistry(
+                parserThatResolvesMapping(mapping), repository, registry(mapping, closed, true), 2);
+
+        assertEquals("accepted", service.parse(app("demo-app"), new ByteArrayInputStream(new byte[]{1})).status());
+        assertEquals("duplicate", service.parse(app("demo-app"), new ByteArrayInputStream(new byte[]{2})).status());
+        assertEquals(2, closed.get());
+        assertEquals("symbolicated", repository.findJankByEventId(TestAppIds.id("demo-app"), "artifact-event")
+                .orElseThrow().symbolicationStatus());
+    }
+
     @Test
     void rejectsZipPackageMismatchBeforeProcessorAndMapping() throws Exception {
         AtomicBoolean parserCalled = new AtomicBoolean();
@@ -194,6 +273,103 @@ class StackArtifactParseServiceTests {
                 new AppStackMappingResolver(stackProperties), mapper,
                 new com.shanshui.apmserver.jank.internal.application.JankWriteCoordinator(repository), stackProperties,
                 metrics);
+    }
+
+    /** 使用统一注册表构造卡顿解析服务，避免测试回退到旧手工路径。 */
+    private StackArtifactParseService serviceWithRegistry(StackParser parser,
+                                                          InMemoryJankEventRepository repository,
+                                                          SymbolRegistry registry,
+                                                          int concurrency) {
+        StackParserProperties stackProperties = new StackParserProperties();
+        stackProperties.setMaxConcurrentParses(concurrency);
+        IngestConfigurationProperties ingestProperties = CrashTestSupport.ingestProperties();
+        ObjectMapper objectMapper = new ObjectMapper();
+        JankSanitizer sanitizer = new JankSanitizer(ingestProperties);
+        JankArtifactReportMapper mapper = new JankArtifactReportMapper(objectMapper, ingestProperties,
+                sanitizer, new JankFingerprintService());
+        return new StackArtifactParseService(parser, objectMapper,
+                new AppStackMappingResolver(registry), mapper,
+                new com.shanshui.apmserver.jank.internal.application.JankWriteCoordinator(repository),
+                stackProperties, new MicrometerTelemetryMetrics(
+                new io.micrometer.core.instrument.simple.SimpleMeterRegistry()));
+    }
+
+    /** 创建会主动向统一 resolver 请求一个 buildId 的 processor 替身。 */
+    private StackParser parserThatResolvesMapping(Path expectedMapping) {
+        return new StackParser() {
+            @Override
+            public String parse(InputStream artifactInput, File proguardMapping) {
+                throw new AssertionError("生产路径必须使用统一 mapping resolver");
+            }
+
+            @Override
+            public String parseWithMappingResolver(InputStream artifactInput,
+                                                   StackMappingResolver mappingResolver) throws IOException {
+                File resolved = mappingResolver.resolve(metadata("build-1"));
+                if (expectedMapping != null && !expectedMapping.toFile().equals(resolved)) {
+                    throw new AssertionError("processor 未取得注册表 mapping");
+                }
+                if (expectedMapping == null && resolved != null) {
+                    throw new AssertionError("缺失 mapping 不应返回文件");
+                }
+                return report();
+            }
+        };
+    }
+
+    /** 创建 processor 传给 resolver 的 metadata，覆盖 buildId 选择。 */
+    private StackArtifactMetadata metadata(String mappingId) throws IOException {
+        try {
+            var constructor = StackArtifactMetadata.class.getDeclaredConstructor(
+                    int.class, String.class, String.class, String.class);
+            constructor.setAccessible(true);
+            return constructor.newInstance(3, "RHEA_JANK", "demo-app", mappingId);
+        } catch (ReflectiveOperationException ex) {
+            throw new IOException("无法构造 processor metadata 测试值", ex);
+        }
+    }
+
+    /** 创建固定版本租约的统一注册表测试替身。 */
+    private SymbolRegistry registry(Path mapping, AtomicInteger closed, boolean available) {
+        return new SymbolRegistry() {
+            @Override
+            public Optional<SymbolFileLease> acquire(UUID appId, String buildId) {
+                if (!available) {
+                    return Optional.empty();
+                }
+                return Optional.of(new SymbolFileLease() {
+                    private boolean released;
+
+                    @Override
+                    public UUID symbolId() {
+                        return TestAppIds.id("jank-symbol");
+                    }
+
+                    @Override
+                    public int revision() {
+                        return 1;
+                    }
+
+                    @Override
+                    public Path path() {
+                        return mapping;
+                    }
+
+                    @Override
+                    public void close() {
+                        if (!released) {
+                            released = true;
+                            closed.incrementAndGet();
+                        }
+                    }
+                });
+            }
+
+            @Override
+            public SymbolicationResult retrace(SymbolFileLease lease, List<String> stackLines) {
+                return SymbolicationResult.failed("unused");
+            }
+        };
     }
 
     private InMemoryJankEventRepository repository() {

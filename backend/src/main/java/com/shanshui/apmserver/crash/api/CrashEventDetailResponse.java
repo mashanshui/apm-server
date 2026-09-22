@@ -23,5 +23,9 @@ public record CrashEventDetailResponse(
         String fingerprint,
         String fingerprintVersion,
         String symbolicationStatus,
+        String symbolicatedStackText,
+        java.util.UUID symbolFileId,
+        Integer symbolFileRevision,
+        String symbolicationReason,
         CrashPayload rawCrash) {
 }

@@ -39,7 +39,7 @@ public class MemorySanitizer {
                 sanitizeIdentifier(event.eventType(), 32), event.occurredAt(), sanitizeIdentifier(event.sessionId(), 128),
                 event.processId(),
                 hashDeviceId(event.anonymousDeviceId()), sanitizeIdentifier(event.packageName(), 255),
-                sanitizeText(event.appVersion(), 128), event.versionCode(), sanitizeText(event.buildId(), 256),
+                sanitizeText(event.appVersion(), 128), event.versionCode(), sanitizeIdentifier(event.buildId(), 256),
                 sanitizeIdentifier(event.environment(), 64), sanitizeIdentifier(event.channel(), 128),
                 sanitizeIdentifier(event.osVersion(), 64), sanitizeText(event.deviceModel(), 256),
                 sanitizeIdentifier(event.networkType(), 32), sanitizeMap(event.measurements(), false, true),

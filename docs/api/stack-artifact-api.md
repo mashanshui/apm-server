@@ -28,7 +28,7 @@ X-App-Key: <appKey>
 
 请求体必须是原始 ZIP 字节，不能使用 JSON、Base64、multipart 或外层 gzip。控制器在读取正文前通过 PostgreSQL 应用凭据摘要校验 Key，再校验媒体类型，并通过 `Content-Length` 与受限输入流执行默认 64 MiB 上限。Key 映射同时得到 UUID `appId` 和绑定 `packageName`。
 
-客户端不发送 `X-Mapping-Id`。服务端从通过校验的 manifest 读取 `buildId`，按 `<mapping-root>/<appId>/<buildId>.txt` 查找应用隔离的 mapping；文件不存在时继续保存未解混淆证据，非法 buildId、路径越界或符号链接逃逸返回 422。
+客户端不发送 `X-Mapping-Id`。服务端从通过校验的 manifest 读取 `buildId`，按符号表注册表的 `appId + buildId` 精确取得当前 mapping；文件不存在时继续保存未解混淆证据，非法 buildId 返回 422。网页上传和替换见[Android 符号表管理 API](symbol-api.md)。
 
 ## 3. manifest 与服务端派生字段
 
@@ -91,7 +91,9 @@ missingSampleCount = max(0, expectedSampleCount - parsedSampleCount)
 |---|---:|---|
 | `apm.stack-parser.max-artifact-bytes` | `67108864` | 压缩请求体最大字节数 |
 | `apm.stack-parser.max-concurrent-parses` | `2` | 同步解析并发许可数 |
-| `apm.stack-parser.mapping-root` | 空 | 应用 mapping 根目录；空表示不使用 mapping |
+| `apm.symbol.directory` | `build/symbols` | 网页上传 mapping 的受控文件目录；生产按 `appId + buildId` 从符号表注册表选择，不读取客户端路径 |
+
+`apm.stack-parser.mapping-root` 仅保留给旧的 resolver 单元测试构造器，生产卡顿入口不再按该目录查找 mapping。文件卷、大小和并发配置见[符号表管理 API](symbol-api.md)。
 
 ```bash
 curl -X POST "http://localhost:8080/ingest/v1/stack-artifacts:parse" \

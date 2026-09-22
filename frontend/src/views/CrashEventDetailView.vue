@@ -18,6 +18,21 @@ const loading = ref(false)
 const error = ref<string | null>(null)
 let controller: AbortController | null = null
 let requestToken = 0
+const showSymbolicated = ref(true)
+
+const hasSymbolicatedText = computed(() => Boolean(event.value?.symbolicatedStackText))
+
+/** 返回符号化失败原因的中文说明。 */
+function symbolicationReason(reason: string | null): string {
+  const labels: Record<string, string> = {
+    mapping_missing: '当前 buildId 没有可用 mapping',
+    mapping_unavailable: '符号表存储暂时不可用',
+    parser_busy: '符号解析资源繁忙，请稍后刷新',
+    retrace_failed: 'R8 Retrace 未能完成本次还原',
+    output_limit: '还原结果超过响应大小上限',
+  }
+  return reason ? (labels[reason] ?? reason) : '当前请求未执行符号化'
+}
 
 const contextFilters = computed(() => parseFilters(route.query))
 const backToIssue = computed(() => {
@@ -39,6 +54,7 @@ const backToOverview = computed(() => ({
   query: filtersToQuery(contextFilters.value),
 }))
 
+/** 每次进入详情都重新请求当前 mapping 对应的实时还原结果。 */
 async function load() {
   const token = ++requestToken
   controller?.abort()
@@ -93,7 +109,10 @@ watch(() => route.fullPath, () => { void load() }, { immediate: true })
 
     <template v-else-if="event">
       <div v-if="event.symbolicationStatus === 'raw_only'" class="notice">
-        当前事件尚未完成符号化，以下为服务端返回的脱敏原始异常链和堆栈。
+        {{ symbolicationReason(event.symbolicationReason) }}。以下为服务端返回的脱敏原始异常链和堆栈。
+      </div>
+      <div v-else-if="event.symbolicationStatus === 'failed'" class="notice notice-warning">
+        {{ symbolicationReason(event.symbolicationReason) }}，已保留原始异常链。
       </div>
 
       <section class="panel detail-card" style="margin-bottom: 20px">
@@ -117,6 +136,8 @@ watch(() => route.fullPath, () => { void load() }, { immediate: true })
           <div class="meta-item"><dt>网络类型</dt><dd>{{ event.networkType || '—' }}</dd></div>
           <div class="meta-item"><dt>指纹</dt><dd class="fingerprint" :title="event.fingerprint">{{ event.fingerprint }}</dd></div>
           <div class="meta-item"><dt>指纹版本</dt><dd>{{ event.fingerprintVersion || '—' }}</dd></div>
+          <div class="meta-item"><dt>符号表版本</dt><dd>{{ event.symbolFileRevision ? `revision ${event.symbolFileRevision}` : '—' }}</dd></div>
+          <div class="meta-item"><dt>本次原因</dt><dd>{{ symbolicationReason(event.symbolicationReason) }}</dd></div>
         </dl>
         <EventIdentityFields
           :anonymous-device-id="event.anonymousDeviceId"
@@ -125,7 +146,16 @@ watch(() => route.fullPath, () => { void load() }, { immediate: true })
         />
       </section>
 
-      <StackTrace :crash="event.rawCrash" />
+      <section v-if="hasSymbolicatedText" class="panel detail-card symbolicated-panel">
+        <div class="panel-header" style="padding: 0 0 16px">
+          <div><h2>堆栈内容</h2><p>每次打开详情都会使用当前 mapping 实时解析，不保存还原结果。</p></div>
+          <div class="segmented-control"><button type="button" :class="{ active: !showSymbolicated }" @click="showSymbolicated = false">原始结构</button><button type="button" :class="{ active: showSymbolicated }" @click="showSymbolicated = true">还原文本</button></div>
+        </div>
+        <pre v-if="showSymbolicated" class="symbolicated-stack">{{ event.symbolicatedStackText }}</pre>
+        <StackTrace v-else :crash="event.rawCrash" />
+      </section>
+      <StackTrace v-else :crash="event.rawCrash" />
+      <div class="detail-actions"><RouterLink class="button" :to="{ name: 'app-symbols', params: { appId }, query: { buildId: event.buildId } }">上传此 buildId 的 mapping</RouterLink></div>
     </template>
   </AppLayout>
 </template>

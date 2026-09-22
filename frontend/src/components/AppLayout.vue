@@ -18,6 +18,7 @@ const memoryMetricsActive = computed(() => route.name === 'memory-metrics')
 const memoryLeaksActive = computed(() => route.name === 'memory-leaks')
 const jankIssuesActive = computed(() => ['jank-issues', 'jank-issue-events', 'jank-event-detail'].includes(String(route.name ?? '')))
 const settingsActive = computed(() => route.name === 'app-settings')
+const symbolsActive = computed(() => route.name === 'app-symbols')
 
 onMounted(() => {
   if (session.isAuthenticated && apps.apps.length === 0) {
@@ -25,14 +26,19 @@ onMounted(() => {
   }
 })
 
+/** 切换应用并保留当前符号表或卡顿查询上下文。 */
 function switchApp(event: Event) {
   const nextAppId = (event.target as HTMLSelectElement).value
   if (!nextAppId || nextAppId === props.appId) return
   apps.clearCurrent()
   const jankTarget = jankAppSwitchTarget(route.name, nextAppId, route.query)
-  void router.push(jankTarget ?? { name: 'crash-overview', params: { appId: nextAppId } })
+  const target = route.name === 'app-symbols'
+    ? { name: 'app-symbols', params: { appId: nextAppId }, query: route.query }
+    : (jankTarget ?? { name: 'crash-overview', params: { appId: nextAppId } })
+  void router.push(target)
 }
 
+/** 注销当前 Session 并清理应用上下文。 */
 async function logout() {
   try {
     await session.logout()
@@ -114,6 +120,14 @@ async function logout() {
           >
             <span class="nav-icon">⚙</span>
             <span>应用设置</span>
+          </RouterLink>
+          <RouterLink
+            class="nav-link"
+            :class="{ 'router-link-active': symbolsActive }"
+            :to="{ name: 'app-symbols', params: { appId: props.appId } }"
+          >
+            <span class="nav-icon">↥</span>
+            <span>符号表管理</span>
           </RouterLink>
         </template>
       </nav>

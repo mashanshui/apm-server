@@ -13,6 +13,7 @@
 - [后端认证授权与安全实现](04-认证授权与安全实现.md)
 - [后端构建配置与本地运行](05-构建配置与本地运行.md)
 - [后端测试与质量保障](06-测试与质量保障.md)
+- [后端符号表实现](symbol-mapping.md)
 - [卡顿指标性能基线](jank-performance-baseline.md)
 
 ## 阅读与维护
@@ -40,6 +41,7 @@
 | 08-测试与质量保障.md / 2026-09-04 模块化重构验收 | [06-测试与质量保障.md](06-测试与质量保障.md) |
 | 08-测试与质量保障.md / 2026-09-01 后端构建段 | [06-测试与质量保障.md](06-测试与质量保障.md) |
 | docs/jank-performance-baseline.md 全文 | [jank-performance-baseline.md](jank-performance-baseline.md) |
+| 本次 Android 符号表上传与 Retrace | [后端符号表实现](symbol-mapping.md) |
 
 迁移补充：`backend/docs/knowledge-base/01-工程结构与模块边界.md` 的“凭据读写投影”正文见[凭据读写投影](04-认证授权与安全实现.md)。
 

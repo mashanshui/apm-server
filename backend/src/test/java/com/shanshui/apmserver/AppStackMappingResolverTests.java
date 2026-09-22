@@ -3,17 +3,25 @@ package com.shanshui.apmserver;
 import com.shanshui.apmserver.jank.internal.config.StackParserProperties;
 import com.shanshui.apmserver.jank.api.InvalidStackArtifactException;
 import com.shanshui.apmserver.jank.internal.artifact.AppStackMappingResolver;
+import com.shanshui.apmserver.symbol.api.SymbolFileLease;
+import com.shanshui.apmserver.symbol.api.SymbolRegistry;
+import com.shanshui.apmserver.symbol.api.SymbolicationResult;
+import com.shanshui.apmserver.symbol.api.SymbolStoreUnavailableException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.io.IOException;
+import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 class AppStackMappingResolverTests {
@@ -77,6 +85,74 @@ class AppStackMappingResolverTests {
         InvalidStackArtifactException exception = assertThrows(InvalidStackArtifactException.class,
                 () -> resolver().resolveOptional(appId, "build"));
         assertEquals("INVALID_MAPPING_PATH", exception.getCode());
+    }
+
+    @Test
+    void resolvesThroughSharedRegistryAndKeepsLeaseUntilParserReleasesIt() throws Exception {
+        UUID appId = TestAppIds.id("demo-app");
+        Path mapping = Files.writeString(mappingRoot.resolve("registered.mapping"), "com.example.a -> a:");
+        AtomicBoolean closed = new AtomicBoolean();
+        SymbolFileLease lease = new SymbolFileLease() {
+            @Override
+            public UUID symbolId() {
+                return TestAppIds.id("symbol");
+            }
+
+            @Override
+            public int revision() {
+                return 3;
+            }
+
+            @Override
+            public Path path() {
+                return mapping;
+            }
+
+            @Override
+            public void close() {
+                closed.set(true);
+            }
+        };
+        SymbolRegistry registry = new SymbolRegistry() {
+            @Override
+            public Optional<SymbolFileLease> acquire(UUID requestedAppId, String buildId) {
+                assertEquals(appId, requestedAppId);
+                assertEquals("build-320", buildId);
+                return Optional.of(lease);
+            }
+
+            @Override
+            public SymbolicationResult retrace(SymbolFileLease ignored, List<String> stackLines) {
+                return SymbolicationResult.failed("unused");
+            }
+        };
+
+        AppStackMappingResolver resolver = new AppStackMappingResolver(registry);
+        AppStackMappingResolver.ResolvedMapping resolved = resolver.resolve(appId, "build-320");
+
+        assertEquals(mapping.toFile(), resolved.file());
+        assertEquals(lease, resolved.lease());
+        assertTrue(!closed.get());
+        resolved.lease().close();
+        assertTrue(closed.get());
+    }
+
+    @Test
+    void propagatesRegistryUnavailableAsRetryableFailure() {
+        SymbolRegistry registry = new SymbolRegistry() {
+            @Override
+            public java.util.Optional<SymbolFileLease> acquire(UUID appId, String buildId) {
+                throw new SymbolStoreUnavailableException("registry unavailable");
+            }
+
+            @Override
+            public SymbolicationResult retrace(SymbolFileLease lease, List<String> stackLines) {
+                return SymbolicationResult.failed("unused");
+            }
+        };
+
+        assertThrows(SymbolStoreUnavailableException.class,
+                () -> new AppStackMappingResolver(registry).resolve(TestAppIds.id("demo-app"), "build-320"));
     }
 
     private AppStackMappingResolver resolver() {

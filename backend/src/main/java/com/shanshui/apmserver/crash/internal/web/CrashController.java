@@ -17,6 +17,8 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.http.CacheControl;
+import org.springframework.http.ResponseEntity;
 
 @RestController
 @RequestMapping("/api/v1/apps/{appId}/crashes")
@@ -74,11 +76,13 @@ public class CrashController {
     }
 
     @GetMapping("/events/{eventId}")
-    public CrashEventDetailResponse event(@PathVariable java.util.UUID appId,
-                                          @PathVariable String eventId,
-                                          Authentication authentication) {
+    public ResponseEntity<CrashEventDetailResponse> event(@PathVariable java.util.UUID appId,
+                                                           @PathVariable String eventId,
+                                                           Authentication authentication) {
         authorizationService.requireView(appId, authentication);
-        return queryService.event(appId, eventId);
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore().cachePrivate())
+                .header("Pragma", "no-cache")
+                .body(queryService.event(appId, eventId));
     }
 
     private CrashQueryCommand command(QueryParams params) {

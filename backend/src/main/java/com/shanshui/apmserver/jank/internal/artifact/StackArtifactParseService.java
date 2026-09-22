@@ -16,6 +16,7 @@ import com.shanshui.apmserver.jank.internal.domain.JankEvent;
 import com.shanshui.apmserver.jank.internal.port.JankEventRepository;
 import com.shanshui.apmserver.jank.internal.application.JankWriteCoordinator;
 import com.shanshui.apmserver.platform.api.EventStoreUnavailableException;
+import com.shanshui.apmserver.symbol.api.SymbolStoreUnavailableException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import tools.jackson.databind.JsonNode;
@@ -31,6 +32,7 @@ import java.nio.file.StandardCopyOption;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
+import java.util.ArrayList;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.zip.ZipEntry;
@@ -94,7 +96,10 @@ public class StackArtifactParseService {
             throw new StackParserBusyException();
         }
         try {
+            // 记录本次报告是否至少有一段堆栈使用了 mapping，避免后续缺失选择覆盖已命中的状态。
             AtomicBoolean mappingApplied = new AtomicBoolean();
+            // 保存解析期间取得的不可变租约，直到 processor 完成后统一释放。
+            List<com.shanshui.apmserver.symbol.api.SymbolFileLease> mappingLeases = new ArrayList<>();
             Path artifactFile = Files.createTempFile("apm-jank-artifact-", ".zip");
             try {
                 Files.copy(artifactInput, artifactFile, StandardCopyOption.REPLACE_EXISTING);
@@ -102,9 +107,16 @@ public class StackArtifactParseService {
                 String reportJson;
                 try (InputStream parserInput = Files.newInputStream(artifactFile)) {
                     reportJson = parser.parseWithMappingResolver(parserInput, metadata -> {
-                        File mapping = mappingResolver.resolveOptional(appId, metadata.getMappingId());
-                        mappingApplied.set(mapping != null);
-                        return mapping;
+                        AppStackMappingResolver.ResolvedMapping resolved = mappingResolver.resolve(appId,
+                                metadata.getMappingId());
+                        if (resolved.lease() != null) {
+                            mappingLeases.add(resolved.lease());
+                        }
+                        // 一个报告可能触发多次 mapping 选择，只要任一堆栈使用了 mapping 就保留成功状态。
+                        if (resolved.file() != null) {
+                            mappingApplied.set(true);
+                        }
+                        return resolved.file();
                     });
                 }
                 JsonNode report = objectMapper.readTree(reportJson);
@@ -123,6 +135,13 @@ public class StackArtifactParseService {
                 }
                 throw new EventStoreUnavailableException("事件分析存储返回了无效写入结果");
             } finally {
+                mappingLeases.forEach(lease -> {
+                    try {
+                        lease.close();
+                    } catch (IOException ignored) {
+                        // 解析异常时租约释放失败不覆盖主流程错误。
+                    }
+                });
                 try {
                     Files.deleteIfExists(artifactFile);
                 } catch (IOException ignored) {
@@ -133,7 +152,7 @@ public class StackArtifactParseService {
                  ex) {
             jankMetrics.jankRejected();
             throw ex;
-        } catch (EventStoreUnavailableException ex) {
+        } catch (EventStoreUnavailableException | SymbolStoreUnavailableException ex) {
             jankMetrics.retryableFailure();
             throw ex;
         } catch (IOException | RuntimeException ex) {

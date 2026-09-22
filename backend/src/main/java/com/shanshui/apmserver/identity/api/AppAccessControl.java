@@ -8,4 +8,10 @@ import java.util.UUID;
 public interface AppAccessControl {
 
     void requireView(UUID appId, Authentication authentication);
+
+    /** 要求当前用户具备应用 Owner 或 Admin 写权限。 */
+    void requireEdit(UUID appId, Authentication authentication);
+
+    /** 返回当前已认证用户标识，供跨模块审计记录使用。 */
+    UUID requireUserId(Authentication authentication);
 }

@@ -26,10 +26,16 @@ import com.shanshui.apmserver.platform.api.UnsupportedMediaTypeException;
 import com.shanshui.apmserver.ingest.api.UnsupportedSchemaVersionException;
 import com.shanshui.apmserver.jank.api.StackParserBusyException;
 import com.shanshui.apmserver.platform.api.EventStoreUnavailableException;
+import com.shanshui.apmserver.symbol.api.SymbolConflictException;
+import com.shanshui.apmserver.symbol.api.SymbolParserBusyException;
+import com.shanshui.apmserver.symbol.api.SymbolStoreUnavailableException;
+import com.shanshui.apmserver.symbol.api.SymbolValidationException;
+import com.shanshui.apmserver.symbol.api.SymbolVersionConflictException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
 
 import java.util.List;
 import java.util.UUID;
@@ -50,6 +56,13 @@ public class ApiExceptionHandler {
     @ExceptionHandler(PayloadTooLargeException.class)
     public ResponseEntity<ApiErrorResponse> payloadTooLarge(PayloadTooLargeException ex) {
         return response(HttpStatus.PAYLOAD_TOO_LARGE, ApiErrorResponse.of("PAYLOAD_TOO_LARGE", ex.getMessage(), false, null));
+    }
+
+    /** 将 Spring multipart 总请求限制转换为统一的 413 错误。 */
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    public ResponseEntity<ApiErrorResponse> multipartTooLarge(MaxUploadSizeExceededException ex) {
+        return response(HttpStatus.PAYLOAD_TOO_LARGE,
+                ApiErrorResponse.of("PAYLOAD_TOO_LARGE", "上传文件超过大小上限", false, null));
     }
 
     @ExceptionHandler(UnsupportedMediaTypeException.class)
@@ -86,6 +99,45 @@ public class ApiExceptionHandler {
         return response(ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
                 .header("Retry-After", "30")
                 .body(ApiErrorResponse.of("EVENT_STORE_UNAVAILABLE", ex.getMessage(), true, null)));
+    }
+
+    /** 返回符号表内容或请求校验错误。 */
+    @ExceptionHandler(SymbolValidationException.class)
+    public ResponseEntity<ApiErrorResponse> symbolValidation(SymbolValidationException ex) {
+        return response(ResponseEntity.status(ex.getStatus())
+                .body(ApiErrorResponse.of(ex.getCode(), ex.getMessage(), false, null)));
+    }
+
+    /** 返回同构建不同 mapping 的摘要冲突。 */
+    @ExceptionHandler(SymbolConflictException.class)
+    public ResponseEntity<ApiErrorResponse> symbolConflict(SymbolConflictException ex) {
+        return response(ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(new ApiErrorResponse("SYMBOL_CONFLICT", ex.getMessage(), false, null,
+                        List.of(ex.getCurrent()), java.time.Instant.now())));
+    }
+
+    /** 返回基于旧 revision 的替换冲突。 */
+    @ExceptionHandler(SymbolVersionConflictException.class)
+    public ResponseEntity<ApiErrorResponse> symbolVersionConflict(SymbolVersionConflictException ex) {
+        return response(ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(new ApiErrorResponse("SYMBOL_VERSION_CONFLICT", ex.getMessage(), false, null,
+                        List.of(ex.getCurrent()), java.time.Instant.now())));
+    }
+
+    /** 返回符号表存储暂时不可用。 */
+    @ExceptionHandler(SymbolStoreUnavailableException.class)
+    public ResponseEntity<ApiErrorResponse> symbolStoreUnavailable(SymbolStoreUnavailableException ex) {
+        return response(ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .header("Retry-After", "30")
+                .body(ApiErrorResponse.of("SYMBOL_STORE_UNAVAILABLE", ex.getMessage(), true, null)));
+    }
+
+    /** 返回符号表解析资源繁忙。 */
+    @ExceptionHandler(SymbolParserBusyException.class)
+    public ResponseEntity<ApiErrorResponse> symbolParserBusy(SymbolParserBusyException ex) {
+        return response(ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .header("Retry-After", "1")
+                .body(ApiErrorResponse.of("SYMBOL_PARSER_BUSY", ex.getMessage(), true, null)));
     }
 
     @ExceptionHandler(EventValidationException.class)

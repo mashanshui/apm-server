@@ -175,7 +175,7 @@ public class JankArtifactReportMapper {
                     processId,
                     sanitizer.hashDeviceId(requireText(manifest, "anonymousDeviceId")),
                     sanitizer.sanitizeText(requireText(manifest, "appVersion"), 128), (int) versionCode,
-                    sanitizer.sanitizeText(requireText(manifest, "buildId"), 256),
+                    sanitizer.sanitizeIdentifier(requireText(manifest, "buildId"), 256),
                     sanitizer.sanitizeText(requireText(manifest, "environment"), 64),
                     sanitizer.sanitizeText(requireText(manifest, "channel"), 128),
                     sanitizer.sanitizeText(requireText(manifest, "osVersion"), 64),

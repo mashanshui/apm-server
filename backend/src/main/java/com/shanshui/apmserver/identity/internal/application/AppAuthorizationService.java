@@ -20,4 +20,16 @@ public class AppAuthorizationService implements AppAccessControl {
     public void requireView(java.util.UUID appId, Authentication authentication) {
         membershipService.requireView(appId, currentUserService.requireId(authentication));
     }
+
+    /** 要求当前用户具备应用 Owner 或 Admin 写权限。 */
+    @Override
+    public void requireEdit(java.util.UUID appId, Authentication authentication) {
+        membershipService.requireEdit(appId, currentUserService.requireId(authentication));
+    }
+
+    /** 返回当前已认证用户标识。 */
+    @Override
+    public java.util.UUID requireUserId(Authentication authentication) {
+        return currentUserService.requireId(authentication);
+    }
 }

@@ -30,6 +30,12 @@ const router = createRouter({
       component: () => import('../views/AppSettingsView.vue'),
     },
     {
+      path: '/apps/:appId/symbols',
+      name: 'app-symbols',
+      meta: { requiresAuth: true, appContext: true },
+      component: () => import('../views/SymbolFilesView.vue'),
+    },
+    {
       path: '/apps/:appId/crashes',
       name: 'crash-overview',
       meta: { requiresAuth: true, appContext: true },

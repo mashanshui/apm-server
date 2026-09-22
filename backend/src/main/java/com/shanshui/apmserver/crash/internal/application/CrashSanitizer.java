@@ -44,7 +44,7 @@ public class CrashSanitizer {
                 sanitizeIdentifier(event.packageName(), 255),
                 sanitizeText(event.appVersion(), 128),
                 event.versionCode(),
-                sanitizeText(event.buildId(), 256),
+                sanitizeIdentifier(event.buildId(), 256),
                 sanitizeIdentifier(event.environment(), 64),
                 sanitizeIdentifier(event.channel(), 128),
                 sanitizeIdentifier(event.osVersion(), 64),

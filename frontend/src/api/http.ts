@@ -5,12 +5,14 @@ export interface ApiErrorOptions {
   code?: string
   message: string
   retryable?: boolean
+  details?: unknown
 }
 
 export class ApiError extends Error {
   readonly status: number
   readonly code: string | null
   readonly retryable: boolean
+  readonly details: unknown
 
   constructor(options: ApiErrorOptions) {
     super(options.message)
@@ -18,6 +20,7 @@ export class ApiError extends Error {
     this.status = options.status
     this.code = options.code ?? null
     this.retryable = options.retryable ?? (options.status >= 500 || options.status === 408)
+    this.details = options.details ?? null
   }
 }
 
@@ -34,7 +37,7 @@ function isStateChanging(method: string): boolean {
 }
 
 async function readError(response: Response): Promise<ApiError> {
-  let payload: { code?: string; message?: string } | null = null
+  let payload: { code?: string; message?: string; errors?: unknown[] } | null = null
   try {
     payload = await response.json() as { code?: string; message?: string }
   } catch {
@@ -49,6 +52,7 @@ async function readError(response: Response): Promise<ApiError> {
     status: response.status,
     code: payload?.code,
     message: payload?.message || fallbackMessage,
+    details: payload?.errors,
   })
 }
 
@@ -60,7 +64,7 @@ export async function requestJson<T>(path: string, options: RequestOptions = {})
   const method = String(options.method ?? 'GET').toUpperCase()
   const headers = new Headers(options.headers)
   headers.set('Accept', 'application/json')
-  if (options.body && !headers.has('Content-Type')) {
+  if (options.body && !(options.body instanceof FormData) && !headers.has('Content-Type')) {
     headers.set('Content-Type', 'application/json')
   }
   if (isStateChanging(method)) {

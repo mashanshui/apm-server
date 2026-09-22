@@ -17,6 +17,11 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.Properties;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -34,6 +39,8 @@ class ManagementSchemaIntegrationTests {
             migrateAll(postgres);
             validateJpaSchema(postgres);
             verifyApplicationIdentitySchema(postgres);
+            verifySymbolSchema(postgres);
+            verifySymbolUniquenessAndConcurrentRevision(postgres);
         }
     }
 
@@ -154,6 +161,105 @@ class ManagementSchemaIntegrationTests {
         }
     }
 
+    /** 验证符号表当前版本、审计表和应用构建唯一约束已由 V4 建立。 */
+    private void verifySymbolSchema(PostgreSQLContainer<?> postgres) throws Exception {
+        try (Connection connection = DriverManager.getConnection(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword());
+             Statement statement = connection.createStatement();
+             var result = statement.executeQuery("select count(*) from information_schema.tables "
+                     + "where table_schema = 'public' and table_name in ('app_symbol_file', 'app_symbol_file_audit')")) {
+            assertTrue(result.next());
+            assertEquals(2, result.getInt(1));
+        }
+        try (Connection connection = DriverManager.getConnection(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword());
+             Statement statement = connection.createStatement();
+             var result = statement.executeQuery("select count(*) from pg_constraint "
+                     + "where conname in ('app_symbol_file_app_build_uk', 'app_symbol_file_revision_ck', "
+                     + "'app_symbol_file_sha256_ck')")) {
+            assertTrue(result.next());
+            assertEquals(3, result.getInt(1));
+        }
+    }
+
+    /** 验证同一应用构建唯一注册，以及两个管理员并发替换只有一个条件更新成功。 */
+    private void verifySymbolUniquenessAndConcurrentRevision(PostgreSQLContainer<?> postgres) throws Exception {
+        String url = postgres.getJdbcUrl();
+        String user = postgres.getUsername();
+        String password = postgres.getPassword();
+        UUID appId = queryUuid(url, user, password, "select app_id from apm_app limit 1");
+        UUID userId = queryUuid(url, user, password, "select id from apm_user limit 1");
+        UUID symbolId = UUID.randomUUID();
+        String buildId = "schema-duplicate-build";
+        String firstStorageKey = UUID.randomUUID() + ".mapping";
+        String firstSha256 = "a".repeat(64);
+        execute(url, user, password, "insert into app_symbol_file "
+                + "(symbol_id, app_id, build_id, revision, storage_key, original_filename, size_bytes, sha256, "
+                + "uploaded_by, uploaded_at, updated_at) values ('" + symbolId + "', '" + appId + "', '" + buildId
+                + "', 1, '" + firstStorageKey + "', 'mapping.txt', 20, '" + firstSha256 + "', '" + userId
+                + "', now(), now())");
+        assertThrows(SQLException.class, () -> execute(url, user, password, "insert into app_symbol_file "
+                + "(symbol_id, app_id, build_id, revision, storage_key, original_filename, size_bytes, sha256, "
+                + "uploaded_by, uploaded_at, updated_at) values ('" + UUID.randomUUID() + "', '" + appId + "', '"
+                + buildId + "', 1, '" + UUID.randomUUID() + ".mapping', 'other.txt', 20, '" + "b".repeat(64)
+                + "', '" + userId + "', now(), now())"));
+
+        UUID concurrentSymbolId = UUID.randomUUID();
+        String concurrentBuildId = "schema-concurrent-build";
+        execute(url, user, password, "insert into app_symbol_file "
+                + "(symbol_id, app_id, build_id, revision, storage_key, original_filename, size_bytes, sha256, "
+                + "uploaded_by, uploaded_at, updated_at) values ('" + concurrentSymbolId + "', '" + appId + "', '"
+                + concurrentBuildId + "', 1, '" + UUID.randomUUID() + ".mapping', 'mapping.txt', 20, '"
+                + "c".repeat(64) + "', '" + userId + "', now(), now())");
+
+        CountDownLatch ready = new CountDownLatch(2);
+        CountDownLatch start = new CountDownLatch(1);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<Integer> first = executor.submit(() -> conditionalRevisionUpdate(
+                    url, user, password, concurrentSymbolId, "d".repeat(64), ready, start));
+            Future<Integer> second = executor.submit(() -> conditionalRevisionUpdate(
+                    url, user, password, concurrentSymbolId, "e".repeat(64), ready, start));
+            assertTrue(ready.await(5, TimeUnit.SECONDS));
+            start.countDown();
+            assertEquals(1, first.get(5, TimeUnit.SECONDS) + second.get(5, TimeUnit.SECONDS));
+        } finally {
+            executor.shutdownNow();
+        }
+
+        try (Connection connection = DriverManager.getConnection(url, user, password);
+             Statement statement = connection.createStatement();
+             var result = statement.executeQuery("select revision from app_symbol_file where symbol_id = '"
+                     + concurrentSymbolId + "'")) {
+            assertTrue(result.next());
+            assertEquals(2, result.getInt(1));
+        }
+    }
+
+    /** 执行一次带 revision 条件的并发替换，返回数据库实际更新行数。 */
+    private int conditionalRevisionUpdate(String url, String user, String password, UUID symbolId,
+                                          String sha256, CountDownLatch ready, CountDownLatch start)
+            throws Exception {
+        ready.countDown();
+        assertTrue(start.await(5, TimeUnit.SECONDS));
+        try (Connection connection = DriverManager.getConnection(url, user, password);
+             var prepared = connection.prepareStatement("update app_symbol_file set revision = 2, "
+                     + "storage_key = ?, sha256 = ?, updated_at = now() where symbol_id = ? and revision = 1")) {
+            prepared.setString(1, UUID.randomUUID() + ".mapping");
+            prepared.setString(2, sha256);
+            prepared.setObject(3, symbolId);
+            return prepared.executeUpdate();
+        }
+    }
+
+    /** 查询 PostgreSQL 中一个 UUID 值，供 schema 约束测试复用现有管理记录。 */
+    private UUID queryUuid(String url, String user, String password, String sql) throws SQLException {
+        try (Connection connection = DriverManager.getConnection(url, user, password);
+             Statement statement = connection.createStatement();
+             var result = statement.executeQuery(sql)) {
+            assertTrue(result.next());
+            return result.getObject(1, UUID.class);
+        }
+    }
+
     private void insertApp(String url, String user, String password, UUID appId, String packageName) throws SQLException {
         execute(url, user, password, "insert into apm_app "
                 + "(app_id, package_name, name, created_by, created_at, updated_at) values ('"
@@ -172,7 +278,8 @@ class ManagementSchemaIntegrationTests {
         var dataSource = new DriverManagerDataSource(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword());
         var entityManagerFactory = new LocalContainerEntityManagerFactoryBean();
         entityManagerFactory.setDataSource(dataSource);
-        entityManagerFactory.setPackagesToScan("com.shanshui.apmserver.identity.internal.domain");
+        entityManagerFactory.setPackagesToScan("com.shanshui.apmserver.identity.internal.domain",
+                "com.shanshui.apmserver.symbol.internal.domain");
         entityManagerFactory.setJpaVendorAdapter(new HibernateJpaVendorAdapter());
         var properties = new Properties();
         properties.setProperty("hibernate.hbm2ddl.auto", "validate");
