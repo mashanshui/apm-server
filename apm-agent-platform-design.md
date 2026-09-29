@@ -1,1242 +1,506 @@
-# APM Agent Platform 项目级架构设计
+# APM Agent 平台设计与分阶段实施方案
 
-> 状态：架构基线（Draft / V1）  
-> 更新日期：2026-09-19  
-> 读者：Codex、后端开发、Agent Worker 开发、Android/APM 开发、CI 运维  
-> 目标：固化 OpenCode SDK、APM 接入、AgentTask Runtime 的已收敛设计，作为后续实现依据。
+> 状态：设计草案，尚未实现，不作为已发布 API 或生产能力承诺。
+> 更新日期：2026-09-26。
+> 范围：在现有 APM 项目上增量实现只读分析，再按验收结果接入审批、隔离修复与 CI 验证。
 
-## 1. 文档定位
+## 1. 定位与设计决策
 
-本文描述一个面向车机 Android 应用的 APM Agent 平台。平台从卡顿、启动、内存、Crash、ANR 等 APM 数据中形成问题，自动完成证据整理与根因分析；经人工批准后，由受控的本地或内网 Coding Agent 修改代码，再交给 CI 构建、测试和性能验证。
+平台从已有 APM Issue 选择证据，生成可追溯的分析建议；经人工批准后，在隔离环境修改指定版本源码，再由确定性的验证程序检查交付物，最终由人审阅和处理代码合入。
 
-本文是项目架构基线，不是 OpenCode API 使用手册。所有业务状态、审计记录和执行结果都必须由平台自己持久化，不能依赖某个 Coding Agent Runtime 的内部模型。
+保留核心关系：`Issue 引用 → EvidencePackage → AgentTask → AgentRun → 可选 Executor Session`。Task 是业务动作，Run 是一次尝试，Session 是执行器内部会话，三者不得合并。VERIFY 可以没有模型和 Session。
 
-### 1.1 已确定的核心结论
+以下决策用于限定当前项目的增量实现范围：
 
-1. 分析对象是聚合后的 `PerformanceIssue`，不是单条原始事件。
-2. 核心链路固定为：`Issue → EvidencePackage → AgentTask → AgentRun → Executor Session`。
-3. `AgentTask`、`AgentRun`、OpenCode `Session` 是三个不同生命周期的概念，禁止合并。
-4. `ANALYZE`、`FIX`、`VERIFY`、`REVIEW` 是任务类型；`JANK`、`ANR`、`OOM`、`CRASH` 等是 Issue 类型，两组维度必须分离。
-5. 分析、修改、验证拆成不同 Task；不同 Task 可以选择不同模型、权限、执行机器、超时和重试策略。
-6. Task 创建时冻结 `TaskSpec`，保证结果可审计、可复现。
-7. 云端负责数据聚合、根因推理、任务规划；本地/内网 Worker 负责源码修改；CI 负责构建与验证；人负责批准和最终合并。
-8. ANALYZE 默认只读；FIX 只能在隔离 worktree 内修改；默认禁止 `git push`；生成修复前必须经过人工批准。
-9. Agent 的自然语言回答仅用于展示，平台必须保存版本化的结构化 Result。
-10. OpenCode、Codex 或其他 Coding Agent 都只是可替换的 Executor；平台的核心资产是 Task、Run、Event、Result 和 Approval。
+| 原方案假设或待选项 | 当前依据与修订决定 |
+|---|---|
+| PostgreSQL/MySQL、Flyway/Liquibase 待选 | 复用已有 PostgreSQL 与 Flyway，不增加数据库选型 |
+| Issue/Evidence/Artifact 可以直接复用已有表 | 当前 Crash/Jank 有查询聚合与指纹，不等于已有持久 Issue 工作流或不可变证据表；新增最小证据持久化 |
+| 云端 Analyzer、本地 Fix、CI 多类 Worker 同时建设 | 首先一个受限 Worker 跑只读 Jank 分析；修复与 CI 按阶段引入 |
+| 大对象默认进入对象存储 | 首先使用受控文件目录及鉴权传输，不提前部署 S3/MinIO |
+| 数据库 Claim + Outbox 默认建设 | 数据库轮询与同库事务即可；需要可靠跨服务消息时再加 Outbox |
+| FIX 按 Task 复用 worktree | 每个 Run 使用独立工作区，重试不能与失联旧进程共享可写目录 |
+| 所有审批绑定 Diff | 按审批类型绑定实际存在的对象；START_FIX 时不要求尚未生成的 Diff |
+| VERIFY 默认也执行 Agent | 固定验证程序产生结果；模型可解释报告，但不能自行决定通过 |
 
-### 1.2 不在 V1 范围内
+以上调整针对目标设计，不改变已发布接口和当前数据行为。当前事实以[实现边界](docs/knowledge-base/00-当前实现与验证边界.md)、代码、迁移和[API 文档](docs/api/README.md)为准。发现新的代码/文档差异时先记录并确认，不以本方案覆盖现有实现。
 
-- 无人工审批的全自动提交、推送、合并和发布。
-- 跨仓库的大规模自动重构。
-- 让单个长生命周期 Session 同时承担分析、修改和验证。
-- 把原始海量事件、Perfetto 文件或视频全部直接塞进 Prompt。
-- 依赖 OpenCode 的内部数据库充当平台任务数据库。
-- 第一版就实现复杂的多 Agent 自主协商或二三十种任务状态。
+## 2. 当前基础与明确缺口
 
-## 2. 设计原则
+| 领域 | 可复用基础 | Agent 能力仍需新增 |
+|---|---|---|
+| 后端 | Java 21、Spring Boot、按业务域组织的模块化单体 | Agent 模块、任务与证据持久化、数据库调度与恢复 |
+| 身份 | PostgreSQL 应用/成员、网页 Session/CSRF、上报 App Key | Agent 操作角色策略、Worker 身份及任务范围授权 |
+| APM | Crash/Jank 指纹聚合、事件详情、卡顿采样质量与主线程证据 | 分析窗口快照、构建到仓库版本关联、证据冻结 |
+| 符号表 | `appId + buildId` 当前 mapping、摘要与替换审计 | 分析使用的还原内容和 mapping/解析版本快照 |
+| 存储 | PostgreSQL 管理数据、ClickHouse 遥测、受控文件存储实践 | 不可变证据/补丁文件、引用及保留管理 |
+| 前端 | Vue 应用工作区、Issue 列表和证据下钻 | 人工触发分析、任务状态、证据引用、后续审批与报告 |
+| 执行 | 既有本地运行/部署脚本 | OpenCode Worker、源码隔离、CI 适配与设备验证 |
 
-### 2.1 业务模型与执行器解耦
+特别注意：
 
-平台关心“要完成什么”和“结果是否可信”；OpenCode 关心“Agent 如何在一个代码环境中运行”。两者通过 `AgentExecutor` 接口隔离。
+- 当前 Jank ZIP 是同步解析后保存归一化事实与详情，并不长期保存原始 ZIP；不得承诺可重新下载历史 ZIP 或从中提取原本未保存的 Perfetto。
+- 当前 Crash 详情按最新 mapping 实时还原；Jank 在上传解析时使用当时 mapping。分析不能仅保存一个会随 mapping 变化的详情 URL。
+- 现有 Issue 聚合会随查询时间和筛选变化，不是固定输入；现有影响设备数/会话数不能直接改名为“影响用户率”。
+- 当前没有完整构建到 Git Commit 的登记链路，也没有已验收的 Agent Worker 或 CI 修复流水线。
 
-```text
-AgentTask       业务目标，例如“分析 JANK-123”
-AgentRun        AgentTask 的第 N 次执行尝试
-ExecutorSession 某个执行器的一次运行会话，例如 OpenCode Session
-```
+相关入口：[总体架构](docs/knowledge-base/02-总体架构与模块.md)、[安全与隐私](docs/knowledge-base/06-安全与隐私.md)、[卡顿 API](docs/api/jank-server-api.md)、[符号表 API](docs/api/symbol-api.md)。
 
-未来把 OpenCode 替换成 Codex SDK、其他 Agent SDK 或自研 Runtime 时，Issue、审批、审计、调度和前端接口不应变化。
+## 3. 首版范围与部署
 
-### 2.2 不信任 Agent 的隐式状态
+### 3.1 分阶段范围
 
-任务输入、源代码版本、证据版本、模型、Prompt、权限、工具、结果 Schema 和审批记录都要显式化。恢复任务时只能相信平台已持久化的事实，不应假定 Session 还活着，也不应无条件重放有副作用的工具调用。
+- 阶段 A：人工选择一个 Jank Issue，冻结有限证据，由只读 Worker 分析，在 Dashboard 展示结果并进行离线评估。
+- 阶段 B：阶段 A 达到预先约定的质量门槛后，增加 START_FIX 审批、隔离修改、补丁交付、确定性 CI 验证和人工审阅。
+- 后续增强：其他 Issue 类型、自动触发、独立 REVIEW Agent、自动 PR、真机性能回归、模型路由、MCP 共享服务和分布式调度。
 
-### 2.3 证据优先，结论可追溯
+首版不做自动推送、合并、发布，不自动关闭 APM Issue，不引入队列、缓存、对象存储集群或插件框架。人工审阅不要求先实现 REVIEW Task。
 
-任何根因都应指向一条可查看的证据链：指标异常、受影响范围、堆栈、Trace、源码位置、版本/Commit、设备环境和置信度。Fix Agent 必须重新核验分析结论与指定源码版本是否一致，不能盲信 Analyzer 输出。
-
-### 2.4 最小权限与执行隔离
-
-每种 Task 使用独立 Policy。读代码、改代码、执行 Gradle、访问网络、读取环境变量、提交 Git、推送远端都必须分别授权。权限边界同时由平台策略和 Executor 配置落实，不能只写在 Prompt 中。
-
-### 2.5 先实现可恢复的最小闭环
-
-V1 优先完成：问题 → 分析 → 审批 → 修复 → 编译/测试 → 结果审阅。消息队列、多模型路由、自动 Benchmark、自动 PR 可在核心状态机稳定后逐步加入。
-
-## 3. 总体架构
-
-```mermaid
-flowchart TD
-    A["Android SDK / System Agent"] --> B["APM 数据平台"]
-    B --> C["Issue & Evidence Service"]
-    C --> D["Agent Control Plane"]
-    D --> E["Executor Workers"]
-    E --> F["Git / Gradle / CI"]
-    D --> G["APM Dashboard & Approval"]
-```
-
-### 3.1 组件职责
-
-| 组件 | 主要职责 | 不应负责 |
-| --- | --- | --- |
-| Android SDK / System Agent | 采集卡顿、启动、内存、Crash、ANR、设备和系统证据 | Agent 调度和代码修改 |
-| APM 数据平台 | 接收、清洗、符号化、版本关联、聚合查询 | 保存 Agent Session 内部状态 |
-| Issue Service | 将事件聚合为可处理问题，维护 Issue 生命周期 | 直接调用 OpenCode |
-| Evidence Service | 为一个 Issue 构建不可变证据包 | 实时拼接超大 Prompt |
-| AgentTask Service | 创建、查询、取消、审批和状态迁移 | 长时间阻塞执行 Agent |
-| Scheduler | 选择 READY Task，原子 Claim 并分配 Worker | 处理业务分析逻辑 |
-| Agent Worker | 准备工作区、创建 Run、调用 Executor、转换事件和结果 | 决定 Issue 业务优先级 |
-| Executor Adapter | 屏蔽 OpenCode/Codex 等执行器差异 | 成为平台真实数据源 |
-| Approval Service | 记录审批请求、决定、人员和理由 | 只依靠聊天中的“同意” |
-| Artifact Store | 保存 Trace、日志、Diff、报告、构建产物等大对象 | 存放核心关系状态 |
-| CI / Verify Worker | 编译、测试、Lint、Benchmark、设备验证 | 自主改变生产源码 |
-
-### 3.2 推荐部署边界
-
-```mermaid
-flowchart LR
-    subgraph Cloud["云端 / 服务端"]
-        A["Spring Boot Control Plane"]
-        B["Analyzer Worker"]
-        C["APM Storage"]
-        A --> B
-        A --> C
-    end
-    subgraph Local["本地或内网"]
-        D["Fix Worker"]
-        E["Android Repository"]
-        D --> E
-    end
-    subgraph CI["CI 环境"]
-        F["Verify Worker"]
-    end
-    A --> D
-    A --> F
-```
-
-- 云端 Analyzer 可以访问经过脱敏的 APM 数据和只读源码镜像。
-- Fix Worker 运行在开发机、内网构建机或受控 Runner，访问真实仓库和 Android 构建环境。
-- Verify Worker 运行在 CI；涉及真机、车机、Perfetto 或 Macrobenchmark 时，路由到具备设备能力的 Runner。
-- Human 在 Dashboard 中查看证据、批准 FIX、审阅 Diff，并决定是否创建 PR/合并。
-
-## 4. APM 数据到 Issue
-
-### 4.1 数据范围
-
-平台应逐步支持：
-
-- Jank / Frozen Frame / FrameTimeline；
-- 冷启动、温启动、热启动；
-- Java/Kotlin Heap、Native Memory、Bitmap、OOM；
-- Java Crash、Native Crash、ANR；
-- CPU、线程、Binder、I/O、锁竞争；
-- Perfetto/atrace、SurfaceFlinger、simpleperf、heapprofd；
-- statsd、DropBox、tombstone、ANR trace；
-- 复现步骤、用户操作序列、可选的录屏或关键帧。
-
-### 4.2 必须关联的版本维度
-
-每条可用于源码定位的 Issue 至少关联：
+### 3.2 最小部署形态
 
 ```text
-applicationId
-appVersion / versionCode
-buildId
-gitCommit
-mappingId / symbolVersion
-deviceModel / soc
-androidVersion / romVersion
-occurredAt / environment
+现有 Vue Dashboard
+        ↓ 同源 Session / CSRF
+现有 Spring Boot（新增 Agent 业务模块）
+        ├─ identity / jank / symbol 等模块的 api 边界
+        ├─ PostgreSQL：任务、尝试、证据、结果、审计
+        └─ 受控文件目录：证据快照、日志、后续补丁
+        ↑ 主动领取、心跳、结果回传
+单个受限 Worker（阶段 A：只读源码 + OpenCode）
+        └─ 阶段 B：新增隔离 FIX 与 CI 执行能力
 ```
 
-缺失 `gitCommit` 或符号映射时可以生成分析任务，但必须降低置信度，并禁止直接进入自动 FIX。
-
-### 4.3 从 Event 聚合为 PerformanceIssue
-
-Agent 不直接分析一条条 Event。Issue Service 应先完成去重、聚类、趋势、影响范围和优先级计算。
-
-```java
-record PerformanceIssue(
-    String id,
-    IssueType type,
-    IssueStatus status,
-    String applicationId,
-    String appVersion,
-    String gitCommit,
-    Severity severity,
-    double affectedUserRate,
-    long occurrenceCount,
-    Instant firstSeenAt,
-    Instant lastSeenAt
-) {}
-```
-
-建议的 Issue 类型：
-
-```java
-enum IssueType {
-    JANK,
-    STARTUP,
-    MEMORY,
-    OOM,
-    CRASH,
-    ANR
-}
-```
-
-触发分析任务的规则属于业务策略，例如“影响用户超过 5%”“P95 连续三天回归”“新版本出现高频同栈 Crash”。规则版本必须写入 TaskSpec。
-
-## 5. EvidencePackage
-
-`EvidencePackage` 是 AgentTask 的不可变输入快照。它不是简单的附件列表，而是带 Manifest、摘要和引用的证据集合。
-
-### 5.1 建议结构
-
-```json
-{
-  "id": "evidence_88231",
-  "schemaVersion": 1,
-  "issueId": "JANK-123",
-  "sourceRevision": "83af16c",
-  "generatedAt": "2026-09-19T08:00:00Z",
-  "summary": {
-    "symptom": "Home 页面 P95 帧耗时 96 ms",
-    "affectedUserRate": 0.071,
-    "topDevices": ["vehicle-model-a"]
-  },
-  "evidence": [
-    {"type": "STACK_SAMPLE", "artifactId": "artifact_stack_1"},
-    {"type": "TRACE_SUMMARY", "artifactId": "artifact_trace_summary_1"},
-    {"type": "PERFETTO", "artifactId": "artifact_trace_1"},
-    {"type": "SOURCE_HINT", "path": "HomeAdapter.kt", "line": 182}
-  ],
-  "integrity": {
-    "manifestSha256": "..."
-  }
-}
-```
-
-### 5.2 构建原则
-
-- EvidencePackage 创建后不可原地修改；需要补充证据时生成新版本或新 ID。
-- Prompt 只放摘要、索引和必要片段；大对象通过受控 Tool 按需读取。
-- 原始 Trace、Heap Dump、视频、构建产物进入对象存储，数据库只保存元数据与引用。
-- 录屏应先由多模态预处理器生成时间轴、关键帧和事件摘要；Coding Agent 不应依赖原生视频输入能力。
-- 所有证据必须带数据来源、时间、版本和脱敏状态。
-
-## 6. 核心领域模型
-
-```mermaid
-flowchart TD
-    A["PerformanceIssue"] --> B["EvidencePackage"]
-    B --> C["AgentTask + TaskSpec"]
-    C --> D["AgentRun"]
-    D --> E["Executor Session"]
-    D --> F["TaskEvent / Result / Artifact"]
-    C --> G["ApprovalRequest"]
-```
-
-### 6.1 AgentTask：最小可调度业务单元
-
-`AgentTask` 表示平台要完成的一个业务动作。建议 V1 类型：
-
-```java
-enum AgentTaskType {
-    ANALYZE,
-    FIX,
-    VERIFY,
-    REVIEW
-}
-```
-
-禁止引入 `JANK_ANALYZE`、`ANR_ANALYZE` 之类的组合枚举。任务行为由 `AgentTaskType` 决定，问题领域由 `IssueType` 决定。
-
-```java
-class AgentTask {
-    String id;
-    AgentTaskType type;
-    String issueId;
-    String parentTaskId;
-    String repositoryId;
-    String sourceRevision;
-    String evidencePackageId;
-    AgentTaskStatus status;
-    int priority;
-    String agentProfile;
-    String policyId;
-    String currentRunId;
-    int maxAttempts;
-    int attemptCount;
-    Instant createdAt;
-    Instant updatedAt;
-    Long version;
-}
-```
-
-### 6.2 TaskSpec：冻结的执行合同
-
-TaskSpec 在 Task 创建时生成，执行期间不读取“当前最新版配置”替换其含义。推荐同时保存结构化 JSON 和关键检索列。
-
-```json
-{
-  "schemaVersion": 1,
-  "taskId": "task_018932",
-  "type": "ANALYZE",
-  "subject": {
-    "issueId": "JANK-123",
-    "issueType": "JANK"
-  },
-  "source": {
-    "repositoryId": "vehicle-media",
-    "revision": "83af16c"
-  },
-  "input": {
-    "evidencePackageId": "evidence_88231",
-    "parentResultId": null
-  },
-  "agent": {
-    "profile": "android-performance-analyzer",
-    "promptVersion": "apm-analyze-v3",
-    "modelStrategy": "default"
-  },
-  "policy": {
-    "policyId": "analysis-readonly-v1",
-    "maxAttempts": 3,
-    "timeoutSeconds": 900,
-    "approvalRequired": false
-  },
-  "output": {
-    "schema": "AnalysisResult",
-    "schemaVersion": 1
-  }
-}
-```
-
-TaskSpec 至少冻结：证据版本、源码 Revision、Agent Profile、Prompt 版本、模型策略、权限策略、输出 Schema、超时和重试上限。实际运行采用的 Provider/Model 还要写入 AgentRun。
-
-### 6.3 AgentRun：一次执行尝试
-
-一个 Task 可以有多个 Run。Provider 超时后的重试会新建 Run，不会新建相同业务 Task。
-
-```java
-class AgentRun {
-    String id;
-    String taskId;
-    int attempt;
-    AgentRunStatus status;
-    AgentRunPhase phase;
-    String executorId;
-    String executorType;
-    String executorSessionId;
-    String workspaceId;
-    String worktreePath;
-    String modelProvider;
-    String modelId;
-    String agentName;
-    Long lastEventSequence;
-    Instant leaseUntil;
-    Instant startedAt;
-    Instant heartbeatAt;
-    Instant completedAt;
-    String failureCode;
-    String failureMessage;
-}
-```
-
-### 6.4 Executor Session：运行时会话
-
-OpenCode Session 包含模型交互、工具调用、权限请求和上下文，但不知道 Issue 优先级、SLA、审批人、重试次数和是否应该创建 PR。因此：
-
-```text
-AgentTask 1 ── N AgentRun 1 ── 0..1 ExecutorSession
-```
-
-Session ID 只能作为 AgentRun 的外部引用，不能作为 Task 主键，也不能成为 UI、审批或业务 API 的核心标识。
-
-## 7. Task 与 Run 状态机
-
-### 7.1 AgentTask 状态
-
-```java
-enum AgentTaskStatus {
-    CREATED,
-    WAITING_APPROVAL,
-    READY,
-    RUNNING,
-    SUCCEEDED,
-    FAILED,
-    CANCELLED
-}
-```
-
-```mermaid
-stateDiagram-v2
-    [*] --> CREATED
-    CREATED --> WAITING_APPROVAL: 需要人工批准
-    CREATED --> READY: 不需要批准
-    WAITING_APPROVAL --> READY: 批准
-    WAITING_APPROVAL --> CANCELLED: 拒绝或取消
-    READY --> RUNNING: Claim + 创建 Run
-    RUNNING --> SUCCEEDED: 结果通过校验
-    RUNNING --> FAILED: 不可重试或次数耗尽
-    RUNNING --> READY: 可重试失败
-    CREATED --> CANCELLED
-    READY --> CANCELLED
-    RUNNING --> CANCELLED
-```
-
-审批应发生在待执行 Task 上。例如 ANALYZE 成功后：
-
-1. ANALYZE Task 进入 `SUCCEEDED`；
-2. 系统创建 `ApprovalRequest`；
-3. 同时创建状态为 `WAITING_APPROVAL` 的 FIX Task；
-4. 批准后 FIX Task 进入 `READY`。
-
-不要让已完成的 ANALYZE Task 变成 FIX，也不要长期阻塞一个 OpenCode Session 等待审批。
-
-### 7.2 AgentRun 状态和 Phase
-
-Run 状态建议保持简洁：
-
-```java
-enum AgentRunStatus {
-    STARTING,
-    RUNNING,
-    SUCCEEDED,
-    FAILED,
-    CANCELLED,
-    LOST
-}
-```
-
-`ANALYZING`、`READING_CODE`、`EDITING`、`BUILDING`、`TESTING` 等属于 `AgentRunPhase`，不是 Task 状态。Phase 主要用于 UI 进度、超时诊断和运行统计。
-
-## 8. 标准任务链路
-
-### 8.1 ANALYZE
-
-输入：Issue、EvidencePackage、源码 Revision。  
-执行：查询 APM、读取证据、检查源码和 Git 历史、形成根因。  
-权限：只读。  
-输出：`AnalysisResult`。
-
-### 8.2 FIX
-
-输入：Issue、EvidencePackage、AnalysisResult、批准记录、源码 Revision。  
-执行：重新验证根因、在隔离 worktree 修改代码、生成 Diff。  
-权限：允许受限编辑和白名单 Shell；默认禁止 commit、push 和任意路径删除。  
-输出：`FixResult`。
-
-### 8.3 VERIFY
-
-输入：FixResult、Diff/Worktree、验证目标。  
-执行：Gradle 编译、单元测试、Lint；按问题类型执行 Macrobenchmark、Perfetto 或真机测试。  
-权限：构建和测试，不改变业务源码。  
-输出：`VerificationResult`。
-
-### 8.4 REVIEW
-
-输入：AnalysisResult、FixResult、VerificationResult。  
-执行：代码审阅、风险检查、证据一致性检查。  
-权限：只读。  
-输出：`ReviewResult`，供人决定创建 PR 或返回修改。
-
-### 8.5 端到端流程
-
-```mermaid
-flowchart TD
-    A["Issue + Evidence"] --> B["ANALYZE Task"]
-    B --> C["AnalysisResult"]
-    C --> D{"Human Approval"}
-    D -->|批准| E["FIX Task"]
-    D -->|拒绝| F["关闭或补充证据"]
-    E --> G["VERIFY Task"]
-    G --> H{"验证通过"}
-    H -->|是| I["Review / PR"]
-    H -->|否| J["重新 FIX 或人工处理"]
-```
-
-## 9. 结构化结果
-
-每种结果必须带 `schemaVersion` 并通过服务端 JSON Schema 校验。Markdown 报告是 Result 的展示字段或 Artifact，不是唯一结果。
-
-### 9.1 AnalysisResult
-
-```json
-{
-  "schemaVersion": 1,
-  "taskId": "task_001",
-  "issueId": "JANK-123",
-  "rootCause": {
-    "category": "MAIN_THREAD_IO",
-    "summary": "Bitmap decode is executed on the main thread",
-    "reasoningSummary": "主线程采样与 Trace 在相同调用点收敛"
-  },
-  "confidence": {
-    "level": "HIGH",
-    "score": 0.91,
-    "evidenceRefs": ["stack_sample:12", "trace_slice:44", "source:HomeAdapter.kt#L182"]
-  },
-  "locations": [
-    {"file": "HomeAdapter.kt", "line": 182, "symbol": "onBindViewHolder"}
-  ],
-  "fixAvailable": true,
-  "recommendedStrategy": "Move decode off main thread and reuse transformed resources",
-  "validationPlan": ["assembleRelease", "unitTest", "scrollMacrobenchmark"],
-  "limitations": []
-}
-```
-
-### 9.2 FixResult
-
-```json
-{
-  "schemaVersion": 1,
-  "taskId": "task_002",
-  "analysisResultId": "result_001",
-  "sourceRevision": "83af16c",
-  "changedFiles": ["app/src/main/java/.../HomeAdapter.kt"],
-  "diffArtifactId": "artifact_diff_8892",
-  "commit": null,
-  "assumptions": [],
-  "risks": ["Image request cancellation behavior changed"],
-  "recommendedVerification": ["assembleRelease", "scrollMacrobenchmark"]
-}
-```
-
-### 9.3 VerificationResult
-
-```json
-{
-  "schemaVersion": 1,
-  "taskId": "task_003",
-  "verdict": "PASSED",
-  "checks": [
-    {"name": "assembleRelease", "status": "PASSED", "artifactId": "artifact_build_log"},
-    {"name": "unitTests", "status": "PASSED", "artifactId": "artifact_test_report"}
-  ],
-  "benchmark": {
-    "metric": "frameTimeP95Ms",
-    "before": 96,
-    "after": 48,
-    "sampleComparable": true
-  },
-  "regressions": []
-}
-```
-
-服务端判定 Task 成功前必须完成：Schema 校验、taskId/runId 归属校验、Artifact 存在性校验和关键字段业务校验。
-
-## 10. 调度、Claim 与 Lease
-
-### 10.1 创建和执行解耦
-
-事务内只创建业务数据，不直接调用 OpenCode：
-
-```java
-@Transactional
-public AgentTask createAnalysisTask(PerformanceIssue issue) {
-    EvidencePackage evidence = evidenceService.build(issue);
-    TaskSpec spec = taskSpecFactory.analysis(issue, evidence);
-    return taskRepository.save(AgentTask.ready(spec));
-}
-```
-
-禁止在 HTTP 线程和数据库事务中执行长时间 Agent 调用。
-
-### 10.2 Claim 流程
-
-Scheduler 按以下顺序选择任务：
-
-```sql
-ORDER BY priority DESC, created_at ASC
-```
-
-Claim 必须是原子操作。推荐事务中锁定一个 READY Task，创建 Run，并把 Task 更新为 RUNNING：
-
-```text
-SELECT READY Task FOR UPDATE SKIP LOCKED
-        ↓
-创建 AgentRun(attempt = task.attemptCount + 1)
-        ↓
-Task.status = RUNNING
-Task.currentRunId = run.id
-Task.attemptCount += 1
-        ↓
-提交事务
-```
-
-Run 保存 `executorId`、`heartbeatAt` 和 `leaseUntil`。Worker 定期续租；租约过期后 Reconciler 将 Run 标记为 `LOST`，再根据任务的幂等性和重试策略决定是否回到 READY。
-
-### 10.3 乐观锁
-
-`agent_task.version` 使用 JPA `@Version` 或等价 Compare-And-Set，防止 Worker 完成任务与用户取消任务相互覆盖。所有状态迁移还应校验允许的来源状态。
-
-### 10.4 重试分类
-
-| 失败类型 | 默认处理 |
-| --- | --- |
-| Provider 限流、临时网络错误 | 指数退避，新建 Run |
-| Worker 崩溃、租约过期 | 标记 LOST，核验副作用后重试 |
-| 输出 Schema 不合法 | 可在同一 Run 内有限修复，耗尽后失败 |
-| 源码 Revision 不存在 | 不可重试，等待人工修正 |
-| Gradle 编译失败 | VERIFY 失败，返回 FIX 或人工处理 |
-| 权限拒绝 | 不自动放宽权限，失败或进入人工流程 |
-| Task 被取消 | 中断 Session，Run/Task 均记为 CANCELLED |
-
-## 11. Workspace 与 Git 策略
-
-### 11.1 WorkspaceService
-
-平台通过自己的 `WorkspaceService` 管理源码环境，不把架构绑定到某个 SDK 是否提供 worktree API。
-
-```java
-interface WorkspaceService {
-    Workspace prepare(String repositoryId, String revision, String taskId);
-    WorkspaceStatus inspect(String workspaceId);
-    void release(String workspaceId);
-}
-```
-
-建议每个 FIX Task 使用独立 Git worktree：
-
-```text
-worktrees/
-└── task_002/
-    └── repository checkout at 83af16c
-```
-
-### 11.2 约束
-
-- 检出 TaskSpec 指定的精确 Revision，不默认使用当前分支 HEAD。
-- worktree 路径由平台生成和校验，禁止 Agent 任意指定。
-- 默认禁止访问 worktree 外目录。
-- 默认不允许 `git push`；是否允许 commit 由 Policy 单独决定。
-- Diff、未跟踪文件清单和最终 Git 状态必须保存为 Artifact。
-- Cleanup 只能删除已登记并校验属于该任务的 worktree。
-- 修复完成后若目标分支已变化，应在创建 PR 前重新基线化并再次 VERIFY。
-
-## 12. 权限与安全策略
-
-### 12.1 建议权限矩阵
-
-| 能力 | ANALYZE | FIX | VERIFY | REVIEW |
-| --- | --- | --- | --- | --- |
-| 读取 Issue / Evidence | 允许 | 允许 | 允许 | 允许 |
-| 读取源码 / Git 历史 | 允许 | 允许 | 允许 | 允许 |
-| 修改源码 | 禁止 | 仅 worktree | 禁止 | 禁止 |
-| 执行 Gradle | 仅必要查询 | 白名单任务 | 白名单任务 | 禁止 |
-| 网络访问 | 默认禁止或域名白名单 | 默认禁止 | 依赖下载白名单 | 默认禁止 |
-| 读取 Secrets | 禁止 | 禁止 | 由 CI 注入最小凭证 | 禁止 |
-| git commit | 禁止 | 默认禁止/可配置 | 禁止 | 禁止 |
-| git push / merge | 禁止 | 禁止 | 禁止 | 禁止 |
-| 任意路径删除 | 禁止 | 禁止 | 禁止 | 禁止 |
-
-OpenCode 当前支持按工具和输入模式配置 `allow`、`ask`、`deny`，且最后匹配规则生效。平台生成规则时必须先放通配规则，再放更具体的限制，并用自动化测试验证最终权限集合。
-
-### 12.2 Prompt Injection 防护
-
-APM 日志、Crash 文本、Git 内容、Issue 评论和外部网页都属于不可信数据：
-
-- 不允许证据内容覆盖 System Policy；
-- Tool 参数必须经过 Schema、路径和权限校验；
-- 敏感数据在进入模型前脱敏；
-- 不把 `.env`、签名文件、Token、私钥提供给 Agent；
-- 网络工具采用域名白名单和响应大小限制；
-- 写操作和外部副作用必须进入审批或显式 Policy；
-- 保存每次工具调用的规范化审计事件，但避免在日志中重复写入 Secret。
-
-## 13. OpenCode Executor 集成
-
-### 13.1 当前已核验能力
-
-截至 2026-09-19，官方 SDK 包名是 `@opencode-ai/sdk`。它提供：
-
-- `createOpencode()`：启动 OpenCode Server 并创建 Client；
-- `createOpencodeClient()`：连接已有 Server；
-- Session 创建、查询、Prompt、Abort、消息读取；
-- Server-Sent Events 事件订阅；
-- JSON Schema Structured Output；
-- Provider / Model 选择和权限配置。
-
-集成代码只能封装在 Worker 的 OpenCode Adapter 中，业务服务不得直接依赖 SDK 类型。
-
-```ts
-import { createOpencode } from "@opencode-ai/sdk"
-
-const { client, server } = await createOpencode({
-  hostname: "127.0.0.1",
-  port: 4096,
-  config: runtimeConfig
-})
-
-const session = await client.session.create({
-  body: { title: `task:${taskId}/run:${runId}` }
-})
-
-const events = await client.event.subscribe()
-for await (const event of events.stream) {
-  await eventAdapter.accept(runId, event)
-}
-```
-
-具体参数和返回类型必须以项目锁定版本生成的 TypeScript 定义为准，禁止复制文档示例后不经编译验证直接上线。
-
-### 13.2 模型与 Provider 边界
-
-OpenCode 中的调用链可以抽象为：
-
-```text
-Session / Agent
-      ↓
-Model Selection
-      ↓
-Provider Adapter
-      ↓
-External or Local LLM
-```
-
-OpenCode 官方支持多种云端 Provider、自定义兼容端点和本地模型，因此平台不应把任务模型写死为某一家。`TaskSpec.agent.modelStrategy` 保存版本化的选择策略，例如 `quality-first-v2`、`private-local-v1`；Scheduler/Worker 根据数据等级、任务类型、可用性和预算解析出实际 Provider/Model，并把最终值写入 `AgentRun`。
-
-这一区分用于同时满足可复现性和故障切换：
-
-- TaskSpec 冻结“当时使用哪一版选择策略”；
-- AgentRun 记录“本次实际使用了哪个 Provider、Model 和 Variant”；
-- 重试切换模型时新建 Run，并保留前一次失败记录；
-- Provider 凭证只由 Worker 的 Secret 管理机制注入，不进入 TaskSpec、Prompt、Event 或 Result；
-- 高敏感源码或数据可由策略强制路由到内网/本地模型；
-- 不同模型的逻辑名称与上游模型 ID 可能不同，Adapter 必须同时记录规范化名称和原始 ID。
-
-### 13.3 Executor 抽象
-
-```ts
-export interface AgentExecutor {
-  start(input: ExecutorStartInput): Promise<ExecutorHandle>
-  events(handle: ExecutorHandle, after?: string): AsyncIterable<ExecutorEvent>
-  getResult(handle: ExecutorHandle): Promise<ExecutorResult>
-  cancel(handle: ExecutorHandle): Promise<void>
-  inspect(handle: ExecutorHandle): Promise<ExecutorStatus>
-}
-```
-
-OpenCode Adapter 负责：
-
-1. 将 TaskSpec 映射为 Agent、Model、权限、工作目录和结构化输出 Schema；
-2. 创建或连接 OpenCode Server；
-3. 创建 Session 并发送 Prompt；
-4. 将 OpenCode Event 转换为平台事件；
-5. 校验和提取结构化结果；
-6. 响应取消与超时；
-7. 隐藏 OpenCode SDK 的版本差异。
-
-### 13.4 Prompt 组织
-
-采用：
-
-```text
-固定且版本化的 System Prompt
-+
-结构化 TaskSpec
-+
-Evidence 摘要和引用
-+
-按 Policy 暴露的 Tools
-+
-版本化 Output Schema
-```
-
-不要在 Worker 里临时拼接不可追踪的超长 Prompt。Prompt 模板应有版本号、测试样例和变更记录。
-
-### 13.5 幂等提交
-
-平台为每个逻辑 Prompt 生成稳定幂等键：
-
-```text
-hash(taskId + runId + step + taskSpecHash)
-```
-
-如果锁定的 OpenCode 版本支持调用方 Message ID，则把该键映射为 Message ID；相同键只能对应相同输入。若版本不支持，Adapter 仍要在本地持久化 Admission 记录，避免超时后盲目重复提交。
-
-### 13.6 不依赖未稳定的 V2 恢复语义
-
-OpenCode 仓库中的 V2 Session 规格描述了调用方 ID、耐久 Inbox 和按 Sequence 回放事件，但同一规格也明确指出崩溃后的自动继续、分布式 Session 所有权等仍有待完善。因此 V1 只把这些能力视为可选增强：
-
-- 平台自己的 Task/Run/Event/Lease 是恢复依据；
-- `lastEventSequence` 可以保存 Executor Cursor，但不能代替平台事件序列；
-- Worker 重启后先 `inspect`，再决定附着、取消或新建 Run；
-- 对可能产生副作用的未知状态 Run，默认转人工核验，不自动重放。
-
-## 14. MCP 接入
-
-MCP 是 Agent 访问 APM、Git、CI 等能力的协议适配层，不是业务编排层，也不是推理层。
-
-### 14.1 推荐工具
-
-```text
-apm_get_issue
-apm_get_issue_metrics
-apm_get_stack_samples
-apm_get_trace_summary
-apm_get_artifact_metadata
-source_search
-source_read_context
-git_log
-ci_get_build_result
-```
-
-创建 Task、审批、修改 Task 状态等控制面操作优先由 Control Plane API 完成。若确实要暴露给 Agent，应单独命名、鉴权并启用显式审批，避免将控制面和数据查询混成一组无差别工具。
-
-### 14.2 技术建议
-
-- TypeScript MCP SDK v2；输入输出 Schema 使用 Zod v4 或兼容 Standard Schema 的库。
-- 本地单进程 Agent 使用 stdio；共享服务使用 Streamable HTTP。
-- stdio 模式禁止向 stdout 写日志，日志写 stderr，否则会破坏 JSON-RPC。
-- 每个 Tool 设置超时、响应大小限制、分页、脱敏和审计。
-- Tool 返回摘要和 Artifact 引用，不返回无上限的 Trace/日志全文。
-- 使用 MCP Inspector 和契约测试验证工具 Schema 与错误语义。
-
-### 14.3 分层边界
-
-```text
-Agent / OpenCode
-      ↓ MCP
-MCP Adapter
-      ↓ internal API
-APM / Git / CI Business Services
-      ↓
-ClickHouse / PostgreSQL / Object Store / Git / CI
-```
-
-MCP Server 不直接复制 APM 业务逻辑，不绕过服务端鉴权，也不直接读写生产数据库。
-
-## 15. Event 与实时进度
-
-### 15.1 平台事件模型
-
-不要让 Dashboard 直接消费 OpenCode Event。Worker 通过 Adapter 转为稳定的 `AgentTaskEvent`：
-
-```text
-TASK_CLAIMED
-RUN_STARTED
-WORKSPACE_PREPARED
-SESSION_CREATED
-MODEL_STARTED
-TOOL_STARTED
-TOOL_COMPLETED
-PERMISSION_REQUESTED
-PHASE_CHANGED
-RESULT_GENERATED
-RUN_SUCCEEDED
-RUN_FAILED
-TASK_SUCCEEDED
-TASK_FAILED
-```
-
-```java
-record AgentTaskEvent(
-    long sequence,
-    String taskId,
-    String runId,
-    String type,
-    JsonNode payload,
-    Instant createdAt
-) {}
-```
-
-### 15.2 事件规则
-
-- `sequence` 在 Task 内单调递增并由平台生成。
-- Payload 必须有 Schema Version；大内容转 Artifact。
-- 外部事件应携带原始类型和外部序列，便于诊断，但 UI 不依赖它。
-- Event 表用于审计和进度，不替代 Task 当前状态表。
-- 事件写入和状态迁移尽量使用同一事务；跨服务通知使用 Outbox。
-
-## 16. Approval
-
-```java
-class ApprovalRequest {
-    String id;
-    String taskId;
-    String sourceTaskId;
-    String sourceRunId;
-    ApprovalType type;
-    ApprovalStatus status;
-    String requestedBy;
-    String resolvedBy;
-    String reason;
-    Instant requestedAt;
-    Instant resolvedAt;
-    Long version;
-}
-```
-
-V1 至少支持：
-
-- `START_FIX`：允许基于某个 AnalysisResult 创建/启动 FIX；
-- `RISKY_TOOL`：允许一次受限的高风险工具操作；
-- `CREATE_PR`：允许把已验证结果推送到远端并创建 PR（可在 V1 后期加入）。
-
-审批对象必须绑定精确的 TaskSpec、Result、Revision 和 Diff Hash。审批后这些内容变化，原审批自动失效。拒绝不应被重试策略自动转换为允许。
-
-## 17. 数据库设计（V1）
-
-核心五张表是 `agent_task`、`agent_run`、`agent_task_result`、`agent_task_event`、`approval_request`。Evidence、Issue、Artifact 可复用 APM 已有表或独立服务。
-
-### 17.1 agent_task
-
-```text
-id PK
-issue_id
-parent_task_id NULL
-type
-status
-priority
-repository_id
-source_revision
-evidence_package_id
-task_spec_json
-task_spec_hash
-agent_profile
-policy_id
-current_run_id NULL
-attempt_count
-max_attempts
-created_at
-updated_at
-version
-```
-
-索引建议：
-
-```text
-(status, priority DESC, created_at)
-(issue_id, type)
-(parent_task_id)
-UNIQUE(task_spec_hash, type) WHERE appropriate
-```
-
-幂等创建 Task 时不要只依赖数据库 Hash 唯一约束；业务幂等键应包含 Issue、类型、源码 Revision 和上游 Result Version。
-
-### 17.2 agent_run
-
-```text
-id PK
-task_id
-attempt
-status
-phase
-executor_id
-executor_type
-lease_until
-executor_session_id NULL
-workspace_id NULL
-worktree_path NULL
-provider NULL
-model NULL
-agent NULL
-last_event_sequence NULL
-started_at
-heartbeat_at
-completed_at NULL
-failure_code NULL
-failure_message NULL
-```
-
-约束：`UNIQUE(task_id, attempt)`；同一 Task 最多一个未结束 Run，由 Claim 事务保证。
-
-### 17.3 agent_task_result
-
-```text
-id PK
-task_id
-run_id
-result_type
-schema_version
-result_json
-result_hash
-created_at
-```
-
-默认每个成功 Run 只有一个最终 Result；中间草稿进入 Event 或 Artifact。
-
-### 17.4 agent_task_event
-
-```text
-id PK
-task_id
-run_id NULL
-sequence
-type
-schema_version
-payload
-created_at
-UNIQUE(task_id, sequence)
-```
-
-### 17.5 approval_request
-
-```text
-id PK
-task_id
-source_task_id NULL
-source_run_id NULL
-type
-status
-subject_hash
-requested_by
-resolved_by NULL
-reason NULL
-requested_at
-resolved_at NULL
-version
-```
-
-### 17.6 存储选型
-
-| 数据 | 推荐存储 |
-| --- | --- |
-| Task、Run、Approval、Result 元数据 | PostgreSQL（推荐）或 MySQL 8 |
-| 海量 APM 明细、聚合指标 | ClickHouse |
-| Trace、Heap、视频、Diff、日志、报告 | S3 兼容对象存储 |
-| 全文检索 | V1 可暂用数据库/ClickHouse；有明确需求再加 Elasticsearch |
-| 调度队列 | V1 可数据库 Claim + Outbox；规模上升后接 Kafka/RabbitMQ |
-
-## 18. Control Plane 与 Worker 契约
-
-### 18.1 Java 核心接口
-
-```java
-public interface AgentTaskService {
-    AgentTask create(CreateAgentTaskCommand command);
-    AgentTask cancel(String taskId, String operator, String reason);
-    ApprovalRequest requestApproval(RequestApprovalCommand command);
-    AgentTask approve(String approvalId, String operator, String reason);
-    AgentTaskResult getResult(String taskId);
-}
-
-public interface AgentTaskScheduler {
-    Optional<AgentRunAssignment> claim(WorkerCapabilities capabilities);
-    void heartbeat(String runId, String leaseToken);
-    void complete(CompleteRunCommand command);
-    void fail(FailRunCommand command);
-}
-```
-
-### 18.2 WorkerCapabilities
-
-Worker 注册或 Claim 时声明：
-
-```json
-{
-  "workerId": "local-android-worker-01",
-  "taskTypes": ["FIX"],
-  "repositories": ["vehicle-media"],
-  "capabilities": ["ANDROID_SDK", "GRADLE", "GIT_WORKTREE"],
-  "labels": {"location": "local", "os": "linux"},
-  "maxConcurrency": 1
-}
-```
-
-Scheduler 必须按 Task Policy 与 WorkerCapabilities 匹配，不能把 FIX 分配给只读云端 Worker，也不能把真机验证分配给无设备 Worker。
-
-### 18.3 建议 API
-
-```text
-POST   /api/agent-tasks
-GET    /api/agent-tasks/{id}
-POST   /api/agent-tasks/{id}/cancel
-GET    /api/agent-tasks/{id}/events
-GET    /api/agent-tasks/{id}/result
-
-POST   /api/approvals/{id}/approve
-POST   /api/approvals/{id}/reject
-
-POST   /internal/agent-runs/claim
-POST   /internal/agent-runs/{id}/heartbeat
-POST   /internal/agent-runs/{id}/events
-POST   /internal/agent-runs/{id}/complete
-POST   /internal/agent-runs/{id}/fail
-```
-
-Worker API 使用短期凭证或双向 TLS；每次写操作验证 workerId、leaseToken、Run 状态和版本。
-
-## 19. 崩溃恢复与一致性
-
-### 19.1 Control Plane 重启
-
-Task、Run、Event、Result 均在数据库中，服务启动后可继续调度。任何“内存中正在执行”状态都不能作为唯一事实。
-
-### 19.2 Worker 重启
-
-1. 查询本 Worker 的 RUNNING/STARTING Run；
-2. 对每个 Run 调用 Executor `inspect`；
-3. 若 Session 明确仍在运行，重新订阅事件并续租；
-4. 若 Session 已完成，读取并校验结果；
-5. 若状态未知且可能有副作用，将 Run 标记为待核验/LOST；
-6. 只有无副作用或已确认未执行的步骤才能自动重试。
-
-### 19.3 双写问题
-
-- Task 状态 + 平台 Event：同库事务。
-- 数据库 + MQ：Transactional Outbox。
-- Artifact 上传 + Result 入库：先上传并得到不可变 Artifact ID，再事务性保存 Result；失败 Artifact 由 GC 清理。
-- 外部 Session 创建成功但数据库写入失败：使用稳定的外部幂等键或通过 title/metadata 对账；不能立即盲建第二个 Session。
-
-### 19.4 Reconciler
-
-定时扫描：
-
-- 过期 Lease；
-- RUNNING 但无心跳；
-- 已结束 Run 但 Task 仍 RUNNING；
-- Task.currentRunId 与 Run 不一致；
-- 待审批超时；
-- 孤立 worktree 和 Artifact；
-- 结果存在但 Schema/Hash 不一致。
-
-## 20. 可观测性与成本
-
-至少记录以下指标：
-
-```text
-task_created_total{type}
-task_duration_seconds{type,status}
-run_attempts_total{type,executor,model,status}
-run_lease_expired_total
-executor_session_duration_seconds
-tool_calls_total{tool,status}
-model_tokens_total{provider,model,direction}
-model_cost_total{provider,model}
-approval_wait_seconds{type}
-result_schema_failure_total{type,version}
-verification_pass_rate{issue_type}
-fix_acceptance_rate{issue_type}
-```
-
-日志统一带 `issueId`、`taskId`、`runId`、`executorSessionId`、`workerId`，但 UI 和告警以 `taskId/runId` 为主。Trace 跨 Spring Boot、Worker、MCP、OpenCode、CI 传播 correlation ID。
-
-## 21. 推荐技术栈
-
-### 21.1 Control Plane
-
-- Java 21 + Spring Boot；
-- Spring Data JPA/JDBC，关键 Claim SQL 显式实现；
-- PostgreSQL 优先，MySQL 8 可替代；
-- Flyway/Liquibase 管理 Schema；
-- ClickHouse 保存 APM 明细与聚合数据；
-- S3 兼容对象存储保存大 Artifact；
-- Micrometer + Prometheus/Grafana；
-- 初期数据库调度 + Outbox，规模扩大后再接 MQ。
-
-### 21.2 Agent Worker
-
-- TypeScript + Node.js/Bun；
-- OpenCode SDK `@opencode-ai/sdk`；
-- MCP TypeScript SDK v2；
-- Zod v4 / JSON Schema；
-- Git worktree；
-- 进程级并发限制和工作目录配额。
-
-Spring Boot 负责 APM 业务、Task 状态机、审批、数据库、用户和调度；TypeScript Worker 负责 Coding Agent Runtime、工具、模型、Workspace 交互。不要因为接入 OpenCode 而把整个 APM 后端改成 Node。
-
-## 22. V1 实施顺序
-
-### 阶段 1：领域与持久化
-
-1. 定义五张核心表和迁移脚本；
-2. 实现 Task/Run 状态机和乐观锁；
-3. 实现 TaskSpec、Result Schema 及 Hash；
-4. 实现 Approval；
-5. 实现数据库 Claim、Lease、Heartbeat、Reconciler。
-
-### 阶段 2：最小 Worker
-
-1. 定义 `AgentExecutor`；
-2. 实现 Mock Executor，验证重试、取消和恢复；
-3. 实现 WorkspaceService 和 Git worktree；
-4. 接入 OpenCode Adapter；
-5. 实现事件转换与 Structured Output。
-
-### 阶段 3：ANALYZE 闭环
-
-1. 从一个 Jank Issue 构建 EvidencePackage；
-2. 提供只读 APM MCP Tools；
-3. 生成 AnalysisResult；
-4. Dashboard 展示证据链、Run 事件和报告；
-5. 建立离线金标 Issue 集评估根因准确性。
-
-### 阶段 4：FIX + VERIFY
-
-1. Approval 后创建 FIX Task；
-2. 本地 Worker 隔离修改并生成 Diff；
-3. CI 执行编译、测试和静态检查；
-4. 保存 VerificationResult；
-5. 人工审阅后手动创建 PR。
-
-### 阶段 5：增强
-
-- 自动 PR、Review Task；
-- Macrobenchmark/Perfetto 真机回归；
-- 多模型路由和成本策略；
-- MQ 调度和多集群 Worker；
-- 每日分析报告、相似 Issue 关联、历史修复检索；
-- 在证据充分且策略允许时扩大自动化范围。
-
-## 23. V1 验收标准
-
-- 同一 READY Task 不会被两个 Worker 同时执行。
-- Task 第一次失败、第二次成功时只存在一个 Task 和两个 Run。
-- 服务或 Worker 重启后，任务不会静默丢失，也不会无条件重放写操作。
-- ANALYZE 无法修改源码或执行未授权命令。
-- 未批准的 FIX 无法进入 READY/RUNNING。
-- FIX 只能修改登记的 worktree，无法 push。
-- 每个结果都能追溯到 Issue、Evidence、源码 Revision、TaskSpec、Run、模型和权限策略。
-- Dashboard 不依赖 OpenCode 原生事件类型。
-- 更换 Mock/OpenCode Executor 不影响 Control Plane 的业务 API。
-- 结构化结果不合法时不能把 Task 标记为 SUCCEEDED。
-- VERIFY 失败不会把 Issue 自动标记为已修复。
-
-## 24. 待确认问题
-
-以下内容尚未形成最终决定，实施前应建立 ADR：
-
-1. PostgreSQL 还是 MySQL 8；本文推荐 PostgreSQL。
-2. V1 是否需要 MQ，还是先采用数据库 Claim + Outbox。
-3. Fix Worker 运行在开发者机器、固定内网构建机，还是自托管 CI Runner。
-4. FIX 是否允许自动 `git commit`；默认不允许。
-5. VERIFY 最小门槛：仅编译/单测，还是必须包含特定 Benchmark。
-6. Artifact 的保留期、脱敏级别和访问审计策略。
-7. 模型供应商、降级顺序、预算和数据出境策略。
-8. OpenCode 具体锁定版本，以及该版本对调用方 Message ID、事件恢复和权限配置的实际支持。
-9. 自动创建 PR 的审批条件和 Git 凭证托管方式。
-
-## 25. Codex 后续实现规则
-
-Codex 在修改 Agent 平台代码前必须阅读本文，并遵守：
-
-1. 不得把 AgentTask、AgentRun 和 OpenCode Session 合并。
-2. 不得从 Controller/事务方法直接长时间调用 Agent。
-3. 不得用 Task 状态表达 Build/Test 等执行 Phase。
-4. 不得在没有 TaskSpec、精确 Revision 和 EvidencePackage 的情况下执行 FIX。
-5. 不得绕过 Approval 启动需要批准的任务。
-6. 不得把 OpenCode Event 直接暴露为平台公共事件契约。
-7. 不得把 Agent 最后一条 Markdown 当成唯一 Result。
-8. 不得放宽权限来“修复”失败；权限变化必须经过 Policy 变更和审计。
-9. 新增状态、Task 类型、表或跨服务依赖前先写清不变量和迁移方案。
-10. 涉及 OpenCode/MCP 易变 API 时，先核验项目锁定依赖的类型定义和官方文档，再实现 Adapter。
-
-建议在项目根 `AGENTS.md` 中只放本文的阅读入口和上述硬约束，不要把整篇架构复制到 `AGENTS.md`。
-
-## 26. 参考资料与版本说明
-
-- [OpenCode SDK](https://opencode.ai/docs/sdk/)：当前 SDK 包名、Client/Server、Session、事件订阅和 Structured Output。
-- [OpenCode Server](https://opencode.ai/docs/server/)：Headless HTTP Server 和 OpenAPI 接口。
-- [OpenCode Providers](https://opencode.ai/docs/providers/)：云端 Provider、自定义端点和本地模型接入。
-- [OpenCode Models](https://opencode.ai/docs/models/)：模型选择与配置。
-- [OpenCode Permissions](https://opencode.ai/docs/permissions/)：工具权限、模式规则和 Agent 权限覆盖。
-- [OpenCode Plugins](https://opencode.ai/docs/plugins/)：Session、Permission、Tool 等事件。
-- [OpenCode V2 Session 规格](https://github.com/anomalyco/opencode/blob/dev/specs/v2/session.md)：调用方 ID、耐久事件和恢复语义；这是开发分支规格，不能当作已锁定版本的稳定承诺。
-- [MCP TypeScript SDK](https://github.com/modelcontextprotocol/typescript-sdk)：SDK v2、stdio、Streamable HTTP 和 Standard Schema 支持。
-- [MCP Build Server Guide](https://modelcontextprotocol.io/docs/develop/build-server)：Tool/Resource/Prompt 概念及 stdio 日志约束。
-
-所有外部 API 示例均以 2026-09-19 官方文档为依据。项目实现必须锁定依赖版本；升级时通过 Adapter 契约测试验证，必要时更新本文和 ADR。
+Worker 主动连接服务端，避免要求云端直接连接开发者机器。跨机器文件通过鉴权接口传输，不把本机文件路径暴露为公共契约。初期并发设为 1，但 Claim 与租约仍须具备并发正确性。
+
+后端新增 `agent` 业务域，遵循现有 `api/internal` 和 ArchUnit 规则；不直接依赖其他域的内部仓库，也不让 Worker 直连 PostgreSQL/ClickHouse。模块间具体调用在实现时通过现有 API 边界补齐。
+
+## 4. 应用身份、问题与源码版本
+
+### 4.1 统一身份
+
+- `appId`：平台 UUID 应用标识，是授权和数据隔离边界。
+- `packageName`：Android 包名，沿用现有契约，不再用模糊的 `applicationId` 混指两者。
+- `repositoryId`：服务端登记的源码仓库标识，与应用存在明确授权关系。
+- `buildId`：事件中的构建标识，不等于 Git Revision。
+
+Task 必须保存 `appId`。Evidence、Result、Artifact、Approval、Event 必须能通过所属 Task 或明确归属确定唯一应用；所有创建、关联、查询、下载和回写都校验同应用归属。客户端提供对象 ID 不代表有访问权。
+
+### 4.2 复用 Issue 聚合
+
+阶段 A 使用现有 Jank 指纹和查询服务，不重写聚类算法。问题引用至少包含应用、问题类型、指纹及指纹版本；分析输入另行固定时间窗口、筛选条件、构建和事件样本。
+
+同一问题可以跨构建持续出现，但一次可定位源码的分析选择一个精确构建。跨构建对比作为明确的分析输入单独提供，不能将多份源码证据混用。持久 Issue 状态、评论和关闭流程等有需求后再建立独立模型。
+
+影响范围保留原指标名称、分子、分母、时间窗口和筛选口径。分母不可得时只显示计数，不生成虚假的 affectedUserRate。
+
+### 4.3 构建登记
+
+阶段 A 先允许有权限的管理员登记并核验 `appId + buildId → repositoryId + 完整 commit SHA`；只接受已配置仓库，不接受任意仓库 URL 或 Shell 参数。保存登记者、时间和审计记录，证据创建时冻结选中的映射。
+
+同一构建映射冲突时不得静默覆盖。修正生成新版本，已创建 Evidence/Task 保持旧快照，新任务使用新版本。后续 CI 自动登记可以替代人工步骤，但不得依赖客户端反复上传可由构建系统提供的信息。
+
+源码版本缺失时允许输出“证据分析/待定位”，必须明确限制，不能进入 FIX；需要符号还原但 mapping 不足时同样阻断 FIX。是否需要 mapping 由证据是否混淆决定，不对未混淆源码强加无意义要求。
+
+分析合同明确两种模式：`EVIDENCE_ONLY` 仅分析冻结的遥测证据，源码引用为空且不开放源码工具；`SOURCE_LINKED` 必须具备已核验的构建映射和完整 Revision。不得根据当前分支 HEAD 自动补齐缺失版本。阶段 A 的源码定位质量门槛针对 SOURCE_LINKED 单独评估，避免将证据摘要能力算作定位成功。
+
+## 5. 不可变 EvidencePackage
+
+### 5.1 内容与来源
+
+EvidencePackage 固定本次分析实际看到的内容，不仅是附件链接：
+
+| 内容 | 用途 |
+|---|---|
+| 应用、问题引用、构建及完整源码 Revision | 防止跨应用、跨版本分析 |
+| 查询窗口、筛选、查询/指纹/证据算法版本 | 解释样本与统计口径 |
+| 选中事件 ID、采样策略、总量/截断数量 | 说明代表性及遗漏 |
+| 归一化堆栈、主线程证据、指标和采样质量 | 可独立重读的分析输入 |
+| 还原结果、mapping 摘要/版本、解析器版本 | 避免符号表替换改变已审计证据 |
+| 来源时间、脱敏状态、内容摘要、生成时间 | 追溯与完整性检查 |
+| 缺失证据与不可恢复原因 | 允许明确拒答和补证据 |
+
+对于历史 Jank，无法获得当时 mapping 摘要时记录“未知”，不得用当前 mapping 冒充；保留当时已落库的归一化证据，并限制源码定位结论。
+
+源事件可能受 TTL 删除，因此关键证据必须复制为受控快照。新增快照不改变遥测保留策略；快照保留期、授权删除和审计另行管理。不可变指内容不得原地替换，不代表禁止依法或按策略删除；删除后任务应显示证据不可用，不能继续执行依赖它的任务。
+
+### 5.2 构建与存储顺序
+
+1. 校验应用权限、构建登记、窗口和样本上限。
+2. 在数据库短事务之外查询并生成受大小/时间限制的证据文件，记录实际选中事件与采集时间。跨查询无法保证数据库级一致快照时明确记录限制。
+3. 对规范化 Manifest 计算摘要；摘要字段自身不参与计算，每个内容文件另有摘要。
+4. 文件先写临时目录，校验后原子发布到服务端分配的不可变标识下。
+5. 短事务保存 Evidence 元数据、Task 和审计事件；失败产生的无引用文件由宽限期清理。
+
+禁止在 HTTP 长事务内执行模型、解析巨型产物或扫描大量 ClickHouse 数据。首版限制样本与体积，超限要求缩小范围，不提前建设通用异步证据流水线。
+
+### 5.3 Agent 读取范围
+
+Prompt 只包含摘要、证据索引和必要片段。额外读取必须限定到当前 EvidencePackage、同应用且有界的源码上下文。读取实时 APM 产生的新事实不能静默混入冻结输入；需要补证据时创建新 Evidence 和新 Task。
+
+首版不要求 MCP；通过固定输入和少量受控工具即可实现。引入 MCP 时，沿用相同鉴权与快照边界，不复制业务查询逻辑，不开放数据库访问或控制面审批工具。
+
+## 6. Task、Run 与执行合同
+
+### 6.1 AgentTask
+
+首版按需要增加 `ANALYZE`、`FIX`、`VERIFY`，不使用 `JANK_ANALYZE` 等组合枚举。任务类型与问题类型分离。
+
+Task 保存：应用、问题引用、类型、Evidence、冻结 TaskSpec 及摘要、状态、当前 Run、尝试次数/上限、下次可执行时间、创建人/时间和乐观锁版本。FIX 关联精确 AnalysisResult；VERIFY 关联精确 FixResult 和交付物摘要。
+
+### 6.2 TaskSpec 冻结内容
+
+| 合同部分 | 必需内容 |
+|---|---|
+| 输入 | Evidence ID/摘要、上游 Result ID/摘要 |
+| 源码 | 分析模式；SOURCE_LINKED、FIX、VERIFY 必须保存仓库 ID、完整基线 SHA、构建登记版本，EVIDENCE_ONLY 明确为空 |
+| 分析/修复配置 | 实际 Prompt、Profile、Policy、Schema 的不可变版本或配置快照及摘要 |
+| 执行配置 | 固定模型配置、执行器要求、超时、重试分类与上限 |
+| 资源预算 | 输入/输出上限、工具调用数、运行时间、磁盘/并发限制、Token/费用限额 |
+| VERIFY 配置 | 可信验证命令模板及版本、必需检查、性能是否为必需项 |
+
+不可仅冻结可能被修改的配置名称。秘密值不写入合同。首版固定一个模型配置；配置变化需要新 Task，实际 Provider/Model、执行器版本、工具环境与用量写入 Run。
+
+冻结输入提供可追溯和重放条件，不承诺概率模型产生相同输出。缺少精确模型快照时记录供应商标识和时间，不夸大可复现性。
+
+### 6.3 AgentRun
+
+Run 保存：Task、尝试序号、状态/阶段、Worker、租约代次和 Token 校验信息、到期时间、工作区 ID、可选 Session ID、实际配置、开始/心跳/结束时间、失败原因与用量。
+
+Task 与 Run 为一对多。ANALYZE/FIX 的 Run 最多关联一个执行器 Session；VERIFY 使用确定性验证程序，Session 可为空。重试建立新 Run，不覆盖前一次结果和日志。
+
+### 6.4 创建幂等
+
+请求幂等键与 TaskSpec Hash 分开。网页生成一次操作的请求键，服务端在应用与操作范围内约束唯一；相同键不同输入返回冲突，相同输入返回已创建任务。用户主动“重新分析”使用新键。
+
+TaskSpec 含 Task ID 时不能依赖整体 Hash 判断重复创建。未来自动触发再定义包含规则版本、证据版本、源码和上游结果的触发去重键，不在首版预埋规则引擎。
+
+相同请求键的输入摘要基于规范化的用户请求计算，不包含查询时刻、Task ID 或重新采样生成的 Evidence ID。重试先查已提交结果；并发请求在最终短事务中由唯一约束裁决，仅一份 Evidence 与 Task 成为有效结果，落败请求生成的文件按孤立文件规则清理。幂等记录至少覆盖任务保留期，删除后明确拒绝旧键或要求用户使用新键，不能无提示重建任务。
+
+## 7. 状态、Claim 与恢复
+
+### 7.1 Task 状态
+
+| 状态 | 含义与迁移 |
+|---|---|
+| WAITING_APPROVAL | FIX 已冻结且等待审批；批准转 READY，拒绝转 CANCELLED |
+| READY | 可执行；只有满足 nextAttemptAt 且 Worker 有权限/能力时才能领取 |
+| RUNNING | 已原子创建当前 Run |
+| CANCELLING | 已请求终止，尚未确认进程停止 |
+| SUCCEEDED | 已接收并校验合法最终结果；不代表根因已证实或修复已生效 |
+| FAILED | 不可重试、预算/次数耗尽或执行状态无法安全恢复 |
+| CANCELLED | 无执行进程，或已确认停止；不能重新调度 |
+
+ANALYZE/VERIFY 创建后进入 READY，FIX 创建后进入 WAITING_APPROVAL。RUNNING 的安全可重试错误回到 READY 并设置退避时间；其余进入终态。终态不通过简单改状态重开，人工重新执行创建关联的新 Task。
+
+Run 状态使用 STARTING、RUNNING、SUCCEEDED、FAILED、CANCELLED、LOST。读取源码、编辑、构建等仅是进度 Phase，不扩大 Task 状态枚举。
+
+以下迁移由服务端裁决，Worker 不能直接指定 Task 的任意目标状态：
+
+| 当前状态与触发条件 | 原子结果 |
+|---|---|
+| WAITING_APPROVAL / READY 被取消，且没有活动 Run | Task 转 CANCELLED，无须等待 Worker |
+| READY 的 FIX 审批已过期 | 转 WAITING_APPROVAL，原审批标记过期，不创建 Run |
+| RUNNING 收到取消请求 | 转 CANCELLING，拒绝后续成功迁移，通知 Worker 停止 |
+| RUNNING 收到合法最终结果 | 同事务保存 Result、结束 Run、Task 转 SUCCEEDED |
+| RUNNING 安全可重试失败 | 结束当前 Run，Task 转 READY，设置 nextAttemptAt；下次 Claim 重新检查审批 |
+| CANCELLING 收到可信停止确认 | Run 转 CANCELLED；已为 LOST 的 Run 保持 LOST 并记录停止事实；Task 转 CANCELLED |
+| CANCELLING 超过停止确认期限仍无法核验 | Task 转 FAILED，记录停止状态未知并保留清理禁令，禁止自动重试 |
+
+完成与取消以先提交的合法事务为准：完成先提交时取消返回已结束；取消先提交时迟到结果只能作为诊断材料，不能成为最终 Result。FAILED、CANCELLED 等业务终态并不自动证明宿主进程已退出，工作区回收另需停止证据。
+
+### 7.2 原子领取与租约
+
+服务端在短事务中按就绪时间和优先级查询可授权任务，使用 `FOR UPDATE SKIP LOCKED` 锁定，创建 Run、递增尝试次数、更新 currentRunId 和状态，并保存审计事件。约束 `(task_id, attempt)` 唯一，同一 Task 最多一个数据库中的活动 Run。
+
+每次领取分配新的租约代次及不可猜测 Token，Worker 续租、事件、结果、失败回传均校验：服务端登记身份、分配关系、当前 Run、租约代次/Token、数据库时间下的有效租约和允许的状态。Token 不进入日志。
+
+终态回传支持同 Run、同结果摘要的幂等响应；不同内容冲突返回错误。对于已提交结果的重复请求，先校验当前有效的 Worker 身份和原分配关系，再返回原确认，不要求已结束租约仍有效，也不重新迁移状态。其余首次写回必须持有有效租约。租约失效的旧 Run 不得覆盖当前结果，即使它随后完成了执行。
+
+Claim 请求携带 Worker 范围内稳定的领取请求 ID，并在 Run 分配记录中唯一保存；响应丢失后以同 ID 重试返回原分配及当前有效性，不增加尝试次数。租约已经失效时只返回失效事实，不能借重试续活；Worker 确认原分配不再可执行后才发起新领取。
+
+### 7.3 失联、取消与工作区
+
+租约保证平台接受写回的唯一所有权，不保证操作系统中的旧进程自动消失。每个 Run 独立工作区、凭证范围和进程组；Worker 失去续租能力后在本地截止时间停止执行，不继续接受新工具操作。
+
+服务端以数据库时间判断租约，Worker 使用单调时钟计算保守的本地截止时间并预留通信余量；暂停/恢复或时钟状态不确定时先停止派发操作并重新确认所有权。租约时长、心跳周期、执行超时和停止确认期限分别配置，不能把收到心跳解释为可以无限延长任务执行预算。
+
+- 取消先记录 CANCELLING，由 Worker 中止 Session 和进程组，确认结束后转 CANCELLED。
+- Worker 不可达时不得把取消显示为已完成；界面展示等待确认，Reconciler 持续核验。
+- 过期 Run 标记 LOST。只读任务可在新隔离环境重试；FIX/VERIFY 必须先确认旧进程停止或被执行环境撤销，再决定重试。
+- 无法确认有副作用的执行状态时，Task 进入 FAILED 并标明需人工核验，不自动重放。
+- 清理必须先确认执行已停止，再删除登记且路径校验通过的工作区。
+
+停止确认是受限的控制回执：允许原分配 Worker 在租约过期后报告特定 Run 的进程退出，也允许授权运维在 Runner 层核验并留审计记录；该回执只更新停止事实，不恢复租约、不接收业务结果。不能以 Agent 自然语言回答“已停止”作为依据。
+
+### 7.4 重试与恢复
+
+临时网络或限流错误在预算内指数退避；Schema 修复次数计入原 Run 的预算；源码缺失、权限拒绝、预算耗尽不通过放宽权限恢复。编译/测试不通过是验证结果，不是必须重新运行同一 Job 的基础设施故障。
+
+服务重启后从数据库恢复调度。Worker 重启先向服务端确认租约所有权，再 inspect Session；不能仅因 Session 存活就恢复续租。外部创建/提交响应丢失时保存“结果未知”并对账；本地 Admission 记录和 Session title 不能被当成执行器 exactly-once 保证。
+
+Reconciler 扫描租约、取消、当前 Run 不一致、缺失结果、审批超时和无引用文件。恢复操作同样必须受状态前置条件和乐观锁保护。
+
+重试预算同时限制单 Run 和整个 Task，累计所有尝试与 Schema 修复用量，不能通过新建 Run 重置总限额。供应商不能提供实时费用时，以已知用量和预留额度限制继续调用，费用标记为估算；不得承诺无法测量的精确费用硬截止。
+
+## 8. 分析结果与质量门槛
+
+AnalysisResult 保存问题摘要、候选根因、证据引用、源码位置、反证/局限、建议补充证据、是否具备修复前提和建议验证方式。结果允许 `INSUFFICIENT_EVIDENCE`，不得强制模型给出唯一根因。
+
+证据引用指向冻结文件中的具体片段；源码位置绑定完整 Revision。服务端验证引用存在且属于任务应用，不只验证 JSON 格式。模型自报置信度只用于展示，不能作为审批和自动修复的唯一门槛。
+
+阶段 A 先建立包含已知原因、噪声、缺失采样和错误版本的代表性评估集；区分调试样本与验收样本。由人工评判根因与证据是否吻合，记录有效定位率、引用有效率、证据不足识别率、单次耗时/费用和失败率。
+
+质量阈值及样本量在试点前确认，记录到验收材料，不在没有基线时虚构准确率承诺。未达门槛时优先改善证据质量与输入，暂不扩大自动修复范围。
+
+## 9. FIX、交付物与 VERIFY
+
+### 9.1 隔离修复
+
+FIX 仅在批准的 TaskSpec 下运行，重新核验分析结论与指定源码。每个 Run 在独立仓库副本或隔离 Runner 内建立工作区；Git worktree 仅用于版本管理，不作为安全沙箱。共享 Git 元数据不得向执行进程暴露其他工作区的可写能力。
+
+默认禁止 commit、push、merge、任意路径删除。工作区、临时文件和构建缓存使用独立可写目录；宿主家目录、SSH agent、Docker socket、签名文件和生产凭证不可访问。
+
+FixResult 保存基线、分析结果引用、改动理由、假设、风险及不可变交付物。没有改动时明确返回无可用修复，不创建虚假的待验证补丁。
+
+首版仅处理单一仓库的受控源码树。Git LFS、子模块或依赖外部生成输入的仓库必须在接入检查中识别；未实现对应固定版本与完整打包能力时拒绝 FIX，不交付缺少真实内容的补丁。源码准备由可信包装程序完成，使用独立只读拉取身份，不向模型进程开放 Git 凭证。
+
+### 9.2 跨机器交付
+
+可信 Worker 包装程序从最终文件状态生成交付物，不能直接信任模型填写的 changedFiles：
+
+- 基线完整 SHA。
+- 包含新增、删除、重命名和二进制内容的完整补丁包或源码快照。
+- 文件清单、权限/类型及摘要；拒绝路径穿越、越界符号链接和未授权文件。
+- 最终源码树摘要、交付物摘要、生成 Run 和工具版本。
+
+生成后禁止修改交付物，VERIFY 只接收其 ID/摘要。仅保存 `git diff` 和未跟踪文件名不足以交付新增文件；打包必须检查实际内容覆盖完整。
+
+最终源码树摘要由包装程序对规范化清单计算：按仓库相对路径排序，包含文件类型、可执行位和内容 SHA-256，排除时间戳、绝对路径、`.git` 与可信配置指定的构建输出。排除规则随验证配置冻结，Agent 不得修改规则隐藏变更。清单外新增文件必须归类为已批准输出或拒绝交付，不能依赖 `.gitignore` 自动忽略。
+
+### 9.3 确定性验证
+
+CI 在干净基线应用交付物，校验最终树摘要，再执行 TaskSpec 指定的可信命令模板。命令与参数由仓库管理员配置，模型建议不得直接变成 Shell 执行输入。
+
+项目构建脚本本身是不可信执行代码，验证必须在隔离 Runner 中运行，依赖下载经过网络策略，不注入发布或推送凭证。构建/缓存输出可写，但被验证源码不得静默变化；需要代码生成时明确生成目录，构建前后核验输入源码摘要，异常变化使验证无效。
+
+VerificationResult 分别保存构建、功能/静态检查、性能验证结果，以及工具链、Runner 环境、源码摘要、检查退出码、日志和报告引用。
+
+- `PASSED`：该项满足预设验收规则。
+- `FAILED`：该项已执行但不满足规则。
+- `NOT_RUN`：未执行，不得解释为通过。
+- `INCONCLUSIVE`：证据不足或环境不具可比性。
+
+Run/Task 成功表示验证程序完成并产生可信结果，即使检查结论是 FAILED；运行器崩溃等基础设施问题才使用 Run 失败语义。下游必须读取必需检查结论，不能只看 Task.status。
+
+整体结论由服务端按冻结的必需检查集合计算：任一必需项 FAILED 则为 FAILED；否则任一必需项 NOT_RUN / INCONCLUSIVE 则为 INCONCLUSIVE；只有全部必需项 PASSED 才为 PASSED。模板必须至少包含一个必需检查；模型或报告不得通过删除失败项获得通过。即使整体通过，也仍须单独展示性能是否验证。
+
+可信包装程序收集实际命令、退出码、超时和产物摘要；仓库生成的测试报告仍是待校验输入，禁止将项目自写的“通过”文件直接当成平台结论。解析失败、缺失必需报告或报告与执行记录不一致均不能通过。
+
+### 9.4 性能验证与最终审阅
+
+只有编译和单测时显示“构建/功能检查通过，性能未验证”。是否必须性能验证在创建 VERIFY 时冻结；缺少必需设备/场景则不得显示整体通过。
+
+性能比较记录同设备/系统/场景、构建类型、数据集、预热、重复次数、统计方法、原始测量引用和预先确定的改善/回归阈值。不能仅由模型填 `sampleComparable=true`。
+
+人工审阅必须同时看到最终源码摘要和对应验证报告。任何后续编辑、重新基线化或合并冲突解决都会产生新交付物并重新 VERIFY；原报告不覆盖新代码。首版由人手动提交/创建 PR，不把 CI 通过解释为已上线修复，不自动关闭 Issue。
+
+## 10. 审批与权限
+
+### 10.1 网页与 Worker 授权
+
+复用网页 Session、CSRF 和应用成员检查；上报 App Key 不授予 Agent 控制面访问能力。计划采用以下最小权限，实施时以测试固定：
+
+| 主体 | 允许范围 |
+|---|---|
+| 应用成员 | 查看已授权应用的任务及脱敏遥测摘要；不默认获得源码和补丁访问权 |
+| OWNER / ADMIN / DEVELOPER | 创建分析、请求修复；创建者可取消自己的任务 |
+| OWNER / ADMIN | 审批 START_FIX、登记仓库/构建/验证配置、取消应用内任务 |
+| Worker 服务身份 | 仅领取已登记应用/仓库/任务类型的任务，读取已分配输入，回传所属 Run |
+
+服务端不得信任 Worker 自报能力扩大权限；capabilities 只在预先登记的权限范围内缩小候选任务。Worker 使用独立受限服务凭证，生产传输要求 HTTPS 和服务端身份校验；不复用网页 Cookie、App Key 或数据库账号。
+
+仓库接入时明确可接收源码信息的应用角色或成员范围，源码片段、详细分析报告、Diff 和构建日志按该范围二次授权，避免把 APM 查看权限扩大为源码访问权。首版可使用管理员维护的显式允许名单，无须引入完整仓库权限同步系统；未配置名单时默认不展示含源码产物。
+
+### 10.2 START_FIX
+
+阶段 B 创建冻结 FIX Task 和审批请求于同一事务，初始 WAITING_APPROVAL。审批绑定应用、TaskSpec Hash、AnalysisResult Hash、Evidence Hash、源码基线和权限范围，不要求未来 Diff。
+
+批准事务校验审批者当前权限、对象摘要、有效期及状态，原子更新审批和 Task 为 READY；拒绝原子转 CANCELLED。每次领取 FIX（含重试）复核批准有效期、审批者当前权限及仓库授权；失效时转 WAITING_APPROVAL。同一冻结 Task 可产生新的审批请求，但至多一个待处理请求，旧请求保留审计；合同内容变化则创建新 Task。拒绝终结该 Task，不能通过重试重新审批。
+
+审批有效期限定开始新 Run 的期限；已经合法开始的 Run 不因时间自然经过而自动撤销，仍受执行超时限制。显式撤销审批或权限回收属于安全撤销：阻止新 Claim，活动 Task 进入取消流程，后续续租/数据读取拒绝继续授权。授权撤销后的停止确认由受限回执或运维核验完成，不能为收集回执恢复业务访问权。
+
+审批有效期由配置确定并写入请求。首版不支持执行中动态 RISKY_TOOL 审批；超出冻结权限就失败转人工，避免长期挂起 Session 等待临时授权。
+
+后续自动 PR 若立项，新增独立审批，绑定最终代码摘要、目标分支/基线、验证结果与推送范围，不复用 START_FIX 的批准。
+
+### 10.3 执行隔离与不可信数据
+
+| 能力 | ANALYZE | FIX | VERIFY |
+|---|---|---|---|
+| 读证据/源码 | 已分配快照及只读源码 | 已分配输入及源码 | 已分配交付物 |
+| 修改业务源码 | 禁止 | 仅本 Run 工作区 | 禁止 |
+| 执行构建 | 禁止，包括 Gradle 查询 | 首版交给 VERIFY | 可信配置中的任务 |
+| 网络 | 必需模型/控制面端点 | 必需模型/控制面端点 | 控制面与受限依赖源 |
+| Git 远端写入 | 禁止 | 禁止 | 禁止 |
+| 生产/签名凭证 | 禁止 | 禁止 | 禁止 |
+
+OpenCode 工具权限用于补充约束，操作系统隔离负责底层文件、进程与网络边界。模型凭证由受控运行环境提供，不向任意项目 Shell 暴露；证据、源码和日志先脱敏再发送模型。源码不允许离开内网时 Worker 和模型路由必须满足该限制，不能只因 Worker 在本地就宣称数据未外发。
+
+日志、源码注释、仓库 Agent 配置和证据文本均属于不可信输入，不得覆盖平台策略。只加载平台批准的工具/插件配置，禁止仓库自动扩展执行权限。路径、输入大小、工具输出、超时、CPU/内存/磁盘和子进程都须有界。
+
+## 11. 数据持久化与事件
+
+### 11.1 按阶段建表
+
+阶段 A 建立以下必要持久化对象，具体表名在实现迁移中固定：
+
+| 对象 | 主要信息与约束 |
+|---|---|
+| 构建登记 | 应用、buildId、仓库、Revision、登记版本与审计；当前绑定不可歧义 |
+| Evidence | 应用、问题引用、Manifest/摘要、来源与限制；创建后不可改内容 |
+| Artifact | 应用、类型、存储键、摘要/大小、创建者/Run、保留状态；路径服务端生成 |
+| Task | 应用、请求幂等键、Spec/摘要、状态、currentRun、次数、nextAttemptAt、版本 |
+| Run | Task、attempt、Worker、租约、工作区、Session、实际配置、失败信息；尝试唯一 |
+| Result | Task/Run、类型、Schema 版本、内容/摘要；每 Run 最多一个最终结果 |
+| Event | Task/Run、Task 内序列、来源事件 ID、类型、Schema、脱敏载荷、时间 |
+
+阶段 B 再增加 Approval。Evidence/Artifact 不是现成表，不把“五张核心表”当成全部工作量；也不预建无需求的完整 PerformanceIssue 工作流。
+
+所有关联必须校验应用一致性。Claim、审批、完成与取消使用短事务和状态前置条件；数据库增加唯一约束与必要索引，不能仅依赖 Java 内存锁。
+
+### 11.2 事件与回传
+
+Dashboard 读取平台事件，不依赖 OpenCode 原生事件格式。事件记录关键生命周期和工具审计，不把逐 Token 输出全部写入数据库。大日志进入受限 Artifact。
+
+Task 内序列由平台事务性分配，唯一约束为 `(task_id, sequence)`；Worker 批量回传携带稳定来源 ID，以 `(run_id, source_event_id)` 去重。当前状态仍以 Task/Run 表为准。
+
+结果落库、Task/Run 状态与关键审计事件必须同事务。文件先不可变发布，再入库引用；重复 complete 使用摘要判断，不能重复创建下游任务。事件进度缺失可降级展示，但最终状态和结果不能依赖 SSE 是否在线。
+
+首版不自动创建整条任务链：分析完成后由人请求 FIX；修复产生有效交付物后由人触发 VERIFY，服务端从上游 Result 派生输入，用户不能替换其源码摘要。每次触发沿用请求幂等机制，父任务关系可追溯。验证失败后重新修复创建新 FIX，并重新审批；不设计无限自循环修复。
+
+阶段 A 前端采用有界轮询即可；后续需要实时体验时增加平台 SSE，并明确断点、保留期和游标过期后的快照重载。
+
+### 11.3 文件保留与清理
+
+活跃任务及有效审批引用的证据和交付物不得被普通 GC 删除。Task 终态后的保留期、隐私删除与审计需求分别配置；日志和大文件有配额。清理只处理服务端登记的路径，检查符号链接与根目录边界，不执行 Agent 提供的删除命令。
+
+构建登记、Evidence、任务元数据和文件备份应成组考虑；单独恢复数据库而缺少文件时标记不可执行，不伪造完整恢复状态。具体备份/RPO/RTO 在生产部署前确认。
+
+## 12. 执行器与接口边界
+
+### 12.1 轻量执行器适配
+
+TypeScript Worker 封装 OpenCode 的启动、事件归一化、结果读取、inspect 和取消；Java 业务层不依赖 SDK 类型。先实现 Mock 与一个 OpenCode 适配，不引入多执行器注册框架。
+
+Worker 与 OpenCode Server 按隔离单元运行；Server 只绑定受控本地接口，不公开到公网。事件按 Session/Run 归属过滤，不能把全局订阅中的其他任务事件记入当前 Run。
+
+SDK、运行时和依赖必须锁定精确版本，通过类型检查和契约测试验证结构化输出、取消、权限配置、错误及订阅断开行为。若无法证明事件回放或提交幂等，就按“不保证”设计恢复，不依赖开发分支规格。
+
+OpenCode 官方权限规则支持按输入匹配，最后匹配规则优先；默认拒绝再最小放行，并测试全局、Agent 和仓库配置合并后的有效策略。Structured Output 仍须由平台校验归属、引用和业务事实。
+
+### 12.2 控制面契约草案
+
+以下仅表示计划中的接口分组，不是已发布 API；正式实现时在 `docs/api/` 编写完整契约并同步测试：
+
+| 接口范围 | 计划行为 |
+|---|---|
+| `/api/v1/apps/{appId}/agent-tasks` | 人工创建、列表、详情、取消、结果和事件查询 |
+| 应用下的 Agent Evidence/Artifact 资源 | 按应用授权获取元数据与受限内容，不暴露文件系统路径 |
+| 应用下的 Agent Approval 资源 | 阶段 B 才增加批准/拒绝 |
+| `/internal/agent-runs` | Worker 领取、续租、事件、完成、失败和取消确认 |
+
+服务端可由 Task 推导的 appId、repositoryId 等不要求 Worker 重复声明为可信事实；仍需在每次访问时校验。未知和跨应用资源沿用现有应用隔离语义，不以资源存在性泄露信息。
+
+### 12.3 MCP 的引入条件
+
+只有出现按需读取证据/源码的明确需求时再加入 MCP 适配。工具只返回已授权快照片段、分页结果和 Artifact 引用，限制超时与大小。共享 HTTP MCP 的认证、连接和部署成本必须另行验收；单 Worker 可先用本地受控工具。
+
+MCP 不负责调度、审批或直接数据库访问。选用 TypeScript SDK 时锁定实际版本与包名，不仅写“v2”；stdio 的日志只能写 stderr，不污染协议 stdout。
+
+## 13. 实施顺序与验收
+
+### 13.1 阶段 A：只读 Jank 分析
+
+1. 选择代表性历史 Issue，确认实际可用证据和构建关联，定义评估集与质量门槛。
+2. 实现应用授权、最小构建登记、证据快照、Task/Run/Result/Event 及文件元数据。
+3. 用 Mock 验证创建幂等、Claim、租约、取消、重试和结果一致性。
+4. 接入单个只读 Worker，固定模型与 Prompt，禁止 Shell 构建。
+5. Dashboard 提供人工触发、运行状态、引用证据、限制和费用；完成离线质量评估。
+
+阶段 A 验收不要求先完成审批、FIX、CI、对象存储或 MCP。没有真实模型评估时只能声明调度/协议已验证，不能声明根因分析有效。
+
+阶段 A 的交付材料包括：可复现的脱敏评估集及标注、冻结配置、真实模型评估报告、任务故障恢复测试、权限/隔离测试和 Dashboard 操作说明。源码定位、证据不足识别、耗时和成本分别报告；质量门槛未满足时不进入阶段 B。
+
+### 13.2 阶段 B：审批、修复与验证
+
+1. 实现冻结 FIX Task、START_FIX 审批与权限检查。
+2. 建设并验证真实隔离环境，按 Run 分配工作区和预算。
+3. 生成可跨机器重建且摘要一致的完整交付物。
+4. CI 执行预定义编译/测试，保存可信结果，明确性能是否验证。
+5. 人工审阅最终交付物和对应报告，手动提交/创建 PR；失败后由人决定新 FIX。
+
+首次 Android CI 接入记录实际 JDK、Gradle、SDK 和依赖环境，不把本项目服务端 Java 21 要求直接套到被修复 Android 仓库。遵循目标仓库构建约束；环境不可用时报告未验证。
+
+### 13.3 必须覆盖的验收场景
+
+| 场景 | 必须观察到的结果 |
+|---|---|
+| 两个 Worker 同时 Claim | 仅一个获得当前有效 Run |
+| 旧 Worker 超时后回传 | 拒绝覆盖当前结果；工作区互不共享 |
+| 完成响应丢失后重传 | 相同结果幂等，不重复创建结果或下游任务 |
+| Claim 响应丢失后重试 | 返回原分配及有效性，不创建第二个 Run |
+| 取消与完成竞争 | 按事务前置状态裁决，不互相覆盖；取消请求后不再接受成功迁移 |
+| Worker 无法停止 | 显示待停止/待人工核验，不清理运行目录或盲目重放 |
+| 跨应用对象/伪造 Worker 能力 | 读取、领取、审批和写回均被拒绝 |
+| mapping 替换或原事件 TTL 到期 | 已冻结证据保持原内容；删除的快照明确不可用 |
+| Evidence/Spec/审批绑定不一致 | FIX 不可领取 |
+| 审批过期后重试、成员权限回收 | 新 Run 被阻断；安全撤销触发活动执行取消 |
+| APM 查看者没有源码权限 | 可以查看脱敏摘要，不能读取源码报告、Diff 或含源码日志 |
+| 越界文件、符号链接、恶意构建脚本 | 隔离和包装程序限制访问及副作用 |
+| 新增/二进制文件、重命名与删除 | CI 重建最终树摘要与 FIX 交付物一致 |
+| Schema 合法但引用伪造 | 平台拒绝结果 |
+| 编译失败/无性能测试 | 保留真实检查结论，不显示修复成功 |
+| 必需检查缺失或项目伪造通过报告 | 服务端不能计算为 PASSED |
+| 达到资源预算 | 停止执行并保留原因、用量及已有审计记录 |
+| 服务重启/文件入库中断 | 任务可对账，孤立文件受控回收，缺失输入不执行 |
+
+### 13.4 后续增强的触发条件
+
+| 已确认需求 | 再增加的能力 |
+|---|---|
+| 人工分析效果稳定且重复触发量高 | 规则触发、冷却与自动去重 |
+| 不同任务明确需要不同模型或数据区域 | 版本化模型路由与切换 |
+| 真机环境可重复、指标稳定 | Macrobenchmark/Perfetto 自动回归 |
+| 人工 PR 流程成为瓶颈且授权模型成熟 | 独立推送身份和 CREATE_PR 审批 |
+| 单机文件容量或跨机器共享成为瓶颈 | 对象存储 |
+| 轮询吞吐/延迟实测不满足要求 | Outbox、消息队列或多 Worker 调度 |
+| 多个调用方需要统一动态工具 | MCP 共享服务 |
+
+## 14. 待确认与实施约束
+
+实施阶段 A 前确认：试点仓库与构建登记负责人、可用源码/证据、模型及数据外发范围、Worker 隔离方式、评估集/阈值、预算与文件保留期、锁定执行器版本。
+
+实施阶段 B 前确认：FIX/CI Runner、可信验证命令及工具链、审批有效期、取消和进程回收机制、性能是否为强制门槛、生产备份恢复要求。
+
+不再将数据库、迁移工具、首版 MQ 或多执行器框架列为待决选型。未经独立需求与验证，不扩大自动化权限。
+
+后续实现必须：
+
+- 保持 Task/Run/Session 和执行状态/业务结论分离。
+- 保持 appId 授权贯穿证据、结果、文件、审批与 Worker。
+- 不在数据库事务内调用模型或执行长任务。
+- 不在未批准、缺少精确源码或冻结证据时执行 FIX。
+- 不用 worktree 或 Prompt 代替操作系统安全边界。
+- 不把失效租约、未知副作用和缺失证据静默当成可重试。
+- 不以模型 Markdown、置信度或编译成功宣称性能已修复。
+- 新增代码/迁移/接口时同步所属知识库和正式 API 文档；只有客户端接入确实变化才修改客户端契约。
+
+## 15. 参考与版本边界
+
+- [平台知识库](docs/knowledge-base/README.md)、[实施路线图](docs/knowledge-base/09-实施路线图.md)：当前能力与本方案阶段的区别。
+- [OpenCode SDK](https://opencode.ai/docs/sdk/)：Client/Server、Session 与结构化输出。
+- [OpenCode Permissions](https://opencode.ai/docs/permissions/)：权限匹配与配置合并。
+- [MCP TypeScript SDK](https://github.com/modelcontextprotocol/typescript-sdk)：实际发布包与协议实现。
+- [Gradle 构建生命周期](https://docs.gradle.org/current/userguide/build_lifecycle.html)：配置阶段也会执行项目构建逻辑。
+
+官方文档用于理解能力，不替代锁定版本的编译、契约测试和隔离验收。只读应用查询 Token、Agent HTTP 与 TypeScript MCP 已按 [OpenSpec 变更](openspec/changes/add-agent-query-mcp/tasks.md) 提前实施；本方案中的修复 Worker、审批、隔离工作树和确定性 CI 仍未实现。真实 Agent 客户端、Android CI 与云端部署不得由现有单元测试外推为已验收。

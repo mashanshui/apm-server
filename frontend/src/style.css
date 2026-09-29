@@ -252,6 +252,18 @@ h2 { margin-bottom: 5px; color: var(--text-strong); font-size: 17px; }
 .detail-actions { display: flex; justify-content: flex-end; margin-top: 14px; }
 .credential-panel { border-top: 1px solid var(--border); padding: 20px 22px 24px; }
 .credential-panel h3 { margin: 0 0 8px; color: var(--text-strong); font-size: 14px; }
+.query-token-panel { margin-top: 20px; }
+.query-token-create { display: flex; flex-wrap: wrap; align-items: end; gap: 16px; padding: 20px 22px; }
+.query-token-create .field { min-width: 190px; flex: 1; }
+.query-token-create .button { margin-bottom: 0; }
+.query-token-message { margin: 0 22px 16px; }
+.query-token-result { margin: 0 22px 20px; padding: 16px; border: 1px solid var(--line); border-radius: 8px; background: #f8fbff; }
+.query-token-secret { display: block; overflow-wrap: anywhere; user-select: all; margin: 12px 0; }
+.query-token-actions, .query-token-pagination, .query-token-list-header { display: flex; align-items: center; gap: 10px; }
+.query-token-list { padding: 4px 22px 22px; }
+.query-token-list-header { justify-content: space-between; margin-bottom: 12px; }
+.query-token-list-header h3 { margin: 0; }
+.query-token-pagination { justify-content: flex-end; margin-top: 16px; }
 .credential-value { margin-top: 14px; padding: 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-muted); overflow-wrap: anywhere; }
 .credential-value code { color: var(--text-strong); font-family: "SFMono-Regular", Consolas, monospace; font-size: 11px; }
 .not-found-state { display: grid; min-height: 420px; place-items: center; align-content: center; text-align: center; }

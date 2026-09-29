@@ -3,6 +3,8 @@ package com.shanshui.apmserver.jank.internal.application;
 import com.shanshui.apmserver.platform.api.QueryValidationException;
 
 import com.shanshui.apmserver.platform.api.QueryProperties;
+import com.shanshui.apmserver.platform.api.QueryParams;
+import com.shanshui.apmserver.jank.api.JankQueries;
 import com.shanshui.apmserver.jank.api.JankAnalysis;
 import com.shanshui.apmserver.jank.api.JankDurationPercentiles;
 import com.shanshui.apmserver.jank.api.JankEventDetailResponse;
@@ -35,7 +37,7 @@ import java.util.Set;
 import java.util.TreeMap;
 
 @Service
-public class JankQueryService {
+public class JankQueryService implements JankQueries {
 
     private final JankAggregationRepository repository;
     private final QueryProperties properties;
@@ -50,6 +52,34 @@ public class JankQueryService {
         JankQueryFilter filter = filter(appId, from, to, params);
         List<JankEvent> events = repository.find(filter);
         return new JankOverviewResponse(appId, filter.from(), filter.to(), stats(events), repository.dataSource());
+    }
+
+    /** 公共 HTTP 查询参数在域内转换，供网页和 Agent 共用业务口径。 */
+    @Override
+    public JankOverviewResponse overview(java.util.UUID appId, String from, String to, QueryParams params) {
+        return overview(appId, from, to, command(params));
+    }
+
+    @Override
+    public JankTrendResponse trend(java.util.UUID appId, String from, String to, String interval, QueryParams params) {
+        return trend(appId, from, to, interval, command(params));
+    }
+
+    @Override
+    public JankIssueResponse issues(java.util.UUID appId, String from, String to, QueryParams params) {
+        return issues(appId, from, to, command(params));
+    }
+
+    @Override
+    public JankEventListResponse events(java.util.UUID appId, String fingerprint,
+                                       String from, String to, QueryParams params) {
+        return events(appId, fingerprint, from, to, command(params));
+    }
+
+    private JankQueryCommand command(QueryParams params) {
+        return new JankQueryCommand(params.getAppVersion(), params.getChannel(), params.getEnvironment(),
+                params.getOsVersion(), params.getDeviceModel(), params.getFingerprint(), params.getScene(),
+                params.getAlgorithmVersion(), params.getLimit(), params.getCursor(), params.getTimeoutMs());
     }
 
     public JankTrendResponse trend(java.util.UUID appId, String from, String to, String interval, JankQueryCommand params) {

@@ -3,6 +3,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, getActivePinia, setActivePinia } from 'pinia'
 import AppSettingsView from './AppSettingsView.vue'
 import { appApi } from '../api/appApi'
+import { queryTokenApi } from '../api/queryTokenApi'
 
 const routerMock = vi.hoisted(() => ({
   go: vi.fn(),
@@ -27,12 +28,18 @@ vi.mock('../api/appApi', () => ({
   },
 }))
 
+vi.mock('../api/queryTokenApi', () => ({
+  queryTokenApi: { list: vi.fn(), create: vi.fn(), revoke: vi.fn() },
+}))
+
 const mockedAppApi = vi.mocked(appApi)
+const mockedQueryTokenApi = vi.mocked(queryTokenApi)
 
 describe('AppSettingsView', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
     vi.resetAllMocks()
+    mockedQueryTokenApi.list.mockResolvedValue({ items: [], page: 0, size: 20, totalItems: 0, totalPages: 0 })
     routerMock.beforeLeave = undefined
     localStorage.clear()
     sessionStorage.clear()

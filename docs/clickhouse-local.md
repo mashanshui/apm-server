@@ -54,12 +54,4 @@ CLICKHOUSE_USERNAME=apm_admin
 CLICKHOUSE_PASSWORD=<云端 ClickHouse 密码>
 ```
 
-然后执行：
-
-```powershell
-.\scripts\start-dev.ps1
-```
-
-当前脚本默认等价于 `-StorageMode clickhouse -DatabaseMode remote`。
-
-脚本会跳过本地 PostgreSQL 容器；本地后端的 Flyway、网页 Session、应用管理、上报和查询都使用云端调试数据库。数据库公网映射只适用于当前调试环境，正式环境应删除并改用内网、VPN 或 SSH 隧道。
+上述配置用于单独运行本机后端，不适用于 `scripts/start-dev.sh` 全栈脚本。全栈脚本固定使用本机 Docker 数据库。需直连云端调试库时，在当前 shell 中导出相应变量，再执行 `bash ./backend/gradlew -p backend bootRun`；此时本地后端的 Flyway、网页 Session、应用管理、上报和查询都使用云端调试数据。数据库公网映射只适用于当前调试环境，正式环境应删除并改用内网、VPN 或 SSH 隧道。

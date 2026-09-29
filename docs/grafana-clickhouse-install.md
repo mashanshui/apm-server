@@ -212,10 +212,10 @@ $env:CLICKHOUSE_PASSWORD = $env:CH_ADMIN_PASSWORD
 ./backend/gradlew.bat -p backend bootRun
 ```
 
-也可以直接使用仓库启动脚本。脚本会读取 `.env.local`，并在未显式设置应用变量时把 `CLICKHOUSE_ADMIN_USER`、`CLICKHOUSE_ADMIN_PASSWORD` 和 `CLICKHOUSE_HTTP_URL` 映射为 Spring Boot 使用的连接配置；首次运行会先预热 Gradle Wrapper。
+macOS 本地全栈可直接使用仓库启动脚本。脚本通过 Compose 读取 `.env.local`，启动本机 PostgreSQL、ClickHouse、后端和 Web；配置格式见[部署与运维](knowledge-base/07-部署与运维.md)。
 
-```powershell
-.\scripts\start-dev.ps1 -StorageMode clickhouse
+```bash
+./scripts/start-dev.sh
 ```
 
 本项目的 Crash 与卡顿 ClickHouse 适配器共享 `ClickHouseHttpClient`，并使用 `apm.clickhouse.username` 完成写入和查询，因此这里必须使用具备 `SELECT` 和 `INSERT` 权限的应用账号，不能把 Grafana 的 `apm_grafana` 只读账号直接填给 Spring Boot。生产环境应进一步拆分应用写入账号、后端查询账号和 Grafana 账号；当前配置中的 `apm.clickhouse.read-only-user` 只是账号约定，不能替代 Spring Boot 实际使用的连接账号。

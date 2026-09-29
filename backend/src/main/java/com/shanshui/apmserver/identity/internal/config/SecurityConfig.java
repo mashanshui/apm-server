@@ -2,6 +2,7 @@ package com.shanshui.apmserver.identity.internal.config;
 
 import com.shanshui.apmserver.platform.api.ApiErrorResponse;
 import com.shanshui.apmserver.identity.internal.security.AppUserDetailsService;
+import com.shanshui.apmserver.identity.internal.security.QueryTokenFilter;
 import com.shanshui.apmserver.platform.api.JsonResponseWriter;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -16,8 +17,12 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
 import org.springframework.security.web.context.SecurityContextRepository;
+import org.springframework.security.web.context.NullSecurityContextRepository;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
 import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
+import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.core.annotation.Order;
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
 
 /** 单进程应用的全局 HTTP Security 装配。 */
 @Configuration
@@ -48,6 +53,35 @@ public class SecurityConfig {
     }
 
     @Bean
+    public FilterRegistrationBean<QueryTokenFilter> queryTokenFilterRegistration(QueryTokenFilter filter) {
+        // 该过滤器只属于 Agent 安全链，禁止作为 Servlet 全局过滤器注册。
+        FilterRegistrationBean<QueryTokenFilter> registration = new FilterRegistrationBean<>(filter);
+        registration.setEnabled(false);
+        return registration;
+    }
+
+    @Bean
+    @Order(1)
+    public SecurityFilterChain agentSecurityFilterChain(HttpSecurity http,
+                                                        QueryTokenFilter queryTokenFilter,
+                                                        JsonResponseWriter responseWriter) throws Exception {
+        http.securityMatcher("/api/agent/v1/**")
+                .securityContext(security -> security.securityContextRepository(new NullSecurityContextRepository()))
+                .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .csrf(csrf -> csrf.disable())
+                .authorizeHttpRequests(auth -> auth.anyRequest().authenticated())
+                .addFilterBefore(queryTokenFilter, UsernamePasswordAuthenticationFilter.class)
+                .formLogin(form -> form.disable())
+                .httpBasic(basic -> basic.disable())
+                .logout(logout -> logout.disable())
+                .exceptionHandling(exceptions -> exceptions.authenticationEntryPoint((request, response, exception) ->
+                        responseWriter.write(response, HttpStatus.UNAUTHORIZED,
+                                ApiErrorResponse.of("QUERY_TOKEN_INVALID", "应用查询 Token 无效", false, null))));
+        return http.build();
+    }
+
+    @Bean
+    @Order(2)
     public SecurityFilterChain securityFilterChain(HttpSecurity http,
                                                    SecurityContextRepository securityContextRepository,
                                                    CookieCsrfTokenRepository csrfRepository,

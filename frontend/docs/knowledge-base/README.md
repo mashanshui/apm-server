@@ -7,7 +7,7 @@
 | 应用 | 状态 | 说明 |
 |---|---|---|
 | 工程形态 | 已落地 | 独立的 Vue 3 + TypeScript + Vite 单页应用 |
-| 页面范围 | 登录、应用工作区、JVM Crash、卡顿、内存分析和符号表管理闭环 | 除管理和 Crash 页面外，已提供卡顿指标、问题列表、Issue 事件、单事件采样证据、PSS/VSS/Java 堆内存指标及 Android mapping 网页管理页面 |
+| 页面范围 | 登录、应用工作区、JVM Crash、卡顿、内存分析、符号表和查询 Token 管理 | 设置页的 Owner/Admin 可创建、列出、撤销应用只读查询 Token；完整值只在创建结果中短暂展示 |
 | 数据访问 | 已落地 | 统一 HTTP 客户端携带同源 Session Cookie 和 CSRF；已具备管理、Crash、卡顿及内存 summary/trend API 客户端，不直连 ClickHouse |
 | 图表 | 已落地 | ECharts 展示 Crash/卡顿问题趋势、多算法指标趋势和 PSS/VSS/Java 堆趋势；原生 SVG 展示采样估算火焰图 |
 | 视觉范围 | 已落地 | 浅色语义 Token、固定 1280px PC 设计基线；不承诺移动端适配 |
@@ -44,6 +44,7 @@
 - 查询编排：`src/composables/`
 - API 客户端：`src/api/crashApi.ts`、`src/api/jankApi.ts`、`src/api/memoryApi.ts`、`src/api/memoryLeakApi.ts`、`src/api/symbolApi.ts`
 - 认证/应用 API：`src/api/http.ts`、`src/api/authApi.ts`、`src/api/appApi.ts`
+- 查询 Token 管理：`src/api/queryTokenApi.ts`、`src/components/QueryTokenPanel.vue`、`src/types/queryToken.ts`
 - 接口类型：`src/types/crash.ts`、`src/types/jank.ts`、`src/types/memory.ts`
 - 用户/应用状态：`src/stores/pinia.ts`、`src/stores/session.ts`、`src/stores/apps.ts`
 - 查询参数、应用切换、证据/图表布局与格式化：`src/utils/query.ts`、`src/utils/jankQuery.ts`、`src/utils/memoryQuery.ts`、`src/utils/jankNavigation.ts`、`src/utils/jankEvidence.ts`、`src/utils/jankMetricChart.ts`、`src/utils/format.ts`

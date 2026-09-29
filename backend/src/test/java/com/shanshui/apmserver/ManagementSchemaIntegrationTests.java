@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.orm.jpa.LocalContainerEntityManagerFactoryBean;
 import org.springframework.orm.jpa.vendor.HibernateJpaVendorAdapter;
+import com.shanshui.apmserver.identity.internal.domain.AppQueryToken;
 import org.testcontainers.DockerClientFactory;
 import org.testcontainers.containers.PostgreSQLContainer;
 
@@ -39,6 +40,7 @@ class ManagementSchemaIntegrationTests {
             migrateAll(postgres);
             validateJpaSchema(postgres);
             verifyApplicationIdentitySchema(postgres);
+            verifyQueryTokenSchema(postgres);
             verifySymbolSchema(postgres);
             verifySymbolUniquenessAndConcurrentRevision(postgres);
         }
@@ -158,6 +160,63 @@ class ManagementSchemaIntegrationTests {
                      + "') + (select count(*) from app_ingest_credential where app_id = '" + appId + "')")) {
             assertTrue(result.next());
             assertEquals(0, result.getInt(1));
+        }
+    }
+
+    /** V5 必须保存可重读的摘要元数据，并拒绝重复摘要、错误权限和错误摘要长度。 */
+    private void verifyQueryTokenSchema(PostgreSQLContainer<?> postgres) throws Exception {
+        String url = postgres.getJdbcUrl();
+        String user = postgres.getUsername();
+        String password = postgres.getPassword();
+        UUID appId = queryUuid(url, user, password, "select app_id from apm_app limit 1");
+        UUID userId = queryUuid(url, user, password, "select id from apm_user limit 1");
+        UUID tokenId = UUID.randomUUID();
+        String base = "insert into app_query_token "
+                + "(id, app_id, name, token_digest, display_prefix, scope, created_by, created_at, expires_at) values ('";
+        String tail = "', '" + appId + "', 'CI token', decode(repeat('ab', 32), 'hex'), "
+                + "'apm_qt_abcd', 'apm:read', '" + userId + "', now(), now() + interval '90 days')";
+        execute(url, user, password, base + tokenId + tail);
+        assertThrows(SQLException.class, () -> execute(url, user, password, base + UUID.randomUUID() + tail));
+        assertThrows(SQLException.class, () -> execute(url, user, password,
+                (base + UUID.randomUUID() + tail).replace("'apm:read'", "'apm:write'")
+                        .replace("repeat('ab', 32)", "repeat('cd', 32)")));
+        assertThrows(SQLException.class, () -> execute(url, user, password,
+                (base + UUID.randomUUID() + tail).replace("repeat('ab', 32)", "repeat('ef', 31)")));
+
+        // 重新打开数据库连接，验证迁移后的记录跨连接持久可读。
+        try (Connection connection = DriverManager.getConnection(url, user, password);
+             Statement statement = connection.createStatement();
+             var result = statement.executeQuery("select app_id, scope, octet_length(token_digest), revoked_at "
+                     + "from app_query_token where id = '" + tokenId + "'")) {
+            assertTrue(result.next());
+            assertEquals(appId, result.getObject(1, UUID.class));
+            assertEquals("apm:read", result.getString(2));
+            assertEquals(32, result.getInt(3));
+            assertEquals(null, result.getTimestamp(4));
+        }
+        assertQueryTokenReadableAfterJpaRestart(postgres, tokenId, appId);
+    }
+
+    /** 两次独立创建并关闭 JPA 工厂，覆盖进程重启后的映射与数据读取。 */
+    private void assertQueryTokenReadableAfterJpaRestart(PostgreSQLContainer<?> postgres, UUID tokenId, UUID appId) {
+        for (int attempt = 0; attempt < 2; attempt++) {
+            var dataSource = new DriverManagerDataSource(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword());
+            var factory = new LocalContainerEntityManagerFactoryBean();
+            factory.setDataSource(dataSource);
+            factory.setPackagesToScan("com.shanshui.apmserver.identity.internal.domain");
+            factory.setJpaVendorAdapter(new HibernateJpaVendorAdapter());
+            var properties = new Properties();
+            properties.setProperty("hibernate.hbm2ddl.auto", "validate");
+            properties.setProperty("hibernate.dialect", "org.hibernate.dialect.PostgreSQLDialect");
+            factory.setJpaProperties(properties);
+            factory.afterPropertiesSet();
+            try (var entityManager = factory.getObject().createEntityManager()) {
+                AppQueryToken token = entityManager.find(AppQueryToken.class, tokenId);
+                assertEquals(appId, token.getAppId());
+                assertEquals("apm:read", token.getScope());
+            } finally {
+                factory.getObject().close();
+            }
         }
     }
 

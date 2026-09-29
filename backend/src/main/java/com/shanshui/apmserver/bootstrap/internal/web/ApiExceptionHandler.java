@@ -17,6 +17,8 @@ import com.shanshui.apmserver.identity.api.AppAuthenticationUnavailableException
 import com.shanshui.apmserver.identity.api.PackageNameMismatchException;
 import com.shanshui.apmserver.identity.api.InvalidCredentialsException;
 import com.shanshui.apmserver.identity.api.InvalidAppInputException;
+import com.shanshui.apmserver.identity.api.QueryTokenLimitException;
+import com.shanshui.apmserver.identity.api.QueryTokenNotFoundException;
 import com.shanshui.apmserver.memory.api.MemoryLeakEventConflictException;
 import com.shanshui.apmserver.memory.api.MemoryLeakReportValidationException;
 import com.shanshui.apmserver.memory.api.MemoryLeakAttachmentStoreException;
@@ -157,6 +159,20 @@ public class ApiExceptionHandler {
     @ExceptionHandler(AppRoleDeniedException.class)
     public ResponseEntity<ApiErrorResponse> appRoleDenied(AppRoleDeniedException ex) {
         return response(HttpStatus.FORBIDDEN, ApiErrorResponse.of("FORBIDDEN", ex.getMessage(), false, null));
+    }
+
+    /** 应用范围内不存在该 Token，与跨应用 ID 保持相同响应。 */
+    @ExceptionHandler(QueryTokenNotFoundException.class)
+    public ResponseEntity<ApiErrorResponse> queryTokenNotFound(QueryTokenNotFoundException ex) {
+        return response(HttpStatus.NOT_FOUND,
+                ApiErrorResponse.of("QUERY_TOKEN_NOT_FOUND", ex.getMessage(), false, null));
+    }
+
+    /** 有效 Token 数量达到配置上限时要求管理员先撤销旧凭据。 */
+    @ExceptionHandler(QueryTokenLimitException.class)
+    public ResponseEntity<ApiErrorResponse> queryTokenLimit(QueryTokenLimitException ex) {
+        return response(HttpStatus.CONFLICT,
+                ApiErrorResponse.of("QUERY_TOKEN_LIMIT", ex.getMessage(), false, null));
     }
 
     @ExceptionHandler(PackageNameConflictException.class)

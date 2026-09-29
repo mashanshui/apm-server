@@ -24,6 +24,7 @@ const {
   loading,
   error,
   issueError,
+  issueCursorInvalid,
   load,
   loadMoreIssues,
 } = useCrashOverview(appId, filters)
@@ -183,9 +184,10 @@ function statusFootnote(): string {
       </div>
       <div v-if="issueError" class="notice">
         {{ issueError }}
-        <button class="link-button" type="button" @click="loadMoreIssues">重试</button>
+        <button class="link-button" type="button" @click="issueCursorInvalid ? load() : loadMoreIssues()">{{ issueCursorInvalid ? '重新查询' : '重试' }}</button>
       </div>
       <IssueTable
+        :cursor-invalid="issueCursorInvalid"
         :issues="issues"
         :next-cursor="nextCursor"
         :loading="loading"

@@ -25,4 +25,14 @@ describe('IssueTable', () => {
     expect(wrapper.emitted('open')?.[0]?.[0]).toEqual(issue)
     expect(wrapper.emitted('next')).toHaveLength(1)
   })
+
+  it('shows an invalid cursor instead of claiming the last page', async () => {
+    const wrapper = mount(IssueTable, {
+      props: { issues: [issue], nextCursor: 'old-cursor', cursorInvalid: true },
+    })
+    expect(wrapper.text()).toContain('游标已失效，请重新查询')
+    expect(wrapper.get('.pagination-actions button').attributes('disabled')).toBeDefined()
+    await wrapper.get('.pagination-actions button').trigger('click')
+    expect(wrapper.emitted('next')).toBeUndefined()
+  })
 })

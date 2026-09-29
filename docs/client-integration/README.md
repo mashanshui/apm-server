@@ -15,6 +15,8 @@
 
 服务端请求/响应、查询、统计和错误语义统一见[服务端 API 文档](../api/README.md)。
 
+Android 上报 X-App-Key 只用于接收入口，不能调用 [Agent 查询 HTTP API](../api/agent-query-api.md) 或 [MCP 工具](../api/mcp-api.md)。应用查询 Token 由网页管理员单独创建，不属于 Android SDK 采集、批量或重试链路。
+
 ## 事件身份生命周期
 
 客户端首次安装生成并持久化安装级 UUID v4 `anonymousDeviceId`，所有进程共用；每次应用启动生成新的 UUID v4 `sessionId`。主进程的 `processId` 使用本次 `sessionId`，子进程每次创建生成新的 UUID v4，不能使用 Android 数值 PID 或进程名称。事件、ZIP 和报告进入本地队列时必须冻结这三个字段；跨启动补传沿用原字段，不能按上传时进程重写。

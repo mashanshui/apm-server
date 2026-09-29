@@ -20,6 +20,8 @@
 
 ## 核心知识地图
 
+Agent 扩展的目标设计见 [APM Agent 平台方案](../../apm-agent-platform-design.md)。应用查询 Token、独立只读 Agent HTTP 入口及 TypeScript MCP 工程已进入实现与测试阶段，默认开关关闭；本地双应用真实数据和云端五容器入口冒烟见 [Agent 查询链路记录](../agent-query-e2e-validation.md)。当前调试环境已显式开启两个查询开关；审批、隔离修复和确定性 CI 验证仍未实现。查询契约见 [Agent HTTP API](../api/agent-query-api.md) 和 [MCP 工具 API](../api/mcp-api.md)。
+
 ### 产品与架构
 
 | 主题 | 主要回答 |

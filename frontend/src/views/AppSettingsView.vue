@@ -5,6 +5,7 @@ import AppLayout from '../components/AppLayout.vue'
 import { ApiError, errorMessage } from '../api/http'
 import { useAppStore } from '../stores/apps'
 import { appApi } from '../api/appApi'
+import QueryTokenPanel from '../components/QueryTokenPanel.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -181,6 +182,7 @@ async function save() {
         </form>
         <aside class="panel settings-meta"><div class="panel-header form-panel-header"><div><h2>应用详情</h2><p>只读身份信息</p></div></div><dl class="settings-meta-list"><div><dt>应用标识</dt><dd><code>{{ app.appId }}</code></dd></div><div><dt>应用包名</dt><dd><code>{{ app.packageName }}</code></dd></div><div><dt>当前角色</dt><dd>{{ app.role }}</dd></div><div><dt>创建时间</dt><dd>{{ new Date(app.createdAt).toLocaleString('zh-CN') }}</dd></div><div><dt>最近更新</dt><dd>{{ new Date(app.updatedAt).toLocaleString('zh-CN') }}</dd></div></dl><div v-if="canViewCredential" class="credential-panel"><h3>应用上报 Key</h3><p class="readonly-note">此 Key 永久有效并与应用包名绑定，请勿写入日志或提交到仓库。</p><div v-if="appKey" class="credential-value"><code>{{ keyVisible ? appKey : '••••••••••••••••••••••••' }}</code></div><div class="form-actions"><button class="button" type="button" :disabled="credentialLoading" @click="toggleCredential">{{ credentialLoading ? '正在读取…' : appKey && keyVisible ? '隐藏 Key' : '查看 Key' }}</button><button v-if="appKey && keyVisible" class="button button-primary" type="button" @click="copyCredential">复制 Key</button></div><p v-if="copied" class="notice notice-success" role="status">Key 已复制。</p><p v-if="credentialError" class="field-error" role="alert">{{ credentialError }}</p></div></aside>
       </div>
+      <QueryTokenPanel v-if="canEdit" :app-id="appId" :can-manage="canEdit" />
     </template>
   </AppLayout>
 </template>

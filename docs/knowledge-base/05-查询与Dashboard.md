@@ -55,7 +55,7 @@ FPS 按算法版本隔离并按高到低返回 P50/P90/P99，趋势支持 UTC `h
 
 仓库同时提供 Vue 前端。Crash 闭环以及卡顿指标、问题列表、Issue 事件、单事件采样证据和内存指标页面均已落地。卡顿总览/趋势/Issue、区间汇总/趋势/多维区域及内存概览/趋势区域独立处理失败；筛选保存在 URL，详情页严格区分精确消息耗时与采样估算，内存页面明确区分缺失值和零值。浏览器只访问这些 Spring Boot API，不会直接访问 ClickHouse；前端如何消费接口见[API、数据模型与状态管理](../../frontend/docs/knowledge-base/04-API数据模型与状态管理.md)。
 
-查询支持 `from`、`to`（ISO-8601）、`appVersion`、`channel`、`environment`、`osVersion`、`deviceModel`、`fingerprint`、`scene`、`algorithmVersion`、`limit`、`cursor` 和 `timeoutMs`。默认时间范围为最近 24 小时，最大范围 31 天；`limit` 默认 50、最大 500；`timeoutMs` 默认 2000、最大 5000；趋势粒度只支持 `hour` 和 `day`。服务端先根据登录主体和 `app_member` 成员关系校验应用，再进入查询服务；`X-App-Id`、`X-User-App-Ids` 不参与授权。卡顿 ClickHouse SQL 入口带有 `app_id`、时间、行数、超时和白名单维度约束；真实生产聚合性能仍待验收。
+查询支持 `from`、`to`（ISO-8601）、`appVersion`、`channel`、`environment`、`osVersion`、`deviceModel`、`fingerprint`、`scene`、`algorithmVersion`、`limit`、`cursor` 和 `timeoutMs`。默认时间范围为最近 24 小时，最大范围 31 天；`limit` 默认 50、最大 500；`timeoutMs` 默认 2000、最大 5000；趋势粒度只支持 `hour` 和 `day`。服务端先根据登录主体和 `app_member` 成员关系校验应用，再进入查询服务；`X-App-Id`、`X-User-App-Ids` 不参与授权。Crash 的 ClickHouse 查询已下推时间、维度、精确去重与分页，并设置扫描、内存和 HTTP 响应预算；[Crash 查询性能基线](../../backend/docs/knowledge-base/crash-query-performance-baseline.md)记录合成规模与资源拒绝边界。卡顿 ClickHouse SQL 入口带有 `app_id`、时间、行数、超时和白名单维度约束；真实生产聚合性能仍待验收。
 
 网页登录与项目管理已提供以下接口，完整示例见[登录与项目管理 API](../api/app-api.md)：
 
@@ -96,7 +96,7 @@ device_model, network_type, event_type, interval
 
 - 使用专用 ClickHouse 只读账户，仅授权指定库表的 `SELECT`。
 - ClickHouse 不暴露公网，Grafana 通过内网访问。
-- 目标架构默认查询聚合表；当前 Dashboard JSON 直接查询 `apm_event_raw FINAL`，后端查询服务也通过仓库读取原始事件并在 JVM 内计算。
+- 目标架构默认查询聚合表；当前 Dashboard JSON 直接查询 `apm_event_raw FINAL`。后端 Crash 查询已在 ClickHouse 内完成过滤、统计和分页，卡顿与内存各自保留其领域查询实现。
 - 设置查询超时和最大返回行数。
 - Dashboard JSON 进入 Git 管理。
 - 多租户场景不能仅靠隐藏 `app_id` 变量隔离数据，应使用数据源隔离、行级策略或后端查询代理。
@@ -124,3 +124,7 @@ Grafana 适合趋势、排行、筛选、临时分析和告警；Vue 更适合�
 已增加以下查询语义：Crash 总览、小时或天趋势、问题排行、按指纹的事件列表和单事件详情。查询支持版本、渠道、环境、Android 版本、设备型号和指纹筛选，并限制时间范围、limit、游标和超时。比例使用 `app_start` 会话分母；分母为空时返回 `null` 和 `denominator_insufficient` 状态；没有任何事件时状态为 `no_data`。Crash 事件详情还会按当前 `appId + buildId` mapping 在请求内 Retrace，结果只存在响应中，不写回事件或缓存；列表、上传和替换契约见[符号表管理 API](../api/symbol-api.md)。
 
 Grafana JSON 位于 `backend/src/main/resources/grafana/dashboards/jvm-crash.json`，包含总览卡片、趋势、问题排行、版本对比、状态说明和下钻链接，当前数据源类型为 `vertamedia-clickhouse-datasource`。Dashboard 验收应覆盖固定数据集中的正常、无数据、分母不足和堆栈下钻状态；这些验收不等同于多租户生产权限或大规模性能验收。
+
+## Agent 只读查询边界
+
+只读 Agent HTTP 入口复用 Crash、卡顿和内存查询服务，共 19 个 GET 路由；MCP 提供对应 19 个工具。Crash 已改为 ClickHouse 聚合下推、逻辑事件去重和版本化游标。具体业务字段仍以各领域 API 为准；认证、额度和证据边界见 [Agent HTTP API](../api/agent-query-api.md) 与 [MCP API](../api/mcp-api.md)。本地真实客户端全链路已验收；云端部署及入口冒烟已完成，有效 Token 的云端工具查询和生产容量尚未验收。

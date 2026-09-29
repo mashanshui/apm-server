@@ -70,6 +70,10 @@ GET /api/v1/apps/{appId}/crashes/events/{eventId}
 
 查询支持 `from`、`to`（ISO-8601）、`appVersion`、`channel`、`environment`、`osVersion`、`deviceModel`、`fingerprint`、`limit`、`cursor` 和 `timeoutMs`。网页查询必须携带登录 Session，并由服务端依据当前用户与 `app_member` 的成员关系授权；无成员关系统一返回 404，避免泄露应用存在性。`X-App-Id`、`X-User-App-Ids` 和 `X-App-Key` 不参与网页查询授权。
 
+Issue 与事件列表的 `nextCursor` 是版本化不透明值，绑定当前应用、首次实际绝对时间窗、筛选和排序；继续请求可传同一 `from`/`to`，若首次省略，后续也可省略，服务端从游标恢复原窗口。旧版纯指纹/事件 ID 游标不再兼容，返回 `400 INVALID_CURSOR`；跨应用、跨指纹或更改筛选同样返回该错误。网页显示“重新查询”操作，不会悄悄回到第一页。事件按发生时间降序、事件 ID 升序；Issue 按事件数降序、最后出现时间降序、指纹升序。分页未持久化快照，新增或迟到数据可能改变后续页排行；需要一致对照时重新查询同一绝对时间窗。
+
+ClickHouse 查询将应用、时间窗和维度下推；Issue/事件列表不读取完整堆栈，只有详情读取异常链。单次查询预算由服务端配置，默认 2 秒、最大可请求 5 秒；初始扫描上限 500 万行/512 MiB、数据库内存 256 MiB、HTTP 响应 8 MiB。超时返回 `408 QUERY_TIMEOUT`，扫描、内存或结果字节超限返回 `422 QUERY_RESOURCE_LIMIT`，存储暂不可用返回 503；失败不以空数据或部分统计替代。大范围内即使列表 `limit` 较小也可能超过扫描预算。
+
 Crash 事件详情响应保留设备 ID、启动 ID和新增的进程实例 `processId`；存量记录没有该列时返回缺失值，不把 `sessionId` 自动填入。详情字段不提供身份关联跳转。详情还返回本次请求的 `symbolicationStatus`、`symbolicatedStackText`、`symbolFileId`、`symbolFileRevision` 和 `symbolicationReason`；这些字段来自实时 Retrace，不改变事件存储。
 
 ## 统计公式

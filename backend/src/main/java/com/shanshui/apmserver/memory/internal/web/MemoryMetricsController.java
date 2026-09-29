@@ -2,9 +2,9 @@ package com.shanshui.apmserver.memory.internal.web;
 
 import com.shanshui.apmserver.identity.api.AppAccessControl;
 import com.shanshui.apmserver.memory.api.MemoryMetricsSummaryResponse;
+import com.shanshui.apmserver.memory.api.MemoryMetricQuery;
+import com.shanshui.apmserver.memory.api.MemoryMetricQueries;
 import com.shanshui.apmserver.memory.api.MemoryTrendResponse;
-import com.shanshui.apmserver.memory.internal.application.MemoryMetricsQueryService;
-import com.shanshui.apmserver.memory.internal.domain.MemoryQueryCommand;
 import com.shanshui.apmserver.platform.api.QueryParams;
 import com.shanshui.apmserver.platform.api.QueryValidationException;
 import org.springframework.security.core.Authentication;
@@ -28,10 +28,10 @@ public class MemoryMetricsController {
             "deviceModel", "processName", "scene", "foreground", "limit", "timeoutMs");
     private static final Set<String> TREND_PARAMS = Set.of("metric", "interval");
 
-    private final MemoryMetricsQueryService queryService;
+    private final MemoryMetricQueries queryService;
     private final AppAccessControl authorizationService;
 
-    public MemoryMetricsController(MemoryMetricsQueryService queryService, AppAccessControl authorizationService) {
+    public MemoryMetricsController(MemoryMetricQueries queryService, AppAccessControl authorizationService) {
         this.queryService = queryService;
         this.authorizationService = authorizationService;
     }
@@ -62,9 +62,9 @@ public class MemoryMetricsController {
         return queryService.trend(appId, metric, interval, from, to, command(params, query));
     }
 
-    private MemoryQueryCommand command(QueryParams params, MultiValueMap<String, String> query) {
+    private MemoryMetricQuery command(QueryParams params, MultiValueMap<String, String> query) {
         Boolean foreground = parseForeground(query.getFirst("foreground"));
-        return new MemoryQueryCommand(params.getAppVersion(), params.getOsVersion(), params.getDeviceModel(),
+        return new MemoryMetricQuery(params.getAppVersion(), params.getOsVersion(), params.getDeviceModel(),
                 query.getFirst("processName"), params.getScene(), foreground, params.getLimit(), params.getTimeoutMs());
     }
 

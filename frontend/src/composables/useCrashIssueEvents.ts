@@ -1,5 +1,5 @@
 import { ref, type Ref } from 'vue'
-import { crashApi, errorMessage, isAbortError } from '../api/crashApi'
+import { crashApi, CrashApiError, errorMessage, isAbortError } from '../api/crashApi'
 import type { CrashEventSummary, CrashFilterForm } from '../types/crash'
 import { toApiFilters } from '../utils/query'
 
@@ -13,6 +13,7 @@ export function useCrashIssueEvents(
   const loading = ref(false)
   const loadingMore = ref(false)
   const error = ref<string | null>(null)
+  const cursorInvalid = ref(false)
   let requestToken = 0
   let controller: AbortController | null = null
 
@@ -23,6 +24,7 @@ export function useCrashIssueEvents(
     events.value = []
     nextCursor.value = null
     error.value = null
+    cursorInvalid.value = false
     loading.value = true
     try {
       const result = await crashApi.events(
@@ -48,7 +50,7 @@ export function useCrashIssueEvents(
   }
 
   async function loadMore() {
-    if (!nextCursor.value || loadingMore.value || loading.value) {
+    if (!nextCursor.value || loadingMore.value || loading.value || cursorInvalid.value) {
       return
     }
     const token = requestToken
@@ -69,6 +71,7 @@ export function useCrashIssueEvents(
     } catch (requestError) {
       if (token === requestToken && !isAbortError(requestError)) {
         error.value = errorMessage(requestError)
+        cursorInvalid.value = requestError instanceof CrashApiError && requestError.code === 'INVALID_CURSOR'
       }
     } finally {
       if (token === requestToken) {
@@ -83,6 +86,7 @@ export function useCrashIssueEvents(
     loading,
     loadingMore,
     error,
+    cursorInvalid,
     load,
     loadMore,
   }

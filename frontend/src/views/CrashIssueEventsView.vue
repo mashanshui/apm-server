@@ -19,6 +19,7 @@ const {
   nextCursor,
   loading,
   error,
+  cursorInvalid,
   load,
   loadMore,
 } = useCrashIssueEvents(appId, fingerprint, filters)
@@ -88,6 +89,7 @@ function backToOverview() {
         <span v-if="events.length" class="badge">{{ events.length }} 个事件</span>
       </div>
       <EventTable
+        :cursor-invalid="cursorInvalid"
         :events="events"
         :next-cursor="nextCursor"
         :loading="loading"

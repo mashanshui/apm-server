@@ -3,6 +3,8 @@ package com.shanshui.apmserver.jank.internal.application;
 import com.shanshui.apmserver.platform.api.QueryValidationException;
 
 import com.shanshui.apmserver.platform.api.QueryProperties;
+import com.shanshui.apmserver.platform.api.QueryParams;
+import com.shanshui.apmserver.jank.api.JankMetricQueries;
 import com.shanshui.apmserver.jank.api.FpsMetricAggregate;
 import com.shanshui.apmserver.jank.api.FpsMetricStats;
 import com.shanshui.apmserver.jank.api.FpsMetricsResponse;
@@ -28,7 +30,7 @@ import java.util.List;
 
 /** FPS 与设备日挂起率查询服务，统一执行查询范围、限额和维度白名单校验。 */
 @Service
-public class JankMetricsQueryService {
+public class JankMetricsQueryService implements JankMetricQueries {
 
     private final JankMetricsRepository repository;
     private final QueryProperties properties;
@@ -45,6 +47,35 @@ public class JankMetricsQueryService {
         List<FpsMetricStats> metrics = aggregates.stream().map(FpsMetricStats::from).toList();
         return new FpsMetricsResponse(appId, filter.from(), filter.to(), metrics, fpsStatus(aggregates),
                 repository.dataSource());
+    }
+
+    /** 网页与 Agent 共用的参数转换，不扩大指标维度白名单。 */
+    @Override
+    public FpsMetricsResponse fps(java.util.UUID appId, String from, String to, QueryParams params) {
+        return fps(appId, from, to, command(params));
+    }
+
+    @Override
+    public SuspensionRateResponse suspensionRate(java.util.UUID appId, String from, String to, QueryParams params) {
+        return suspensionRate(appId, from, to, command(params));
+    }
+
+    @Override
+    public MetricDimensionsResponse dimensions(java.util.UUID appId, String metric, String dimension,
+                                                String from, String to, QueryParams params) {
+        return dimensions(appId, metric, dimension, from, to, command(params));
+    }
+
+    @Override
+    public MetricTrendResponse trend(java.util.UUID appId, String metric, String interval,
+                                      String from, String to, QueryParams params) {
+        return trend(appId, metric, interval, from, to, command(params));
+    }
+
+    private JankQueryCommand command(QueryParams params) {
+        return new JankQueryCommand(params.getAppVersion(), params.getChannel(), params.getEnvironment(),
+                params.getOsVersion(), params.getDeviceModel(), params.getFingerprint(), params.getScene(),
+                params.getAlgorithmVersion(), params.getLimit(), params.getCursor(), params.getTimeoutMs());
     }
 
     public SuspensionRateResponse suspensionRate(java.util.UUID appId, String from, String to, JankQueryCommand params) {

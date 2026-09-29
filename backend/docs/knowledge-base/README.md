@@ -15,6 +15,7 @@
 - [后端测试与质量保障](06-测试与质量保障.md)
 - [后端符号表实现](symbol-mapping.md)
 - [卡顿指标性能基线](jank-performance-baseline.md)
+- [Crash 查询下推与容量基线](crash-query-performance-baseline.md)
 
 ## 阅读与维护
 

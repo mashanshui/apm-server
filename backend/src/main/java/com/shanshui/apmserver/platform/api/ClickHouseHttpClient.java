@@ -6,12 +6,15 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.Locale;
+import java.net.http.HttpTimeoutException;
 import java.util.Base64;
 import java.util.ArrayList;
 import java.util.List;
@@ -67,6 +70,60 @@ public class ClickHouseHttpClient {
         } catch (InterruptedException ex) {
             Thread.currentThread().interrupt();
             throw new EventStoreUnavailableException();
+        }
+    }
+
+    /** 分析查询使用独立预算；等待数据库完成后再读取有界响应，避免部分结果被当成成功。 */
+    public String executeQuery(String query, QueryBudget budget) {
+        if (budget.timeoutMs() < 1 || budget.maxRowsToRead() < 1 || budget.maxBytesToRead() < 1
+                || budget.maxMemoryUsage() < 1 || budget.maxResponseBytes() < 1) {
+            throw new IllegalArgumentException("查询预算必须为正数");
+        }
+        String options = "?database=" + encode(properties.getDatabase())
+                + "&wait_end_of_query=1&timeout_before_checking_execution_speed=0"
+                + "&max_execution_time=" + String.format(Locale.ROOT, "%.3f", budget.timeoutMs() / 1000.0)
+                + "&timeout_overflow_mode=throw&read_overflow_mode=throw"
+                + "&max_rows_to_read=" + budget.maxRowsToRead()
+                + "&max_bytes_to_read=" + budget.maxBytesToRead()
+                + "&max_memory_usage=" + budget.maxMemoryUsage();
+        try {
+            HttpRequest.Builder builder = HttpRequest.newBuilder()
+                    .uri(URI.create(properties.getUrl() + options))
+                    .timeout(Duration.ofMillis(budget.timeoutMs() + 250))
+                    .header("Content-Type", "text/plain; charset=utf-8");
+            if (properties.getUsername() != null && !properties.getUsername().isBlank()) {
+                String credentials = properties.getUsername() + ":" + properties.getPassword();
+                builder.header("Authorization", "Basic " + Base64.getEncoder()
+                        .encodeToString(credentials.getBytes(StandardCharsets.UTF_8)));
+            }
+            HttpRequest request = builder.POST(HttpRequest.BodyPublishers.ofString(query, StandardCharsets.UTF_8)).build();
+            HttpResponse<InputStream> response = httpClient.send(request, HttpResponse.BodyHandlers.ofInputStream());
+            try (InputStream stream = response.body()) {
+                if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                    String error = new String(stream.readNBytes(8192), StandardCharsets.UTF_8);
+                    if (error.contains("TIMEOUT_EXCEEDED")) {
+                        throw new QueryValidationException("QUERY_TIMEOUT", "查询超过执行时间限制", 408);
+                    }
+                    if (error.contains("MEMORY_LIMIT_EXCEEDED") || error.contains("TOO_MANY_ROWS_OR_BYTES")
+                            || error.contains("TOO_MANY_ROWS") || error.contains("TOO_MANY_BYTES")
+                            || error.contains("LIMIT_EXCEEDED")) {
+                        throw new QueryValidationException("QUERY_RESOURCE_LIMIT", "查询超过资源限制", 422);
+                    }
+                    throw new EventStoreUnavailableException();
+                }
+                byte[] bytes = stream.readNBytes(budget.maxResponseBytes() + 1);
+                if (bytes.length > budget.maxResponseBytes()) {
+                    throw new QueryValidationException("QUERY_RESOURCE_LIMIT", "查询响应超过大小限制", 422);
+                }
+                return new String(bytes, StandardCharsets.UTF_8);
+            }
+        } catch (HttpTimeoutException ex) {
+            throw new QueryValidationException("QUERY_TIMEOUT", "查询超过执行时间限制", 408);
+        } catch (IOException ex) {
+            throw new EventStoreUnavailableException();
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            throw new QueryValidationException("QUERY_TIMEOUT", "查询已取消", 408);
         }
     }
 

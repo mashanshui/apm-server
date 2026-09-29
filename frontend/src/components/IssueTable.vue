@@ -6,6 +6,7 @@ defineProps<{
   issues: CrashIssueSummary[]
   nextCursor: string | null
   loading?: boolean
+  cursorInvalid?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -47,9 +48,9 @@ const emit = defineEmits<{
       </table>
     </div>
     <div class="pagination-bar">
-      <span>{{ nextCursor ? '可继续加载更多问题' : '已显示全部问题' }}</span>
+      <span>{{ cursorInvalid ? '游标已失效，请重新查询' : nextCursor ? '可继续加载更多问题' : '已显示全部问题' }}</span>
       <div class="pagination-actions">
-        <button class="button" type="button" :disabled="!nextCursor || loading" @click="emit('next')">
+        <button class="button" type="button" :disabled="!nextCursor || loading || cursorInvalid" @click="emit('next')">
           加载更多
         </button>
       </div>

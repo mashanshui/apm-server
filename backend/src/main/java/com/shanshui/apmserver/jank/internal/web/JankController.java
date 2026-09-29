@@ -7,8 +7,7 @@ import com.shanshui.apmserver.jank.api.JankEventListResponse;
 import com.shanshui.apmserver.jank.api.JankIssueResponse;
 import com.shanshui.apmserver.jank.api.JankOverviewResponse;
 import com.shanshui.apmserver.jank.api.JankTrendResponse;
-import com.shanshui.apmserver.jank.internal.application.JankQueryService;
-import com.shanshui.apmserver.jank.internal.domain.JankQueryCommand;
+import com.shanshui.apmserver.jank.api.JankQueries;
 import com.shanshui.apmserver.identity.api.AppAccessControl;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -22,10 +21,10 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/v1/apps/{appId}/janks")
 public class JankController {
 
-    private final JankQueryService queryService;
+    private final JankQueries queryService;
     private final AppAccessControl authorizationService;
 
-    public JankController(JankQueryService queryService, AppAccessControl authorizationService) {
+    public JankController(JankQueries queryService, AppAccessControl authorizationService) {
         this.queryService = queryService;
         this.authorizationService = authorizationService;
     }
@@ -37,7 +36,7 @@ public class JankController {
                                          @ModelAttribute QueryParams params,
                                          Authentication authentication) {
         authorizationService.requireView(appId, authentication);
-        return queryService.overview(appId, from, to, command(params));
+        return queryService.overview(appId, from, to, params);
     }
 
     @GetMapping("/trend")
@@ -48,7 +47,7 @@ public class JankController {
                                    @ModelAttribute QueryParams params,
                                    Authentication authentication) {
         authorizationService.requireView(appId, authentication);
-        return queryService.trend(appId, from, to, interval, command(params));
+        return queryService.trend(appId, from, to, interval, params);
     }
 
     @GetMapping("/issues")
@@ -58,7 +57,7 @@ public class JankController {
                                     @ModelAttribute QueryParams params,
                                     Authentication authentication) {
         authorizationService.requireView(appId, authentication);
-        return queryService.issues(appId, from, to, command(params));
+        return queryService.issues(appId, from, to, params);
     }
 
     @GetMapping("/issues/{fingerprint}/events")
@@ -69,7 +68,7 @@ public class JankController {
                                         @ModelAttribute QueryParams params,
                                         Authentication authentication) {
         authorizationService.requireView(appId, authentication);
-        return queryService.events(appId, fingerprint, from, to, command(params));
+        return queryService.events(appId, fingerprint, from, to, params);
     }
 
     @GetMapping("/events/{eventId}")
@@ -80,9 +79,4 @@ public class JankController {
         return queryService.event(appId, eventId);
     }
 
-    private JankQueryCommand command(QueryParams params) {
-        return new JankQueryCommand(params.getAppVersion(), params.getChannel(), params.getEnvironment(),
-                params.getOsVersion(), params.getDeviceModel(), params.getFingerprint(), params.getScene(),
-                params.getAlgorithmVersion(), params.getLimit(), params.getCursor(), params.getTimeoutMs());
-    }
 }

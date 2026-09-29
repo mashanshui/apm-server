@@ -7,8 +7,7 @@ import com.shanshui.apmserver.crash.api.CrashEventListResponse;
 import com.shanshui.apmserver.crash.api.CrashIssueResponse;
 import com.shanshui.apmserver.crash.api.CrashOverviewResponse;
 import com.shanshui.apmserver.crash.api.CrashTrendResponse;
-import com.shanshui.apmserver.crash.internal.application.CrashQueryService;
-import com.shanshui.apmserver.crash.internal.domain.CrashQueryCommand;
+import com.shanshui.apmserver.crash.api.CrashQueries;
 import com.shanshui.apmserver.identity.api.AppAccessControl;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -24,10 +23,10 @@ import org.springframework.http.ResponseEntity;
 @RequestMapping("/api/v1/apps/{appId}/crashes")
 public class CrashController {
 
-    private final CrashQueryService queryService;
+    private final CrashQueries queryService;
     private final AppAccessControl authorizationService;
 
-    public CrashController(CrashQueryService queryService,
+    public CrashController(CrashQueries queryService,
                            AppAccessControl authorizationService) {
         this.queryService = queryService;
         this.authorizationService = authorizationService;
@@ -40,7 +39,7 @@ public class CrashController {
                                           @ModelAttribute QueryParams params,
                                           Authentication authentication) {
         authorizationService.requireView(appId, authentication);
-        return queryService.overview(appId, from, to, command(params));
+        return queryService.overview(appId, from, to, params);
     }
 
     @GetMapping("/trend")
@@ -51,7 +50,7 @@ public class CrashController {
                                     @ModelAttribute QueryParams params,
                                     Authentication authentication) {
         authorizationService.requireView(appId, authentication);
-        return queryService.trend(appId, from, to, interval, command(params));
+        return queryService.trend(appId, from, to, interval, params);
     }
 
     @GetMapping("/issues")
@@ -61,7 +60,7 @@ public class CrashController {
                                      @ModelAttribute QueryParams params,
                                      Authentication authentication) {
         authorizationService.requireView(appId, authentication);
-        return queryService.issues(appId, from, to, command(params));
+        return queryService.issues(appId, from, to, params);
     }
 
     @GetMapping("/issues/{fingerprint}/events")
@@ -72,7 +71,7 @@ public class CrashController {
                                          @ModelAttribute QueryParams params,
                                          Authentication authentication) {
         authorizationService.requireView(appId, authentication);
-        return queryService.events(appId, fingerprint, from, to, command(params));
+        return queryService.events(appId, fingerprint, from, to, params);
     }
 
     @GetMapping("/events/{eventId}")
@@ -85,9 +84,4 @@ public class CrashController {
                 .body(queryService.event(appId, eventId));
     }
 
-    private CrashQueryCommand command(QueryParams params) {
-        return new CrashQueryCommand(params.getAppVersion(), params.getChannel(), params.getEnvironment(),
-                params.getOsVersion(), params.getDeviceModel(), params.getFingerprint(), params.getLimit(),
-                params.getCursor(), params.getTimeoutMs());
-    }
 }

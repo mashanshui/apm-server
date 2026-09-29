@@ -23,7 +23,7 @@ class ArchitectureBaselineTests {
 
     private static final String ROOT = "com.shanshui.apmserver.";
     private static final Set<String> MODULES = Set.of(
-            "bootstrap", "identity", "telemetry", "ingest", "crash", "jank", "memory", "symbol", "platform");
+            "bootstrap", "identity", "telemetry", "ingest", "crash", "jank", "memory", "symbol", "platform", "agentquery");
     private static final Map<String, Set<String>> ALLOWED_DEPENDENCIES = Map.of(
             "bootstrap", Set.of("identity", "telemetry", "ingest", "crash", "jank", "memory", "symbol", "platform"),
             "identity", Set.of("platform"),
@@ -33,6 +33,7 @@ class ArchitectureBaselineTests {
             "jank", Set.of("identity", "telemetry", "symbol", "platform"),
             "memory", Set.of("identity", "telemetry", "platform"),
             "symbol", Set.of("identity", "platform"),
+            "agentquery", Set.of("identity", "crash", "jank", "memory", "platform"),
             "platform", Set.of());
 
     private static final JavaClasses APPLICATION_CLASSES = new ClassFileImporter()

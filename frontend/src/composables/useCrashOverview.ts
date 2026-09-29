@@ -1,5 +1,5 @@
 import { ref, type Ref } from 'vue'
-import { crashApi, errorMessage, isAbortError } from '../api/crashApi'
+import { crashApi, CrashApiError, errorMessage, isAbortError } from '../api/crashApi'
 import type {
   CrashFilterForm,
   CrashIssueSummary,
@@ -18,6 +18,7 @@ export function useCrashOverview(appId: Ref<string>, filters: Ref<CrashFilterFor
   const loadingIssues = ref(false)
   const error = ref<string | null>(null)
   const issueError = ref<string | null>(null)
+  const issueCursorInvalid = ref(false)
 
   let requestToken = 0
   let controller: AbortController | null = null
@@ -32,6 +33,7 @@ export function useCrashOverview(appId: Ref<string>, filters: Ref<CrashFilterFor
     nextCursor.value = null
     error.value = null
     issueError.value = null
+    issueCursorInvalid.value = false
     loading.value = true
 
     try {
@@ -60,7 +62,7 @@ export function useCrashOverview(appId: Ref<string>, filters: Ref<CrashFilterFor
   }
 
   async function loadMoreIssues() {
-    if (!nextCursor.value || loadingIssues.value || loading.value) {
+    if (!nextCursor.value || loadingIssues.value || loading.value || issueCursorInvalid.value) {
       return
     }
     const token = requestToken
@@ -80,6 +82,7 @@ export function useCrashOverview(appId: Ref<string>, filters: Ref<CrashFilterFor
     } catch (requestError) {
       if (token === requestToken && !isAbortError(requestError)) {
         issueError.value = errorMessage(requestError)
+        issueCursorInvalid.value = requestError instanceof CrashApiError && requestError.code === 'INVALID_CURSOR'
       }
     } finally {
       if (token === requestToken) {
@@ -97,6 +100,7 @@ export function useCrashOverview(appId: Ref<string>, filters: Ref<CrashFilterFor
     loadingIssues,
     error,
     issueError,
+    issueCursorInvalid,
     load,
     loadMoreIssues,
   }

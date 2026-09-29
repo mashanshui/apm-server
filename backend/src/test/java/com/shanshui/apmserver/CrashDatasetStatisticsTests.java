@@ -23,6 +23,7 @@ import java.time.Instant;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class CrashDatasetStatisticsTests {
 
@@ -112,6 +113,31 @@ class CrashDatasetStatisticsTests {
         assertEquals("denominator_insufficient", stats.status());
         assertNull(stats.crashRatePer1000Sessions());
         assertNull(stats.crashFreeSessionRate());
+    }
+
+    @Test
+    void issueAndEventCursorsBindQueryAndPreserveOrder() throws Exception {
+        ingestion.ingest(TestAppIds.id("demo-app"), fixture());
+        var appId = TestAppIds.id("demo-app");
+        CrashQueryCommand page = CrashQueryCommand.empty().withLimit(1);
+        var first = query.issues(appId, from, to, page);
+        var second = query.issues(appId, from, to, page.withCursor(first.nextCursor()));
+        assertEquals(1, first.issues().size());
+        assertEquals(1, second.issues().size());
+        assertNull(second.nextCursor());
+        assertEquals("INVALID_CURSOR", assertThrows(com.shanshui.apmserver.platform.api.QueryValidationException.class,
+                () -> query.issues(appId, from, to, page.withCursor("legacy-fingerprint"))).getCode());
+        assertEquals("INVALID_CURSOR", assertThrows(com.shanshui.apmserver.platform.api.QueryValidationException.class,
+                () -> query.issues(appId, from, to, page.withAppVersion("other")
+                        .withCursor(first.nextCursor()))).getCode());
+        var eventFirst = query.events(appId, first.issues().getFirst().fingerprint(), from, to, page);
+        var eventSecond = query.events(appId, first.issues().getFirst().fingerprint(), from, to,
+                page.withCursor(eventFirst.nextCursor()));
+        assertEquals(1, eventFirst.events().size());
+        assertEquals(1, eventSecond.events().size());
+        assertEquals("INVALID_CURSOR", assertThrows(com.shanshui.apmserver.platform.api.QueryValidationException.class,
+                () -> query.events(appId, second.issues().getFirst().fingerprint(), from, to,
+                        page.withCursor(eventFirst.nextCursor()))).getCode());
     }
 
     private EventBatchRequest fixture() throws Exception {

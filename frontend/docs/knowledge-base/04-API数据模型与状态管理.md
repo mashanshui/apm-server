@@ -13,6 +13,9 @@ POST  /api/v1/apps
 GET   /api/v1/apps/{appId}
 PATCH /api/v1/apps/{appId}
 GET   /api/v1/apps/{appId}/ingest-credential
+POST  /api/v1/apps/{appId}/query-tokens
+GET   /api/v1/apps/{appId}/query-tokens?page=0&size=20
+DELETE /api/v1/apps/{appId}/query-tokens/{tokenId}
 ```
 
 ```http
@@ -69,6 +72,7 @@ GET /api/v1/apps/{appId}/memory-leaks/trend?interval=5m|hour|day
 - Crash 与卡顿请求只在 URL 路径绑定当前应用，不发送 `X-App-Id` 或 `X-User-App-Ids`。
 - 前端绝不发送 Android 上报使用的 `X-App-Key`。
 - `App` 和 Pinia 应用 Store 只包含只读 `packageName`，不包含 `appKey`；独立凭据响应只由设置页局部状态消费。
+- `queryTokenApi.ts` 只使用 Session/CSRF 管理 Token；创建返回的完整值只由 `QueryTokenPanel.vue` 局部状态消费，不进入 Pinia、URL 或 Web Storage。创建失败不自动重试，应用切换与 401 时取消请求并丢弃迟到结果。正式契约见[查询 Token API](../../../docs/api/query-token-api.md)。
 - 创建请求类型为可选 `name`、可选 `description` 和必填 `packageName`；空名称/描述由服务端分别默认到包名/null。
 - 空字符串、`undefined` 和 `null` 不进入查询参数。
 - Crash 查询参数集中在 `crashApi.ts`；卡顿公共参数与指标参数分别由 `jankApi.ts` 的白名单构造器维护，指标请求不接受指纹或游标。

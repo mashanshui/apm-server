@@ -9,6 +9,9 @@
 | 领域 | 文档 | 主要内容 |
 |---|---|---|
 | 登录与应用 | [登录与应用管理 API](app-api.md) | Session、应用创建、不可变包名、永久 Key 与按权限查询 |
+| 应用查询凭据 | [应用查询 Token 管理 API](query-token-api.md) | 只读应用 Token 创建、分页列表、撤销、期限及一次展示 |
+| Agent 查询 | [Agent 只读查询 HTTP API](agent-query-api.md) | Token 复用、19 个 GET 入口、配额和错误 |
+| MCP | [APM 查询 MCP 工具 API](mcp-api.md) | 19 个只读工具、结构化证据、片段续读和结果边界 |
 | JVM Crash | [Crash API 与统计公式](crash-api.md) | 批量上报、总览、趋势、Issue、事件详情和统计状态 |
 | JVM Crash | [Crash 上报错误码](crash-error-codes.md) | 批次级/事件级错误、部分接受和重试语义 |
 | 卡顿监控 | [卡顿监控服务端协议与查询 API](jank-server-api.md) | 卡顿 ZIP 落库、Issue、FPS、挂起率、趋势和多维查询 |

@@ -6,8 +6,7 @@ import com.shanshui.apmserver.jank.api.FpsMetricsResponse;
 import com.shanshui.apmserver.jank.api.MetricDimensionsResponse;
 import com.shanshui.apmserver.jank.api.MetricTrendResponse;
 import com.shanshui.apmserver.jank.api.SuspensionRateResponse;
-import com.shanshui.apmserver.jank.internal.application.JankMetricsQueryService;
-import com.shanshui.apmserver.jank.internal.domain.JankQueryCommand;
+import com.shanshui.apmserver.jank.api.JankMetricQueries;
 import com.shanshui.apmserver.identity.api.AppAccessControl;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -22,10 +21,10 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/v1/apps/{appId}/jank-metrics")
 public class JankMetricsController {
 
-    private final JankMetricsQueryService queryService;
+    private final JankMetricQueries queryService;
     private final AppAccessControl authorizationService;
 
-    public JankMetricsController(JankMetricsQueryService queryService,
+    public JankMetricsController(JankMetricQueries queryService,
                                   AppAccessControl authorizationService) {
         this.queryService = queryService;
         this.authorizationService = authorizationService;
@@ -38,7 +37,7 @@ public class JankMetricsController {
                                   @ModelAttribute QueryParams params,
                                   Authentication authentication) {
         authorizationService.requireView(appId, authentication);
-        return queryService.fps(appId, from, to, command(params));
+        return queryService.fps(appId, from, to, params);
     }
 
     @GetMapping("/suspension-rate")
@@ -48,7 +47,7 @@ public class JankMetricsController {
                                                  @ModelAttribute QueryParams params,
                                                  Authentication authentication) {
         authorizationService.requireView(appId, authentication);
-        return queryService.suspensionRate(appId, from, to, command(params));
+        return queryService.suspensionRate(appId, from, to, params);
     }
 
     @GetMapping("/dimensions")
@@ -60,7 +59,7 @@ public class JankMetricsController {
                                                @ModelAttribute QueryParams params,
                                                Authentication authentication) {
         authorizationService.requireView(appId, authentication);
-        return queryService.dimensions(appId, metric, dimension, from, to, command(params));
+        return queryService.dimensions(appId, metric, dimension, from, to, params);
     }
 
     @GetMapping("/trend")
@@ -72,12 +71,7 @@ public class JankMetricsController {
                                      @ModelAttribute QueryParams params,
                                      Authentication authentication) {
         authorizationService.requireView(appId, authentication);
-        return queryService.trend(appId, metric, interval, from, to, command(params));
+        return queryService.trend(appId, metric, interval, from, to, params);
     }
 
-    private JankQueryCommand command(QueryParams params) {
-        return new JankQueryCommand(params.getAppVersion(), params.getChannel(), params.getEnvironment(),
-                params.getOsVersion(), params.getDeviceModel(), params.getFingerprint(), params.getScene(),
-                params.getAlgorithmVersion(), params.getLimit(), params.getCursor(), params.getTimeoutMs());
-    }
 }

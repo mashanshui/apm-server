@@ -10,6 +10,14 @@ public class QueryProperties {
     private int maxLimit = 500;
     private long defaultTimeoutMs = 2000;
     private long maxTimeoutMs = 5000;
+    /** 数据库每次最多读取的原始行数。 */
+    private long maxRowsToRead = 5_000_000;
+    /** 数据库每次最多读取的原始字节数。 */
+    private long maxBytesToRead = 512L * 1024 * 1024;
+    /** 数据库单查询内存上限。 */
+    private long maxMemoryUsage = 256L * 1024 * 1024;
+    /** HTTP 响应最大字节数，超出时明确报错。 */
+    private int maxResponseBytes = 8 * 1024 * 1024;
 
     public int getMaxRangeDays() {
         return maxRangeDays;
@@ -50,5 +58,14 @@ public class QueryProperties {
     public void setMaxTimeoutMs(long maxTimeoutMs) {
         this.maxTimeoutMs = maxTimeoutMs;
     }
+
+    public long getMaxRowsToRead() { return maxRowsToRead; }
+    public void setMaxRowsToRead(long value) { maxRowsToRead = value; }
+    public long getMaxBytesToRead() { return maxBytesToRead; }
+    public void setMaxBytesToRead(long value) { maxBytesToRead = value; }
+    public long getMaxMemoryUsage() { return maxMemoryUsage; }
+    public void setMaxMemoryUsage(long value) { maxMemoryUsage = value; }
+    public int getMaxResponseBytes() { return maxResponseBytes; }
+    public void setMaxResponseBytes(int value) { maxResponseBytes = value; }
 
 }

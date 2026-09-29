@@ -9,3 +9,10 @@
 !frontend/
 !frontend/dist/
 !frontend/dist/**
+!mcp-server/
+!mcp-server/Dockerfile
+!mcp-server/package.json
+!mcp-server/package-lock.json
+!mcp-server/tsconfig.json
+!mcp-server/src/
+!mcp-server/src/**

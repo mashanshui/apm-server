@@ -1,6 +1,8 @@
 package com.shanshui.apmserver.memory.internal.application;
 
 import com.shanshui.apmserver.memory.api.MemoryMetricStats;
+import com.shanshui.apmserver.memory.api.MemoryMetricQuery;
+import com.shanshui.apmserver.memory.api.MemoryMetricQueries;
 import com.shanshui.apmserver.memory.api.MemoryMetricsSummaryResponse;
 import com.shanshui.apmserver.memory.api.MemoryTrendPoint;
 import com.shanshui.apmserver.memory.api.MemoryTrendResponse;
@@ -24,7 +26,7 @@ import java.util.UUID;
 
 /** 内存概览和趋势查询服务，集中执行时间、筛选和白名单校验。 */
 @Service
-public class MemoryMetricsQueryService {
+public class MemoryMetricsQueryService implements MemoryMetricQueries {
 
     private static final int MAX_MEMORY_RANGE_DAYS = 31;
 
@@ -50,6 +52,23 @@ public class MemoryMetricsQueryService {
         MemoryMetricStats javaHeap = repository.queryJavaHeap(filter);
         return new MemoryMetricsSummaryResponse(appId, filter.from(), filter.to(), pss, vss, javaHeap,
                 overallStatus(List.of(pss, vss, javaHeap)), repository.dataSource());
+    }
+
+    /** 公共契约在域内转为已有查询命令。 */
+    @Override
+    public MemoryMetricsSummaryResponse summary(UUID appId, String from, String to, MemoryMetricQuery params) {
+        return summary(appId, from, to, command(params));
+    }
+
+    @Override
+    public MemoryTrendResponse trend(UUID appId, String metric, String interval, String from, String to,
+                                     MemoryMetricQuery params) {
+        return trend(appId, metric, interval, from, to, command(params));
+    }
+
+    private MemoryQueryCommand command(MemoryMetricQuery params) {
+        return new MemoryQueryCommand(params.appVersion(), params.osVersion(), params.deviceModel(),
+                params.processName(), params.scene(), params.foreground(), params.limit(), params.timeoutMs());
     }
 
     public MemoryTrendResponse trend(UUID appId, String metric, String interval, String from, String to,

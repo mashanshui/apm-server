@@ -6,11 +6,11 @@ import com.shanshui.apmserver.identity.api.AuthenticatedApp;
 import com.shanshui.apmserver.memory.api.MemoryLeakIssuesResponse;
 import com.shanshui.apmserver.memory.api.MemoryLeakReportResponse;
 import com.shanshui.apmserver.memory.api.MemoryLeakTrendResponse;
+import com.shanshui.apmserver.memory.api.MemoryLeakQueries;
 import com.shanshui.apmserver.memory.api.MemoryLeakReportValidationException;
 import com.shanshui.apmserver.memory.api.MemoryLeakAttachmentStoreException;
 import com.shanshui.apmserver.memory.api.MemoryLeakEventConflictException;
 import com.shanshui.apmserver.memory.internal.application.MemoryLeakReportIngestService;
-import com.shanshui.apmserver.memory.internal.application.MemoryLeakQueryService;
 import com.shanshui.apmserver.memory.internal.domain.MemoryLeakQueryFilter;
 import com.shanshui.apmserver.platform.api.LimitedInputStream;
 import com.shanshui.apmserver.platform.api.PayloadTooLargeException;
@@ -44,18 +44,15 @@ import java.util.UUID;
 @RestController
 @RequestMapping
 public class MemoryLeakReportController {
-    private static final Set<String> COMMON_QUERY_PARAMS = Set.of("from", "to", "appVersion", "deviceModel", "processName", "scene", "manufacturer", "sdkInt", "dumpReason", "anonymousDeviceId", "signature", "keyword");
-    private static final Set<String> ISSUE_QUERY_PARAMS = union(COMMON_QUERY_PARAMS, Set.of("page", "pageSize", "sort", "order"));
-    private static final Set<String> TREND_QUERY_PARAMS = union(COMMON_QUERY_PARAMS, Set.of("interval"));
     private final AppKeyAuthentication authenticator;
     private final AppAccessControl accessControl;
     private final MemoryLeakReportIngestService ingestService;
-    private final MemoryLeakQueryService queryService;
+    private final MemoryLeakQueries queryService;
     private final ObjectMapper objectMapper;
     private final com.shanshui.apmserver.memory.api.MemoryLeakReportConfiguration config;
 
     public MemoryLeakReportController(AppKeyAuthentication authenticator, AppAccessControl accessControl,
-                                      MemoryLeakReportIngestService ingestService, MemoryLeakQueryService queryService,
+                                      MemoryLeakReportIngestService ingestService, MemoryLeakQueries queryService,
                                       ObjectMapper objectMapper, com.shanshui.apmserver.memory.api.MemoryLeakReportConfiguration config) {
         this.authenticator = authenticator; this.accessControl = accessControl; this.ingestService = ingestService; this.queryService = queryService; this.objectMapper = objectMapper; this.config = config;
     }
@@ -93,37 +90,16 @@ public class MemoryLeakReportController {
 
     @GetMapping("/api/v1/apps/{appId}/memory-leaks/issues")
     public MemoryLeakIssuesResponse issues(@PathVariable UUID appId, @RequestParam java.util.Map<String,String> query, Authentication authentication) {
-        accessControl.requireView(appId, authentication); validateNames(query.keySet(), ISSUE_QUERY_PARAMS);
-        MemoryLeakQueryFilter filter = filter(appId, query); int page = positive(query, "page", 1); int pageSize = positive(query, "pageSize", 20);
-        if (pageSize > 100) throw invalid("pageSize", "pageSize 最大为 100");
-        String sort = query.getOrDefault("sort", "occurrences"), order = query.getOrDefault("order", "desc");
-        if (!Set.of("occurrences", "affectedDevices", "lastOccurredAt").contains(sort) || !Set.of("asc", "desc").contains(order)) throw invalid("sort", "sort/order 参数无效");
-        return queryService.issues(filter, page, pageSize, sort, order);
+        accessControl.requireView(appId, authentication);
+        return queryService.issues(appId, query);
     }
 
     @GetMapping("/api/v1/apps/{appId}/memory-leaks/trend")
     public MemoryLeakTrendResponse trend(@PathVariable UUID appId, @RequestParam java.util.Map<String,String> query, Authentication authentication) {
-        accessControl.requireView(appId, authentication); validateNames(query.keySet(), TREND_QUERY_PARAMS); MemoryLeakQueryFilter filter = filter(appId, query);
-        String interval = query.getOrDefault("interval", "hour"); if (!Set.of("5m", "hour", "day").contains(interval)) throw invalid("interval", "interval 参数无效");
-        return queryService.trend(filter, interval);
+        accessControl.requireView(appId, authentication);
+        return queryService.trend(appId, query);
     }
 
-    private MemoryLeakQueryFilter filter(UUID appId, java.util.Map<String,String> query) {
-        Instant to = query.containsKey("to") ? instant(query.get("to")) : Instant.now(); Instant from = query.containsKey("from") ? instant(query.get("from")) : to.minus(24, java.time.temporal.ChronoUnit.HOURS);
-        if (!from.isBefore(to) || Duration.between(from, to).compareTo(Duration.ofDays(31)) > 0) throw invalid("range", "时间范围必须为正且不超过 31 天");
-        Integer sdk = query.get("sdkInt") == null ? null : integer(query.get("sdkInt"), "sdkInt");
-        return new MemoryLeakQueryFilter(appId, from, to, query.get("appVersion"), query.get("deviceModel"), query.get("processName"), query.get("scene"), query.get("manufacturer"), sdk, query.get("dumpReason"), query.get("anonymousDeviceId"), query.get("signature"), query.get("keyword"));
-    }
-    private Instant instant(String value) { try { return Instant.parse(value); } catch (DateTimeException ex) { try { return Instant.ofEpochMilli(Long.parseLong(value)); } catch (RuntimeException ignored) { throw invalid("time", "from/to 必须为 ISO-8601 或 Unix 毫秒"); } } }
-    private int integer(String value, String field) { try { int parsed = Integer.parseInt(value); if (parsed < 0) throw new NumberFormatException(); return parsed; } catch (NumberFormatException ex) { throw invalid(field, field + " 必须是非负整数"); } }
-    private int positive(java.util.Map<String,String> query, String field, int defaultValue) { int value = query.containsKey(field) ? integer(query.get(field), field) : defaultValue; if (value < 1) throw invalid(field, field + " 必须大于 0"); return value; }
-    private void validateNames(Set<String> names, Set<String> allowed) { for (String name : names) if (!allowed.contains(name)) throw invalid(name, "查询参数不在允许白名单中: " + name); }
-    private static Set<String> union(Set<String> left, Set<String> right) {
-        java.util.HashSet<String> values = new java.util.HashSet<>(left);
-        values.addAll(right);
-        return Set.copyOf(values);
-    }
-    private QueryValidationException invalid(String field, String message) { return new QueryValidationException("INVALID_FILTER", message, 400); }
     private void rejectEncoding(HttpServletRequest request) { if (request.getHeader("Content-Encoding") != null) throw new UnsupportedMediaTypeException("不支持压缩请求"); }
     private void checkLength(long length, long limit) { if (length > limit) throw new PayloadTooLargeException("报告请求超过大小上限"); }
 

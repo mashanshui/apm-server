@@ -16,11 +16,11 @@ APM_BOOTSTRAP_ADMIN_DISPLAY_NAME=平台管理员
 APM_APP_KEY_ENCRYPTION_KEY=<Base64 编码的 32 字节随机值>
 ```
 
-Flyway 按顺序执行 V1、V2、V3、V4。V3 在移除旧项目表并创建应用表前，会要求 `project`、`project_member`、`project_ingest_credential` 为空；非空时明确失败，不做兼容迁移或静默删除。V4 新增应用级符号表当前记录和替换审计表，按 `appId + buildId` 唯一定位 mapping。测试环境可以先清空确认过的业务数据，再重新创建应用。V1/V2/V3 迁移文件不改写。
+Flyway 按顺序执行 V1、V2、V3、V4、V5。V3 在移除旧项目表并创建应用表前，会要求 `project`、`project_member`、`project_ingest_credential` 为空；非空时明确失败，不做兼容迁移或静默删除。V4 新增应用级符号表当前记录和替换审计表，按 `appId + buildId` 唯一定位 mapping；V5 新增[应用查询 Token](query-token-api.md)表。测试环境可以先清空确认过的业务数据，再重新创建应用。已发布迁移文件不改写。
 
 `APM_APP_KEY_ENCRYPTION_KEY` 没有旧变量回退，必须稳定注入并备份；丢失后已保存的 appKey 无法解密查看。生产环境不得使用仓库示例值，应通过密钥服务或受保护的环境变量注入，并将 `APM_SESSION_COOKIE_SECURE=true`。
 
-本地开发推荐使用 `scripts/start-dev.ps1`。脚本会读取仓库根目录下被 Git 忽略的 `.env.local`，已有进程环境变量优先；停止服务使用 `scripts/stop-dev.ps1`。
+macOS 本地全栈推荐使用 `scripts/start-dev.sh`。脚本读取仓库根目录下被 Git 忽略的 `.env.local`，通过 Docker Compose 注入配置；停止服务使用 `scripts/stop-dev.sh`。
 
 ## 会话与 CSRF
 

@@ -30,6 +30,8 @@ JANK_METRICS_BENCH records=2000 p95Ms=13.386 p99Ms=14.978 heapDeltaMb=19.000
 
 ## 外部 ClickHouse 验收记录
 
+当前 macOS 入口为 `python3 scripts/validate-jank-clickhouse.py`，空测试库初始化可加 `--initialize-schema`，隔离应用可加 `--app-id <UUID>`。脚本将历史固定事件时间平移到最近一天，避免 30 天 TTL 使复验数据立即过期；以下 PowerShell 命令保留为当时的历史执行记录。
+
 2026-08-27 在当前 Windows 主机通过 ClickHouse HTTP 接口完成固定规模外部验收。`docker version`/`docker info` 显示 Docker CLI 29.7.2、上下文为 `desktop-linux`，Docker Desktop Linux Engine 仍返回 HTTP 500；本次使用已运行的独立 ClickHouse HTTP 服务（`Test-NetConnection localhost -Port 8123` 为 `TcpTestSucceeded=True`，`GET /ping` 返回 `Ok.`），服务端版本查询结果为 `26.7.3.19`。本机未安装 `clickhouse` CLI，验收命令改用 HTTP JSONEachRow。
 
 执行命令如下，脚本只读取未跟踪的 `.env.local` 中的 ClickHouse 管理账号，不输出凭据；应用 UUID 使用隔离值，避免污染其他数据：

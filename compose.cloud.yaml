@@ -77,6 +77,7 @@ services:
       APM_BOOTSTRAP_ADMIN_PASSWORD: ${APM_BOOTSTRAP_ADMIN_PASSWORD}
       APM_BOOTSTRAP_ADMIN_DISPLAY_NAME: ${APM_BOOTSTRAP_ADMIN_DISPLAY_NAME:-平台管理员}
       APM_SESSION_COOKIE_SECURE: ${APM_SESSION_COOKIE_SECURE:-false}
+      APM_AGENT_QUERY_ENABLED: ${APM_AGENT_QUERY_ENABLED:-false}
       APM_SESSION_SAME_SITE: ${APM_SESSION_SAME_SITE:-lax}
       APM_MULTIPART_MAX_FILE_SIZE: ${APM_MULTIPART_MAX_FILE_SIZE:-32MB}
       APM_MULTIPART_MAX_REQUEST_SIZE: ${APM_MULTIPART_MAX_REQUEST_SIZE:-34MB}
@@ -107,10 +108,36 @@ services:
     depends_on:
       backend:
         condition: service_healthy
+      mcp:
+        condition: service_healthy
     ports:
       - "${WEB_PORT:-80}:80"
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1/healthz >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    networks:
+      - apm-internal
+
+  mcp:
+    build:
+      context: .
+      dockerfile: mcp-server/Dockerfile
+    restart: unless-stopped
+    mem_limit: 256m
+    depends_on:
+      backend:
+        condition: service_healthy
+    environment:
+      PORT: 3010
+      MCP_BIND: 0.0.0.0
+      MCP_ENABLED: ${MCP_ENABLED:-false}
+      APM_BACKEND_ORIGIN: http://backend:8080
+      MCP_ALLOWED_HOSTS: ${MCP_ALLOWED_HOSTS:-127.0.0.1,localhost}
+      MCP_ALLOWED_ORIGINS: ${MCP_ALLOWED_ORIGINS:-127.0.0.1,localhost}
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3010/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 10s
       timeout: 5s
       retries: 12
