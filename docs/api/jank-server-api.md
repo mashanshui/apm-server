@@ -43,6 +43,8 @@ X-App-Key: <从应用设置页获取的应用级 Key>
 
 网页查询使用登录 Session 和应用成员关系授权，不接受客户端应用请求头作为授权事实。默认查询最近 24 小时，最大 31 天；`limit` 默认 50、最大 500；`timeoutMs` 默认 2000、最大 5000。筛选支持 `from`、`to`、`appVersion`、`channel`、`environment`、`osVersion`、`deviceModel`、`scene`、`algorithmVersion`、`fingerprint`、`limit`、`cursor` 和 `timeoutMs`。
 
+当前实现限制（2026-09-30 源码核对）：ClickHouse 个例查询先按 `event_time,event_id` 升序取最多 `limit` 条，再在 Java 计算总览、趋势、Issue 和事件页。超过该数量时统计输入被截断，事件游标也不保证能遍历全部记录；`status=ok` 没有额外标记这种截断。内存适配器筛选后使用全部事件，两种实现只在未触及上限的小样本下已有对照证据。此缺口见[待确认事项](../knowledge-base/13-待确认事项.md#卡顿协议与性能)，不适用于下文 FPS/挂起率数据库聚合接口；本次仅补充真实边界，未修改路由或业务代码。
+
 ```http
 GET /api/v1/apps/{appId}/janks/overview
 GET /api/v1/apps/{appId}/janks/trend?interval=hour|day
@@ -72,7 +74,7 @@ GET /api/v1/apps/{appId}/janks/events/{eventId}
 
 Issue 结果同时返回 `exactMessageDuration` 和 `estimatedStackDuration` 两组分位数；前者来自消息精确耗时，后者来自采样估算。卡顿算法标识为 `jank-artifact-v2`，指纹继续使用服务端稳定关键路径，行号、地址、动态文本和采样次数不会拆分相同关键路径。
 
-没有合法卡顿事件时，响应状态为 `no_data`，结果为空且分位数字段为 `null`，不能用零伪造。事件详情返回公共信息、设备 ID、启动 ID、进程实例 `processId`、卡顿载荷、采样片段、调用树、堆栈字典和采集质量计数；详情中的匿名设备 ID 已按应用盐哈希，服务端日志不输出完整载荷、堆栈或设备标识。缺失的历史进程 ID 返回缺失值，不以启动 ID补造，也不提供身份关联跳转。
+没有合法卡顿事件时，响应状态为 `no_data`，结果为空且分位数字段为 `null`，不能用零伪造。事件详情返回公共信息、设备 ID、启动 ID、进程实例 `processId`、卡顿载荷、采样片段、调用树、堆栈字典和采集质量计数；详情中的匿名设备 ID 已按部署级盐哈希（未包含 appId），服务端日志不输出完整载荷、堆栈或设备标识。缺失的历史进程 ID 返回缺失值，不以启动 ID补造，也不提供身份关联跳转。
 
 ## FPS、设备日挂起率和多维查询
 

@@ -39,7 +39,7 @@ missingSampleCount = max(0, expectedSampleCount - parsedSampleCount)
 | `occurredAt` | integer，毫秒 | UTC Unix epoch 毫秒 |
 | `sessionId` | string | 会话标识 |
 | `processId` | string | 必填 UUID v4；主进程可等于 `sessionId`，子进程实例必须独立 |
-| `anonymousDeviceId` | string | 安装级随机标识；服务端按应用盐哈希 |
+| `anonymousDeviceId` | string | 安装级随机标识；服务端按部署级盐哈希，未包含 appId |
 | `packageName` | string | 必填，必须与 appKey 绑定的 Android application ID 完全一致 |
 | `appVersion` / `versionCode` | string / integer | 发布版本 |
 | `buildId` | string | 构建标识 |

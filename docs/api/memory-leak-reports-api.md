@@ -61,6 +61,8 @@ curl -X POST "https://example.invalid/ingest/v1/memory-reports" \
 
 服务端限制默认值为 metadata 2 MiB、report 文件 2 MiB、HPROF 256 MiB、总请求 260 MiB、JSON 深度 32、数组 1000 项、单条引用链 256 节点、字符串 16 KiB。请求不支持压缩；无 `Content-Length` 时仍按流读取限制。纯 `application/json` 请求不再支持。
 
+上述大小是报告业务校验上限。当前 Spring multipart 与 Compose 默认单文件 32 MiB、总请求 34 MiB，会先限制大 HPROF；部署方需同步调整 `APM_MULTIPART_MAX_FILE_SIZE`、`APM_MULTIPART_MAX_REQUEST_SIZE` 并为 multipart 边界预留空间，网关当前上限为 260 MiB。配置细节见[后端运行说明](../../backend/docs/knowledge-base/05-构建配置与本地运行.md#二进制堆栈解析配置)。报告 parser 保留 metadata 的 `anonymousDeviceId` 和受限 report 原始 JSON，不执行 Crash/卡顿/内存采样 sanitizer 的部署级盐哈希或文本模式脱敏；客户端应提供匿名随机标识及不含个人信息的诊断内容。
+
 成功响应（HTTP 200）：
 
 ```json

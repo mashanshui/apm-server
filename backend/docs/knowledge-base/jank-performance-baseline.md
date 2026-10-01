@@ -6,7 +6,7 @@
 
 - 测试类：`JankMetricsPerformanceTests`
 - 数据量：2,000 条事件（1,000 条场景帧汇总、1,000 条前台挂起汇总），100 个匿名设备，包含两个场景。
-- 查询组合：FPS 聚合、设备日挂起率二阶段聚合、场景和设备型号多维聚合。
+- 查询组合：每轮执行 FPS 聚合、设备日挂起率二阶段聚合和一次多维查询；预热使用 FPS 的场景分组，正式测量使用挂起率的设备型号分组。
 - 预热 5 轮，正式测量 20 轮；时间为同一 JVM 内三次查询组合的端到端耗时。
 - 堆使用量是 `Runtime.totalMemory - freeMemory` 的前后差值，仅作粗略观测。
 
@@ -25,6 +25,16 @@ JANK_METRICS_BENCH records=2000 p95Ms=13.386 p99Ms=14.978 heapDeltaMb=19.000
 ```powershell
 ./backend/gradlew.bat -p backend test --no-daemon --tests com.shanshui.apmserver.JankMetricsPerformanceTests
 ```
+
+macOS 从仓库根目录使用 Android Studio JBR 启动 Gradle，实际测试工具链为 Java 21：
+
+```bash
+JAVA_HOME='/Applications/Android Studio.app/Contents/jbr/Contents/Home' \
+  GRADLE_USER_HOME="$PWD/.gradle-local" \
+  bash ./backend/gradlew -p backend test --no-daemon --tests com.shanshui.apmserver.JankMetricsPerformanceTests
+```
+
+测试仅断言 FPS 输入数量和分位数耗时顺序，未设置性能回归阈值；历史 p95/p99 不是当前环境的性能保证。
 
 固定规模的真实 ClickHouse 写入、合并、`FINAL` 查询、分位数和事实/详情一致性已完成一次外部验收；大规模数据、并发度、资源使用和故障恢复仍需在目标生产规格实例上单独压测。
 

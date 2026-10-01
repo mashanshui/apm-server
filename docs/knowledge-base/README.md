@@ -4,6 +4,8 @@
 
 阅读时遵循以下事实优先级：当前代码、数据库迁移和已发布 API 优先于知识库描述；知识库优先于原始方案中的历史规划。发现冲突时应记录差异并确认，不能静默覆盖。
 
+2026-09-30 后端知识库已完成源码、配置、迁移和测试核对，具体差异见[后端核对记录](../../backend/docs/knowledge-base/00-当前实现与验证边界.md#2026-09-30-后端文档核对与差异修正)。卡顿个例统计截断、报告隐私与查询预算、架构门禁缺口按当前实现记录；本次回归结果见[后端测试记录](../../backend/docs/knowledge-base/06-测试与质量保障.md#2026-09-30-文档核对与后端回归)。
+
 ## 从这里开始
 
 | 你的问题 | 首选入口 |
@@ -16,11 +18,11 @@
 | 为什么采用当前技术方案 | [架构决策记录](10-架构决策记录.md) |
 | 哪些参数或能力尚未确定 | [待确认事项](13-待确认事项.md) |
 
-当前结论：仓库已形成 JVM Crash、卡顿监控和 PSS/VSS/Java 堆内存指标的服务端开发闭环，统一接收并保存 UUID v4 `processId`，后端以单进程模块化单体隔离 Identity、Ingest、Crash、Jank 与 Memory，包含领域专属 ClickHouse 存储边界、Vue 浅色 PC 控制台、Session 登录、应用管理和 PostgreSQL/Flyway 管理 schema；processor `1.0.2` 已通过客户端实际设备 ZIP 的本机解析和云端卡顿首次写入、重复、详情验收；生产网关、容量与故障恢复、完整多租户运营和更多 APM 信号仍未完成，详见[当前实现与验证边界](00-当前实现与验证边界.md)。
+当前结论：仓库已形成 JVM Crash、卡顿、PSS/VSS/Java 堆指标和 SDK 内存异常报告的开发闭环，统一接收并保存 UUID v4 `processId`；Java 后端采用模块化单体，包含领域专属 ClickHouse 存储、Session/应用管理、网页 mapping 与请求内 Retrace、查询 Token 和只读 Agent HTTP；Vue 提供浅色 PC 控制台，TypeScript MCP 独立部署。processor `1.0.2` 已通过实际设备 ZIP 的本机解析及云端写入/重复/详情验收；Nginx HTTP 入口已落地，HTTPS 生产网关、生产容量、故障恢复和完整多租户运营仍未完成，详见[当前实现与验证边界](00-当前实现与验证边界.md)。
 
 ## 核心知识地图
 
-Agent 扩展的目标设计见 [APM Agent 平台方案](../../apm-agent-platform-design.md)。应用查询 Token、独立只读 Agent HTTP 入口及 TypeScript MCP 工程已进入实现与测试阶段，默认开关关闭；本地双应用真实数据和云端五容器入口冒烟见 [Agent 查询链路记录](../agent-query-e2e-validation.md)。当前调试环境已显式开启两个查询开关；审批、隔离修复和确定性 CI 验证仍未实现。查询契约见 [Agent HTTP API](../api/agent-query-api.md) 和 [MCP 工具 API](../api/mcp-api.md)。
+Agent 扩展的目标设计见 [APM Agent 平台方案](../../apm-agent-platform-design.md)。应用查询 Token、独立只读 Agent HTTP 入口及 TypeScript MCP 已实现，对应 OpenSpec 变更已归档，默认开关关闭；本地双应用真实数据和云端五容器入口冒烟见 [Agent 查询链路记录](../agent-query-e2e-validation.md)。2026-09-29 调试环境已显式开启两个查询开关；云端有效 Token 查询、审批、隔离修复和确定性 CI 验证仍未完成。查询契约见 [Agent HTTP API](../api/agent-query-api.md) 和 [MCP 工具 API](../api/mcp-api.md)。
 
 ### 产品与架构
 
@@ -68,6 +70,7 @@ Agent 扩展的目标设计见 [APM Agent 平台方案](../../apm-agent-platform
 | ClickHouse 与 Grafana | [ClickHouse 本地初始化](../clickhouse-local.md)、[Grafana/ClickHouse 安装与应用接入](../grafana-clickhouse-install.md)、[灰度、开关与回滚](../crash-rollout.md) |
 | Web 前端开发 | [前端知识库](../../frontend/docs/knowledge-base/README.md) |
 | Android 符号表 | [符号表管理 API](../api/symbol-api.md)、[网页上传与生效语义](../client-integration/symbol-mapping.md) |
+| Agent 只读查询 | [查询 Token 管理 API](../api/query-token-api.md)、[Agent HTTP API](../api/agent-query-api.md)、[MCP API](../api/mcp-api.md)、[MCP 运行说明](../../mcp-server/README.md)、[本地与云端验收记录](../agent-query-e2e-validation.md) |
 
 ## 推荐阅读路径
 

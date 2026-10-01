@@ -24,6 +24,8 @@ GET /api/v1/apps/{appId}/janks/events/{eventId}
 
 卡顿总览返回事件数、受影响会话/设备、可归组事件数和精确消息耗时分位数；Issue 和事件详情额外返回明确标记的采样估算耗时、覆盖/空洞和采集质量。卡顿查询默认使用成员 Session 授权，状态区分 `ok` 与 `no_data`。FPS、设备日挂起率和白名单多维查询已实现，状态额外区分 `no_valid_data` 与 `denominator_insufficient`。
 
+当前卡顿个例 ClickHouse 路径先按时间升序读取最多 `limit` 条事实，再在 Java 中统计、分桶和分页；默认 50、最大 500 会同时截断统计输入。超过上限时总览、趋势和 Issue 排行可能不完整，事件页也不能保证遍历范围内全部记录。内存适配器没有该前置截断，固定小样本不能证明两者的大范围等价。此限制不适用于 FPS/挂起率的数据库聚合入口，也不能套用 Crash 下推查询结论；代码依据见[后端查询链路](../../backend/docs/knowledge-base/02-接收解析与查询链路.md)，修复待办见[卡顿协议与性能](13-待确认事项.md#卡顿协议与性能)。
+
 指标查询接口为：
 
 ```http
@@ -47,7 +49,7 @@ GET /api/v1/apps/{appId}/memory-leaks/issues
 GET /api/v1/apps/{appId}/memory-leaks/trend?interval=5m|hour|day
 ```
 
-该页面按 SDK `signature` 聚合问题，展示发生次数、影响设备、版本集合、最新引用链和 UTC 趋势；分页前计算占比分母，空趋势桶补零。页面明确标记为“SDK 报告的疑似问题”，不展示泄漏字节或复现率，也没有 HPROF 解析详情入口。筛选和错误语义见[内存泄漏报告 API](../api/memory-leak-reports-api.md)。
+该页面按 SDK `signature` 聚合问题，展示发生次数、影响设备、版本集合、最新引用链和 UTC 趋势；分页前计算占比分母，空趋势桶补零。页面明确标记为“SDK 报告的疑似问题”，不展示泄漏字节或复现率，也没有 HPROF 解析详情入口。当前报告在 ClickHouse 按应用、时间和维度过滤后读入 Java 聚合及分页，尚未具备 Crash 查询同等的数据库聚合和资源预算，不能把页面分页等同于有界数据库读取。筛选和错误语义见[内存泄漏报告 API](../api/memory-leak-reports-api.md)。
 
 内存概览一次返回 PSS、VSS、Java 堆各自的平均值、P50、P90、P95、P99、有效样本数和状态；趋势返回 UTC 时间桶的相同统计值。所有值保持字节，前端换算为两位小数 MiB。所有查询都按去重后的非缺失样本计算，使用 `h=(n-1)*p` 线性插值；空指标和空桶返回 null，不从趋势二次汇总。筛选仅包含时间、应用版本、Android 版本、设备型号、进程名、场景和前后台；不提供 32/64 位、FD 触顶率、多维下钻、对比列表或导出。
 
@@ -55,7 +57,7 @@ FPS 按算法版本隔离并按高到低返回 P50/P90/P99，趋势支持 UTC `h
 
 仓库同时提供 Vue 前端。Crash 闭环以及卡顿指标、问题列表、Issue 事件、单事件采样证据和内存指标页面均已落地。卡顿总览/趋势/Issue、区间汇总/趋势/多维区域及内存概览/趋势区域独立处理失败；筛选保存在 URL，详情页严格区分精确消息耗时与采样估算，内存页面明确区分缺失值和零值。浏览器只访问这些 Spring Boot API，不会直接访问 ClickHouse；前端如何消费接口见[API、数据模型与状态管理](../../frontend/docs/knowledge-base/04-API数据模型与状态管理.md)。
 
-查询支持 `from`、`to`（ISO-8601）、`appVersion`、`channel`、`environment`、`osVersion`、`deviceModel`、`fingerprint`、`scene`、`algorithmVersion`、`limit`、`cursor` 和 `timeoutMs`。默认时间范围为最近 24 小时，最大范围 31 天；`limit` 默认 50、最大 500；`timeoutMs` 默认 2000、最大 5000；趋势粒度只支持 `hour` 和 `day`。服务端先根据登录主体和 `app_member` 成员关系校验应用，再进入查询服务；`X-App-Id`、`X-User-App-Ids` 不参与授权。Crash 的 ClickHouse 查询已下推时间、维度、精确去重与分页，并设置扫描、内存和 HTTP 响应预算；[Crash 查询性能基线](../../backend/docs/knowledge-base/crash-query-performance-baseline.md)记录合成规模与资源拒绝边界。卡顿 ClickHouse SQL 入口带有 `app_id`、时间、行数、超时和白名单维度约束；真实生产聚合性能仍待验收。
+各域只接受自己的筛选参数，不能把所有参数用于任意端点。Crash/卡顿网页列表使用 `limit/cursor`，默认 50、最大 500；Agent 列表另限默认 20、最大 100。内存指标支持进程/场景/前后台等筛选，不使用列表分页；内存异常问题使用 `page`（从 1 开始）/`pageSize`（默认 20、最大 100），趋势接受 `5m/hour/day` 且最多 2000 桶。Crash/卡顿与内存指标趋势接受 `hour/day`，挂起率仅接受 `day`。默认时间窗为最近 24 小时、最大 31 天；Crash/卡顿及内存指标的 `timeoutMs` 默认 2000、最大 5000，内存异常不接受该参数。完整白名单以各领域 API 为准。服务端先根据登录主体和 `app_member` 成员关系校验应用，再进入查询服务；`X-App-Id`、`X-User-App-Ids` 不参与授权。Crash 的 ClickHouse 查询已下推时间、维度、精确去重与分页，并设置扫描、内存和 HTTP 响应预算；[Crash 查询性能基线](../../backend/docs/knowledge-base/crash-query-performance-baseline.md)记录合成规模与资源拒绝边界。卡顿 ClickHouse SQL 入口带有 `app_id`、时间、行数、超时和白名单维度约束；真实生产聚合性能仍待验收。
 
 网页登录与项目管理已提供以下接口，完整示例见[登录与项目管理 API](../api/app-api.md)：
 
@@ -69,19 +71,22 @@ GET   /api/v1/apps/{appId}
 PATCH /api/v1/apps/{appId}
 ```
 
-原方案中的启动、网络、制品上传等路径仍是目标 API，不应当作当前已发布接口。当前没有独立的版本对比 API，Grafana 的版本对比由 Dashboard 直接查询 ClickHouse 原始表完成；卡顿 Issue MVP 仅对应上方列出的服务端接口。
+原方案中的启动耗时、网络和构建自动上传等路径仍是目标 API，不应当作已发布接口；网页 mapping 上传和内存报告上传已经实现。当前没有独立的版本对比 API，Grafana 的版本对比由 Dashboard 直接查询 ClickHouse 原始表完成；卡顿 Issue MVP 仅对应上方列出的服务端接口。
 
-## Dashboard 清单
+## Dashboard 当前与目标清单
+
+当前 Vue 提供 Crash、卡顿、内存指标和 SDK 内存异常页面，Grafana 提供 JVM Crash JSON；下表中的全局总览、启动、网络和数据质量页面仍是目标范围。Grafana JSON 的版本对比不代表已有 Vue 版本对比页面。
 
 | Dashboard | 核心内容 | 主要筛选 |
 |---|---|---|
-| 全局总览 | 事件量、活跃设备、启动 p95、卡顿率、ANR 率、网络错误率 | 时间、应用、版本、渠道、环境 |
-| 启动分析 | 冷/温/热启动趋势、分位数、阶段耗时、慢样本 | 版本、设备、系统、启动类型 |
-| 网络分析 | 接口耗时、错误率、状态码、DNS/连接/TLS/TTFB 分解 | 域名、路径、网络、版本 |
-| 卡顿分析 | 卡顿趋势、页面排行、帧耗时、受影响设备 | 页面、设备、系统、版本 |
+| 全局总览（目标） | 事件量、活跃设备、启动 p95、卡顿率、ANR 率、网络错误率 | 时间、应用、版本、渠道、环境 |
+| 启动分析（目标） | 冷/温/热启动趋势、分位数、阶段耗时、慢样本 | 版本、设备、系统、启动类型 |
+| 网络分析（目标） | 接口耗时、错误率、状态码、DNS/连接/TLS/TTFB 分解 | 域名、路径、网络、版本 |
+| 卡顿分析 | 精确消息耗时、问题/事件/采样证据、场景 FPS、设备日挂起率和受影响设备 | 场景、设备、系统、版本、算法 |
 | 内存指标分析 | PSS、VSS、Java 堆平均值与 P50/P90/P95/P99 趋势 | 时间、版本、系统、设备、进程、Activity 名称、前后台 |
-| 版本对比 | 新旧版本 p95 变化、回归维度、影响范围 | 基准版本、目标版本、渠道 |
-| 数据质量 | 上报延迟、拒绝量、Schema 分布、无数据告警 | SDK 版本、Schema、应用 |
+| SDK 内存异常 | signature 问题聚合、发生/设备趋势和引用链展开 | 时间、版本、设备、进程、场景、厂商、SDK 等正式白名单 |
+| 版本对比（当前仅 Crash Grafana 资源） | 各版本启动/崩溃会话、每千会话崩溃率和受影响设备；性能分位数回归仍为目标 | 当前资源按应用版本分组，复用时间/应用/渠道等变量 |
+| 数据质量（目标） | 上报延迟、拒绝量、Schema 分布、无数据告警 | SDK 版本、Schema、应用 |
 
 ## 全局变量
 
@@ -105,7 +110,7 @@ device_model, network_type, event_type, interval
 
 Grafana 适合趋势、排行、筛选、临时分析和告警；Vue 更适合产品交互和逐层下钻。当前页面范围与产品化待办见[前端产品范围与当前状态](../../frontend/docs/knowledge-base/01-产品范围与当前状态.md)和[维护约定与待办](../../frontend/docs/knowledge-base/08-维护约定与待办.md)。
 
-当前 Vue 页面不通过 `iframe` 嵌入 Grafana，而是直接调用后端 Crash 与卡顿查询 API。Grafana 仍保留为内部分析和运维平台；生产托管细节见[前端部署、安全与运行边界](../../frontend/docs/knowledge-base/07-部署安全与运行边界.md)。
+当前 Vue 页面不通过 `iframe` 嵌入 Grafana，而是直接调用后端 Crash、卡顿、内存指标和内存异常查询 API。Grafana 仍保留为内部分析和运维平台；生产托管细节见[前端部署、安全与运行边界](../../frontend/docs/knowledge-base/07-部署安全与运行边界.md)。
 
 ## 告警候选
 

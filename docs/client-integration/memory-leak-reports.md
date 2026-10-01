@@ -22,6 +22,8 @@
 
 默认 metadata 上限 2 MiB、report 文件上限 2 MiB、HPROF 256 MiB、总请求 260 MiB。客户端应在本地限制队列大小，并在超限前给出诊断记录；服务端不会截断后接受半份报告。报告中的类名和引用链属于诊断证据，客户端日志仍应避免打印完整原文。
 
+这些是报告业务上限；当前部署默认 multipart 单文件 32 MiB、总请求 34 MiB，上传更大 HPROF 前必须与部署方确认已同步调整 multipart 和网关限制，见[服务端 API 的实际限制](../api/memory-leak-reports-api.md)。报告中的 `anonymousDeviceId` 和原始 report 不经过事件 sanitizer 的哈希/模式脱敏；SDK 必须提供不含个人信息的匿名随机标识，并在构造 report 时完成必要脱敏。
+
 服务端不会把异常报告写入普通 `memory_sample` 指标，也不会将 `size` 当作 retained bytes。内存详情页和 HPROF 解析属于后续能力，当前页面只展示 SDK 报告聚合的问题、趋势和引用链。
 
 服务端字段、响应和错误语义以[内存泄漏报告 API](../api/memory-leak-reports-api.md)为准。

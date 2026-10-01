@@ -74,6 +74,8 @@ Issue 与事件列表的 `nextCursor` 是版本化不透明值，绑定当前应
 
 ClickHouse 查询将应用、时间窗和维度下推；Issue/事件列表不读取完整堆栈，只有详情读取异常链。单次查询预算由服务端配置，默认 2 秒、最大可请求 5 秒；初始扫描上限 500 万行/512 MiB、数据库内存 256 MiB、HTTP 响应 8 MiB。超时返回 `408 QUERY_TIMEOUT`，扫描、内存或结果字节超限返回 `422 QUERY_RESOURCE_LIMIT`，存储暂不可用返回 503；失败不以空数据或部分统计替代。大范围内即使列表 `limit` 较小也可能超过扫描预算。
 
+上述 `QueryBudget` 当前应用于概览、趋势、Issue 和事件摘要查询；单事件详情仍使用普通 ClickHouse HTTP 调用，不应用同一组扫描/响应字节预算。请求可以把默认 2 秒延长至服务端最大 5 秒，不能调整扫描、内存或结果字节配置；实现与性能证据见[Crash 查询基线](../../backend/docs/knowledge-base/crash-query-performance-baseline.md)。
+
 Crash 事件详情响应保留设备 ID、启动 ID和新增的进程实例 `processId`；存量记录没有该列时返回缺失值，不把 `sessionId` 自动填入。详情字段不提供身份关联跳转。详情还返回本次请求的 `symbolicationStatus`、`symbolicatedStackText`、`symbolFileId`、`symbolFileRevision` 和 `symbolicationReason`；这些字段来自实时 Retrace，不改变事件存储。
 
 ## 统计公式
@@ -91,7 +93,7 @@ crashFreeSessionRate = 1 - crashedSessions / startedSessions
 
 ## 脱敏与兼容性
 
-- `anonymousDeviceId` 使用应用盐的 SHA-256 保存；原始设备标识不进入分析存储。
+- `anonymousDeviceId` 使用部署级 `APM_DEVICE_HASH_SALT` 与去除首尾空白的设备标识拼接后计算 SHA-256，不包含 appId；原始设备标识不进入分析存储。
 - `processId` 必须是标准连字符 UUID v4，服务端保留客户端原值；缺失、数值 PID 和非 v4 值按永久校验错误拒绝。
 - 异常消息替换邮箱、URL、用户路径、手机号、UUID，并按配置截断。
 - 属性名只接受字母、数字、下划线、点和连字符；测量值只保存数字。
