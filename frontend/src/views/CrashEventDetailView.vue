@@ -1,6 +1,9 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
+import CrashAnalysisPanel from '../components/CrashAnalysisPanel.vue'
+import { useAppStore } from '../stores/apps'
+import { useSessionStore } from '../stores/session'
 import AppLayout from '../components/AppLayout.vue'
 import EventIdentityFields from '../components/EventIdentityFields.vue'
 import StackTrace from '../components/StackTrace.vue'
@@ -10,9 +13,19 @@ import type { CrashEventDetailResponse } from '../types/crash'
 import { formatDateTime, statusTone } from '../utils/format'
 import { filtersToQuery, parseFilters } from '../utils/query'
 
+/** 当前应用角色只适用于相同 appId，防止切换时沿用其他应用权限。 */
+const apps = useAppStore()
+/** 当前用户用于创建者取消判断。 */
+const session = useSessionStore()
 const route = useRoute()
 const appId = computed(() => String(route.params.appId))
 const eventId = computed(() => String(route.params.eventId))
+/** 创建与管理权限来自当前应用实时角色，后端独立验证。 */
+const analysisRole = computed(() => apps.apps.find(app => app.appId === appId.value)?.role ?? null)
+/** Developer 也可创建。 */
+const canAnalyze = computed(() => ['OWNER', 'ADMIN', 'DEVELOPER'].includes(analysisRole.value ?? ''))
+/** 构建登记与停止核验仅管理员。 */
+const canManageAnalysis = computed(() => ['OWNER', 'ADMIN'].includes(analysisRole.value ?? ''))
 const event = ref<CrashEventDetailResponse | null>(null)
 const loading = ref(false)
 const error = ref<string | null>(null)
@@ -63,9 +76,11 @@ async function load() {
   error.value = null
   loading.value = true
   try {
-    event.value = await crashApi.event(appId.value, eventId.value, controller.signal)
+    // 旧应用/事件的迟到详情不能挂载到当前分析入口。
+    const result = await crashApi.event(appId.value, eventId.value, controller.signal)
+    if (token === requestToken) event.value = result
   } catch (requestError) {
-    if (!isAbortError(requestError)) {
+    if (token === requestToken && !isAbortError(requestError)) {
       error.value = errorMessage(requestError)
     }
   } finally {
@@ -76,6 +91,7 @@ async function load() {
 }
 
 watch(() => route.fullPath, () => { void load() }, { immediate: true })
+onBeforeUnmount(() => { requestToken += 1; controller?.abort() })
 </script>
 
 <template>
@@ -155,6 +171,7 @@ watch(() => route.fullPath, () => { void load() }, { immediate: true })
         <StackTrace v-else :crash="event.rawCrash" />
       </section>
       <StackTrace v-else :crash="event.rawCrash" />
+      <CrashAnalysisPanel v-if="event.rawCrash?.kind === 'jvm' && event.rawCrash?.fatal" :app-id="appId" :event-id="eventId" :can-create="canAnalyze" :can-manage="canManageAnalysis" :user-id="session.user?.id ?? null" />
       <div class="detail-actions"><RouterLink class="button" :to="{ name: 'app-symbols', params: { appId }, query: { buildId: event.buildId } }">上传此 buildId 的 mapping</RouterLink></div>
     </template>
   </AppLayout>

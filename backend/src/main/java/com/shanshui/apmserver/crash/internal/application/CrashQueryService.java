@@ -2,6 +2,7 @@ package com.shanshui.apmserver.crash.internal.application;
 
 import com.shanshui.apmserver.crash.api.CrashMetrics;
 import com.shanshui.apmserver.crash.api.CrashQueries;
+import com.shanshui.apmserver.crash.api.CrashAnalysisSnapshot;
 import com.shanshui.apmserver.platform.api.QueryParams;
 import com.shanshui.apmserver.platform.api.QueryValidationException;
 
@@ -136,6 +137,21 @@ public class CrashQueryService implements CrashQueries {
     }
 
     public CrashEventDetailResponse event(java.util.UUID appId, String eventId) {
+        return analysisSnapshot(appId, eventId).detail();
+    }
+
+    /** 准备任务时不启动还原，先让分析域绑定构建版本。 */
+    @Override
+    public CrashEventDetailResponse rawEvent(java.util.UUID appId, String eventId) {
+        // 仍由 Crash 自己的端口按应用与事件过滤，不向调用方暴露存储实现。
+        CrashStoredSignal event = repository.findByEventId(appId, eventId).filter(CrashStoredSignal::isCrash)
+                .orElseThrow(() -> new QueryValidationException("EVENT_NOT_FOUND", "Crash 事件不存在", 404));
+        return rawOnlyDetail(event);
+    }
+
+    /** 只读取指定事件，并从同一个 mapping 租约取得还原文本与摘要。 */
+    @Override
+    public CrashAnalysisSnapshot analysisSnapshot(java.util.UUID appId, String eventId) {
         CrashStoredSignal event = repository.findByEventId(appId, eventId)
                 .filter(CrashStoredSignal::isCrash)
                 .orElseThrow(() -> new QueryValidationException("EVENT_NOT_FOUND", "Crash 事件不存在", 404));
@@ -144,10 +160,10 @@ public class CrashQueryService implements CrashQueries {
         try {
             try {
                 if (symbolRegistry == null) {
-                    return rawOnlyDetail(event);
+                    return new CrashAnalysisSnapshot(rawOnlyDetail(event), null);
                 }
                 if (event.buildId() == null || event.buildId().isBlank()) {
-                    return rawOnlyDetail(event);
+                    return new CrashAnalysisSnapshot(rawOnlyDetail(event), null);
                 }
                 var acquired = symbolRegistry.acquire(appId, event.buildId());
                 if (acquired.isPresent()) {
@@ -159,14 +175,14 @@ public class CrashQueryService implements CrashQueries {
             } catch (RuntimeException ex) {
                 result = SymbolicationResult.failed("retrace_failed");
             }
-            return new CrashEventDetailResponse(
+            return new CrashAnalysisSnapshot(new CrashEventDetailResponse(
                     event.appId(), event.eventId(), event.packageName(), event.occurredAt(), event.receivedAt(),
                     event.sessionId(), event.processId(), event.anonymousDeviceId(), event.appVersion(), event.versionCode(),
                     event.buildId(), event.channel(), event.environment(), event.osVersion(), event.deviceModel(),
                     event.networkType(), event.crashExceptionType(), event.crashFingerprint(),
                     event.fingerprintVersion(), status(result), result.text(),
                     lease == null ? null : lease.symbolId(), lease == null ? null : lease.revision(),
-                    result.reason(), event.crash());
+                    result.reason(), event.crash()), lease == null ? null : lease.sha256());
         } finally {
             if (lease != null) {
                 try {

@@ -40,4 +40,16 @@ public class AppMembershipService {
     public void requireCredentialView(UUID appId, UUID userId) {
         requireEdit(appId, userId);
     }
+
+    /** 单事件分析授权不扩大应用配置或凭据管理权限。 */
+    public void requireAnalysis(UUID appId, UUID userId) {
+        // 角色从当前数据库关系推导。
+        AppRole role = roleFor(appId, userId);
+        if (role == null) {
+            throw new AppNotFoundException();
+        }
+        if (role != AppRole.OWNER && role != AppRole.ADMIN && role != AppRole.DEVELOPER) {
+            throw new AppRoleDeniedException();
+        }
+    }
 }

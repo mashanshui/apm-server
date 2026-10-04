@@ -1,0 +1,74 @@
+{
+  "taskId": "0461d1e8-eab8-43b7-b054-bec081870d62",
+  "eventId": "f3e87c0d-f5eb-4329-99ec-43809b75b20b",
+  "runId": "b33ceae8-05d9-4023-96eb-88c872d4d88d",
+  "result": {
+    "schemaVersion": 2,
+    "evidenceId": "52d97483-210a-4931-9293-d53f85e0723e",
+    "commitSha": "7f666bf57f0ff8868b22faa25ae066ae2ba64277",
+    "conclusion": "ROOT_CAUSE_CANDIDATE",
+    "summary": "点击包装异常测试按钮后，wrappedNumber 将固定字符串 not-a-number 转为整数，触发 NumberFormatException，再以 IllegalStateException 包装并保留 cause。异常未在按钮回调处理，造成此次 JVM fatal Crash。该链路由冻结异常链、同次 Retrace 和固定提交源码共同支持。",
+    "candidates": [
+      {
+        "title": "固定非数字测试数据解析失败，包装异常继续向点击回调传播",
+        "reason": "raw-crash 包含外层 Unable to load item count 和 cause For input string: not-a-number。retrace 将 cause 定位到 CrashTestCases.kt:43，将外层定位到第45行，调用者为 TestCrashActivity.kt:49。源码第41行固定 storedCount，第43行执行 toInt，第44至45行仅包装后重新抛出；按钮回调第49行直接调用。故外层业务异常是包装层，底层触发点是无效数字解析。该函数是主动构造的测试场景，不能推断真实持久文件损坏。",
+        "evidenceRefs": [
+          "raw-crash",
+          "retrace"
+        ]
+      }
+    ],
+    "sourceRefs": [
+      {
+        "path": "app/src/main/java/com/shanshui/performance/CrashTestCases.kt",
+        "startLine": 39,
+        "endLine": 46,
+        "snippet": "    fun wrappedNumber(): Int {\n        // 固定的无效测试数据，不读取真实用户文件或服务响应。\n        val storedCount = \"not-a-number\"\n        try {\n            return storedCount.toInt()\n        } catch (error: NumberFormatException) {\n            throw IllegalStateException(\"Unable to load item count\", error)\n        }",
+        "snippetSha256": "4caa3b2662a836a5951e7530b3808f74b1eb4fa7ece8369c4a49b773ab3e43ff"
+      },
+      {
+        "path": "app/src/main/java/com/shanshui/performance/TestCrashActivity.kt",
+        "startLine": 47,
+        "endLine": 50,
+        "snippet": "        // cause 链用于区分外层业务错误与底层数字解析失败。\n        findViewById<Button>(R.id.wrappedCrashButton).setOnClickListener {\n            CrashTestCases.wrappedNumber()\n        }",
+        "snippetSha256": "b75ab7a7d6237559fde5c7b20c6cc30a8ed49f41fd769552c452d356a2968f06"
+      }
+    ],
+    "unknowns": [],
+    "risks": [
+      "本事件来自固定测试数据，尚不能证明生产持久化读取、外部响应或其他输入路径具有同一问题。",
+      "保留测试异常有助于崩溃采集验收；若直接吞掉异常，会改变该测试的用途。"
+    ],
+    "fixSuggestions": [
+      "在真实业务的数字输入边界使用显式格式校验或 toIntOrNull，并明确非法值应返回错误、回退还是隔离；当前测试函数可保留作为受控样本。",
+      "业务包装异常应继续保留 cause，在可恢复的 UI 边界处理预期的数据错误，避免未经处理的业务异常终止进程。"
+    ],
+    "validationSuggestions": [
+      "为真实解析边界分别验证有效整数、非数字、空值和超出整数范围，核对错误处理策略。",
+      "保留独立崩溃测试，核对异常链包含 NumberFormatException cause，mapping 还原位置与构建登记的固定提交一致。"
+    ],
+    "execution": {
+      "providerId": null,
+      "modelId": null,
+      "opencodeVersion": null,
+      "mode": "HOST_AGENT",
+      "host": "Codex",
+      "hostVersion": null,
+      "toolVersion": "0.2.0",
+      "metadataSource": "HOST_REPORTED"
+    },
+    "usage": {
+      "inputTokens": null,
+      "outputTokens": null,
+      "cacheReadTokens": null,
+      "cacheWriteTokens": null,
+      "cost": null
+    }
+  },
+  "referenceCount": 2,
+  "referencesVerified": true,
+  "materialRemoved": true,
+  "guardianStopped": true,
+  "hostStopState": "UNKNOWN",
+  "stopConfirmed": false
+}

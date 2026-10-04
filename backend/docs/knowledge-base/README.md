@@ -14,6 +14,7 @@
 - [后端构建配置与本地运行](05-构建配置与本地运行.md)
 - [后端测试与质量保障](06-测试与质量保障.md)
 - [后端符号表实现](symbol-mapping.md)
+- [单事件本地分析实现](local-analysis.md)
 - [卡顿指标性能基线](jank-performance-baseline.md)
 - [Crash 查询下推与容量基线](crash-query-performance-baseline.md)
 
@@ -51,3 +52,7 @@
 迁移补充：`docs/knowledge-base/07-部署与运维.md` 的“存储开关与账号”正文见[存储开关与账号](05-构建配置与本地运行.md)。
 
 迁移补充：`docs/knowledge-base/08-测试与质量保障.md` 的“2026-09-01 数据库专项验收”正文见[2026-09-01 数据库专项验收](06-测试与质量保障.md)。
+
+2026-10-02 当前本地分析改为宿主 Agent 直接分析；Python 负责材料和生命周期，停止未知保留门禁。当前证据见[宿主分析验收](../../../docs/analysis-validation/host-analysis-validation.md)。
+
+2026-10-03 当前代码分析与明确本地修复的逐项验证见 [当前代码验收](../../../docs/analysis-validation/current-code-validation.md)。

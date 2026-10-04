@@ -10,4 +10,8 @@ public interface CrashQueries {
     CrashIssueResponse issues(UUID appId, String from, String to, QueryParams params);
     CrashEventListResponse events(UUID appId, String fingerprint, String from, String to, QueryParams params);
     CrashEventDetailResponse event(UUID appId, String eventId);
+    /** 取得同次还原的 mapping 摘要，供已授权分析冻结使用。 */
+    CrashAnalysisSnapshot analysisSnapshot(UUID appId, String eventId);
+    /** 准备分析前读取指定事件元数据与原始链，不执行 Retrace。 */
+    CrashEventDetailResponse rawEvent(UUID appId, String eventId);
 }

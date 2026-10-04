@@ -122,7 +122,7 @@ public class SymbolFileStore {
             if (!realPath.startsWith(realRoot) || !Files.isRegularFile(realPath) || !Files.isReadable(realPath)) {
                 throw new IOException("symbol file is not readable");
             }
-            return new Lease(entity.getSymbolId(), entity.getRevision(), entity.getStorageKey(), realPath);
+            return new Lease(entity.getSymbolId(), entity.getRevision(), entity.getStorageKey(), realPath, entity.getSha256());
         } catch (IOException ex) {
             release(entity.getStorageKey());
             throw new SymbolStoreUnavailableException(ex);
@@ -254,15 +254,18 @@ public class SymbolFileStore {
         private final String storageKey;
         /** 受控文件路径。 */
         private final Path path;
+        /** 与读取租约相同版本的登记摘要。 */
+        private final String sha256;
         /** 防止重复释放。 */
         private boolean closed;
 
         /** 创建一个已计数的文件读取租约。 */
-        private Lease(UUID symbolId, int revision, String storageKey, Path path) {
+        private Lease(UUID symbolId, int revision, String storageKey, Path path, String sha256) {
             this.symbolId = symbolId;
             this.revision = revision;
             this.storageKey = storageKey;
             this.path = path;
+            this.sha256 = sha256;
         }
 
         /** 返回符号表记录标识。 */
@@ -271,6 +274,9 @@ public class SymbolFileStore {
         /** 返回固定版本。 */
         @Override
         public int revision() { return revision; }
+        /** 返回本次固定版本摘要。 */
+        @Override
+        public String sha256() { return sha256; }
         /** 返回受控文件路径。 */
         @Override
         public Path path() { return path; }

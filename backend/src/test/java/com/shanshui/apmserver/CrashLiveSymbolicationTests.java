@@ -102,7 +102,9 @@ class CrashLiveSymbolicationTests {
                 new com.shanshui.apmserver.bootstrap.internal.observability.MicrometerTelemetryMetrics(
                         new SimpleMeterRegistry()), switching);
 
-        CrashEventDetailResponse before = switchingQuery.event(APP_ID, "live-symbol-event");
+        // 分析快照使用与还原文本相同的租约摘要。
+        var snapshot = switchingQuery.analysisSnapshot(APP_ID, "live-symbol-event");
+        CrashEventDetailResponse before = snapshot.detail();
         switching.revision = 8;
         CrashEventDetailResponse after = switchingQuery.event(APP_ID, "live-symbol-event");
 
@@ -111,6 +113,7 @@ class CrashLiveSymbolicationTests {
         assertEquals("version-7", before.symbolicatedStackText());
         assertEquals("version-8", after.symbolicatedStackText());
         assertEquals(2, switching.closedLeases);
+        assertEquals("7".repeat(64), snapshot.mappingSha256());
     }
 
     /** 伪造的当前注册表，只验证查询服务的请求内调用和租约释放。 */
@@ -136,6 +139,10 @@ class CrashLiveSymbolicationTests {
                 public int revision() {
                     return 7;
                 }
+
+                /** 合成版本对应的摘要。 */
+                @Override
+                public String sha256() { return "7".repeat(64); }
 
                 @Override
                 public Path path() {
@@ -185,6 +192,10 @@ class CrashLiveSymbolicationTests {
                 public int revision() {
                     return leasedRevision;
                 }
+
+                /** 保留领取时版本，不能随当前版本替换而改变。 */
+                @Override
+                public String sha256() { return Integer.toHexString(leasedRevision).repeat(64); }
 
                 @Override
                 public Path path() {

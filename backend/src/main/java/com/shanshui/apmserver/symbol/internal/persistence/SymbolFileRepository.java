@@ -26,6 +26,11 @@ public interface SymbolFileRepository extends JpaRepository<SymbolFileEntity, UU
     /** 按应用和构建标识查询唯一当前版本。 */
     Optional<SymbolFileEntity> findByAppIdAndBuildId(UUID appId, String buildId);
 
+    /** 分析短事务发布阶段读锁定版本，与条件替换行锁互斥。 */
+    @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_READ)
+    @Query("select s from SymbolFileEntity s where s.appId=:appId and s.buildId=:buildId")
+    Optional<SymbolFileEntity> lockCurrentForAnalysis(@Param("appId") UUID appId, @Param("buildId") String buildId);
+
     /** 按服务端存储键查找当前引用。 */
     Optional<SymbolFileEntity> findByStorageKey(String storageKey);
 

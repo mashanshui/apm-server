@@ -132,3 +132,10 @@ Pinia 只管理跨页面的认证和应用状态；路由查询参数保存可�
 - 合法的数值 0 必须正常显示。
 - 页面只展示服务端返回的脱敏数据，不在浏览器尝试恢复敏感原文。
 - `dataSource` 只是联调标识，不是权限或数据正确性的证明。
+
+
+2026-10-01 新增[单事件本地分析](local-analysis.md)：事件详情创建与历史回显、管理员构建/Worker 表单、轮询与迟到响应控制、凭据一次展示。接口和验收以专项记录为准，未提供网页模型管理或云端修复。
+
+## 2026-10-03 当前代码分析与明确修复
+
+AnalysisTask 仅任务/事件/证据元数据，含 evidenceSchemaVersion；Worker 仅应用身份。新报告版本 4 绑定 evidenceId/runId，repair/verification/sourceRefs 均标明宿主自报，currentCheck 只核对提交时引用位置。snapshotId、修改前后摘要和 workspaceUnchanged 仅供版本 3 历史展示。analysis-builds 客户端与类型已删除，详见 [本地分析](local-analysis.md)。

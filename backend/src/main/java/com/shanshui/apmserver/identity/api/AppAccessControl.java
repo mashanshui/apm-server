@@ -14,4 +14,7 @@ public interface AppAccessControl {
 
     /** 返回当前已认证用户标识，供跨模块审计记录使用。 */
     UUID requireUserId(Authentication authentication);
+
+    /** 要求 Owner、Admin 或 Developer 创建单事件分析，Viewer 只读。 */
+    void requireAnalysis(java.util.UUID appId, Authentication authentication);
 }

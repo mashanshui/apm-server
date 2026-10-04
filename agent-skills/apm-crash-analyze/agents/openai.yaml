@@ -1,0 +1,4 @@
+interface:
+  display_name: "APM 当前代码崩溃分析"
+  short_description: "宿主直接分析和修复当前代码，Python 管理证据、租约与报告回传"
+  default_prompt: "使用 $apm-crash-analyze 分析我提供的已有任务 ID；仅在我明确要求时修复。"

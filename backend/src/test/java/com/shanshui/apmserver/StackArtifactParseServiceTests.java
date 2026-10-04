@@ -350,6 +350,10 @@ class StackArtifactParseServiceTests {
                         return 1;
                     }
 
+                    /** 合成租约摘要。 */
+                    @Override
+                    public String sha256() { return "a".repeat(64); }
+
                     @Override
                     public Path path() {
                         return mapping;

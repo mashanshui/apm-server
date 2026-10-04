@@ -7,7 +7,7 @@
 | 应用 | 状态 | 说明 |
 |---|---|---|
 | 工程形态 | 已落地 | 独立的 Vue 3 + TypeScript + Vite 单页应用 |
-| 页面范围 | 登录、应用工作区、JVM Crash、卡顿、内存分析、符号表和查询 Token 管理 | 设置页的 Owner/Admin 可创建、列出、撤销应用只读查询 Token；完整值只在创建结果中短暂展示 |
+| 页面范围 | 登录、应用工作区、JVM Crash、本地单事件分析、卡顿、内存分析、符号表和查询 Token 管理 | 设置页的 Owner/Admin 可创建、列出、撤销应用只读查询 Token；完整值只在创建结果中短暂展示 |
 | 数据访问 | 已落地 | 统一 HTTP 客户端携带同源 Session Cookie 和 CSRF；已具备管理、Crash、卡顿及内存 summary/trend API 客户端，不直连 ClickHouse |
 | 图表 | 已落地 | ECharts 展示 Crash/卡顿问题趋势、多算法指标趋势和 PSS/VSS/Java 堆趋势；原生 SVG 展示采样估算火焰图 |
 | 视觉范围 | 已落地 | 浅色语义 Token、固定 1280px PC 设计基线；不承诺移动端适配 |
@@ -27,6 +27,7 @@
 | 如何启动、准备数据并排查联调问题 | [本地开发与联调](05-本地开发与联调.md) |
 | 测试覆盖了什么，改动后运行哪些命令 | [测试与质量保障](06-测试与质量保障.md) |
 | 生产发布、安全边界和当前限制是什么 | [部署、安全与运行边界](07-部署安全与运行边界.md) |
+| 单事件当前代码分析、有限修复及应用 Worker 如何交互 | [单事件本地分析](local-analysis.md) |
 | 文档如何维护，还有哪些产品化工作 | [维护约定与待办](08-维护约定与待办.md) |
 
 ## 推荐阅读路径
@@ -53,3 +54,9 @@
 ## 后端工程入口
 
 后端位于仓库根目录的 `backend/`，内部实现与构建测试见[后端知识库](../../../backend/docs/knowledge-base/README.md)。整体架构仍以[平台知识库](../../../docs/knowledge-base/README.md)为准；前端继续只消费根目录 API 契约。
+
+本地单事件分析代码入口：`src/api/analysisApi.ts`、`src/types/analysis.ts`、`src/components/CrashAnalysisPanel.vue`、`src/components/AnalysisAdminPanel.vue`。
+
+2026-10-02 当前本地分析改为宿主 Agent 直接分析；Python 负责材料和生命周期，停止未知保留门禁。当前证据见[宿主分析验收](../../../docs/analysis-validation/host-analysis-validation.md)。
+
+2026-10-03 当前代码分析与明确本地修复的逐项验证见 [当前代码验收](../../../docs/analysis-validation/current-code-validation.md)。

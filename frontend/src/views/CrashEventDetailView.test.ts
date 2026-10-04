@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { createPinia, setActivePinia } from 'pinia'
 import { flushPromises, mount } from '@vue/test-utils'
 import CrashEventDetailView from './CrashEventDetailView.vue'
+import { useAppStore } from '../stores/apps'
 import { crashApi } from '../api/crashApi'
 
 const routeMock = {
@@ -20,6 +22,7 @@ vi.mock('../api/crashApi', () => ({
   isAbortError: () => false,
 }))
 
+vi.mock('../components/CrashAnalysisPanel.vue', () => ({ default: { props: ['canCreate', 'canManage'], template: '<section class="analysis-stub" :data-create="canCreate" :data-manage="canManage" />' } }))
 vi.mock('../components/StackTrace.vue', () => ({ default: { template: '<div class="raw-stack">原始堆栈</div>' } }))
 vi.mock('../components/EventIdentityFields.vue', () => ({ default: { template: '<div />' } }))
 vi.mock('../components/StatusMessage.vue', () => ({ default: { template: '<div><slot /></div>' } }))
@@ -44,6 +47,7 @@ function eventResponse(overrides: Partial<Awaited<ReturnType<typeof crashApi.eve
 
 describe('CrashEventDetailView', () => {
   beforeEach(() => {
+    setActivePinia(createPinia())
     vi.resetAllMocks()
     routeMock.fullPath = '/apps/app-1/crashes/events/event-1'
     mockedCrashApi.event.mockResolvedValue(eventResponse())
@@ -95,4 +99,19 @@ describe('CrashEventDetailView', () => {
     expect(escapedWrapper.find('pre').element.innerHTML).not.toContain('<script>alert(1)</script>')
     expect(escapedWrapper.text()).toContain('候选二')
   })
+
+  /** 直接进入详情时 currentApp 未加载，角色来自应用列表且不能串应用。 */
+  it('uses the current route app membership when opening detail directly', async () => {
+    const store = useAppStore()
+    store.apps = [{ appId: 'app-1', role: 'DEVELOPER' } as never]
+    const wrapper = mount(CrashEventDetailView, { global: { stubs: { AppLayout: { template: '<div><slot /></div>' }, RouterLink: { template: '<a><slot /></a>' } } } })
+    await flushPromises()
+    expect(wrapper.get('.analysis-stub').attributes('data-create')).toBe('true')
+    expect(wrapper.get('.analysis-stub').attributes('data-manage')).toBe('false')
+    store.apps = [{ appId: 'other-app', role: 'OWNER' } as never]
+    await flushPromises()
+    expect(wrapper.get('.analysis-stub').attributes('data-create')).toBe('false')
+    wrapper.unmount()
+  })
+
 })

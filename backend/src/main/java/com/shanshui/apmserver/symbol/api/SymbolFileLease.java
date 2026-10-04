@@ -13,6 +13,9 @@ public interface SymbolFileLease extends AutoCloseable {
     /** 返回符号表版本。 */
     int revision();
 
+    /** 返回当前固定文件版本的登记摘要，不能另查最新 mapping 代替。 */
+    String sha256();
+
     /** 返回受控目录内的不可变文件路径。 */
     Path path();
 

@@ -103,6 +103,10 @@ class AppStackMappingResolverTests {
                 return 3;
             }
 
+            /** 合成租约摘要，不用于真实 mapping 验收。 */
+            @Override
+            public String sha256() { return "a".repeat(64); }
+
             @Override
             public Path path() {
                 return mapping;

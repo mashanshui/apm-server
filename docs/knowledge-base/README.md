@@ -1,5 +1,7 @@
 # Android APM 平台知识库
 
+本地分析 Skill 已随附 Python Worker，安装包与生成命令见 [Agent Skill 交付](../../agent-skills/README.md)，独立安装验证见 [交付验收](../analysis-validation/skill-package-validation.md)。
+
 本知识库是项目的中文总入口，用于连接目标架构、当前实现、接口文档、验证证据和待确认事项。原始方案见《[Android APM 服务端与 Dashboard 技术方案](../../Android_APM服务端与Dashboard技术方案.md)》。
 
 阅读时遵循以下事实优先级：当前代码、数据库迁移和已发布 API 优先于知识库描述；知识库优先于原始方案中的历史规划。发现冲突时应记录差异并确认，不能静默覆盖。
@@ -71,6 +73,7 @@ Agent 扩展的目标设计见 [APM Agent 平台方案](../../apm-agent-platform
 | Web 前端开发 | [前端知识库](../../frontend/docs/knowledge-base/README.md) |
 | Android 符号表 | [符号表管理 API](../api/symbol-api.md)、[网页上传与生效语义](../client-integration/symbol-mapping.md) |
 | Agent 只读查询 | [查询 Token 管理 API](../api/query-token-api.md)、[Agent HTTP API](../api/agent-query-api.md)、[MCP API](../api/mcp-api.md)、[MCP 运行说明](../../mcp-server/README.md)、[本地与云端验收记录](../agent-query-e2e-validation.md) |
+| 本地 Crash 分析 | [Python Worker 运行](../../agent-skills/apm-crash-analyze/worker/README.md)、[Skill 安装与自然语言调用](../../agent-skills/apm-crash-analyze/README.md)、[跨端验收](../analysis-validation/README.md)、[已归档实施任务](../../openspec/changes/archive/2026-10-04-add-current-code-crash-fix/tasks.md)、[当前代码正式规范](../../openspec/specs/current-code-crash-fix/spec.md)、[旧方案历史归档](../../openspec/changes/archive/2026-10-04-add-local-crash-analysis/tasks.md)；实现、宿主调用与模型质量分别核验 |
 
 ## 推荐阅读路径
 
@@ -103,3 +106,11 @@ Agent 扩展的目标设计见 [APM Agent 平台方案](../../apm-agent-platform
 | [客户端接入](../client-integration/README.md) | Android 构造事件、队列、上传和重试 |
 
 后端详细测试计数与工程命令只在后端维护，平台状态页保留能力摘要和证据入口。拆分章节的来源映射见[后端迁移索引](../../backend/docs/knowledge-base/README.md#本次内容迁移索引)。
+
+- 单事件本地分析：[前端交互](../../frontend/docs/knowledge-base/local-analysis.md)、[Worker 运行](../../agent-skills/apm-crash-analyze/worker/README.md)、[跨端验收](../analysis-validation/README.md)。
+
+2026-10-02 当前本地分析改为宿主 Agent 直接分析；Python 负责材料和生命周期，停止未知保留门禁。当前证据见[宿主分析验收](../analysis-validation/host-analysis-validation.md)。
+
+2026-10-03 当前代码分析与明确本地修复的逐项验证见 [当前代码验收](../analysis-validation/current-code-validation.md)。
+
+Skill 本地空配置、权限及更新保留步骤见[安装使用](../../agent-skills/apm-crash-analyze/README.md#最小配置)，当前受控结果见[配置验收](../analysis-validation/current-code-validation.md#skill-本地配置增量验收)。

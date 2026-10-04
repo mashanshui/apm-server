@@ -26,3 +26,13 @@ Android 上报 X-App-Key 只用于接收入口，不能调用 [Agent 查询 HTTP
 ## 应用 Key 获取与绑定
 
 联调前先在网页创建应用并填写唯一的全小写 Android application ID；服务端自动生成 UUID v4 `appId`，再由应用 `OWNER`/`ADMIN` 在设置页查看完整 `X-App-Key`。appKey 与包名永久绑定、不过期且不可轮换；JSON v2 事件和卡顿 manifest v3 都必须显式携带相同的 `packageName`。完整 appKey 不得进入日志、URL、Web Storage、截图或版本库。
+
+## 本地分析试点验证
+
+[Performance 单事件分析验收](../analysis-validation/README.md)记录构建身份、既有崩溃按钮和实际事件的分层验证。最初单事件试点未修改 Performance 源码；后续按授权新增独立崩溃测试页用于补充质量样本，详见同一验收记录。Android 事件字段、持久化、批量、重试契约及签名配置保持不变。Worker 凭据不能用于 Android 上报，模型密钥不进入 APK。
+
+试点续跑按授权修复 Performance FPS 持久化 DTO 的 R8 保留及无效快照恢复，保留签名和现有事件契约；补充包装 cause 测试，完成五个受控场景评估。模型质量未达预期，结果和构建证据见同一跨端记录，不等于云端分析或自动修复已可用。
+
+2026-10-02 本地 Crash 分析改为宿主 Agent，客户端事件、采集、队列及上传契约不变；既有设备样本复测见[宿主分析验收](../analysis-validation/host-analysis-validation.md)。
+
+2026-10-03 当前宿主代码分析/修复的受控样本、三项 JVM 测试及证据不足零修改见[当前验收](../analysis-validation/current-code-validation.md)。此分析流程移除了独立构建源码登记；Android 上报 buildId 和 mapping 关联继续有效，客户端事件、队列及重试契约未变。

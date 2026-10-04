@@ -28,6 +28,7 @@ vi.mock('../api/appApi', () => ({
   },
 }))
 
+vi.mock('../components/AnalysisAdminPanel.vue', () => ({ default: { template: '<section class="analysis-admin-stub" />' } }))
 vi.mock('../api/queryTokenApi', () => ({
   queryTokenApi: { list: vi.fn(), create: vi.fn(), revoke: vi.fn() },
 }))

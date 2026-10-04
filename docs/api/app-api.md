@@ -16,7 +16,7 @@ APM_BOOTSTRAP_ADMIN_DISPLAY_NAME=平台管理员
 APM_APP_KEY_ENCRYPTION_KEY=<Base64 编码的 32 字节随机值>
 ```
 
-Flyway 按顺序执行 V1、V2、V3、V4、V5。V3 在移除旧项目表并创建应用表前，会要求 `project`、`project_member`、`project_ingest_credential` 为空；非空时明确失败，不做兼容迁移或静默删除。V4 新增应用级符号表当前记录和替换审计表，按 `appId + buildId` 唯一定位 mapping；V5 新增[应用查询 Token](query-token-api.md)表。测试环境可以先清空确认过的业务数据，再重新创建应用。已发布迁移文件不改写。
+Flyway 按顺序执行当前 V1～V14。V3 在移除旧项目表并创建应用表前，会要求 `project`、`project_member`、`project_ingest_credential` 为空；非空时明确失败，不做兼容迁移或静默删除。V4 新增应用级符号表当前记录和替换审计表，按 `appId + buildId` 唯一定位 mapping；V5 新增[应用查询 Token](query-token-api.md)表；V6～V13 建立[单事件本地分析](analysis-api.md)的历史结构；V14 在无活动旧任务且停止已核验后移除分析源码登记、精简任务与应用 Worker，并增加 Run 快照身份，原终态 JSON 与审计保留。测试环境可以先清空确认过的业务数据，再重新创建应用。已发布迁移文件不改写。
 
 `APM_APP_KEY_ENCRYPTION_KEY` 没有旧变量回退，必须稳定注入并备份；丢失后已保存的 appKey 无法解密查看。生产环境不得使用仓库示例值，应通过密钥服务或受保护的环境变量注入，并将 `APM_SESSION_COOKIE_SECURE=true`。
 

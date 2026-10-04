@@ -32,4 +32,10 @@ public class AppAuthorizationService implements AppAccessControl {
     public java.util.UUID requireUserId(Authentication authentication) {
         return currentUserService.requireId(authentication);
     }
+
+    /** 每次写入重新查询应用成员角色，不依赖网页缓存的角色。 */
+    @Override
+    public void requireAnalysis(java.util.UUID appId, Authentication authentication) {
+        membershipService.requireAnalysis(appId, currentUserService.requireId(authentication));
+    }
 }
