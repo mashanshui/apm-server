@@ -153,6 +153,24 @@ class MemoryLeakReportTests {
         assertThat(trend.points().get(2).occurrenceCount()).isEqualTo(1);
     }
 
+    /** 大页码不得发生 int 乘法溢出，桶边界在访问存储前拒绝。 */
+    @Test void rejects2001BucketsBeforeRepositoryAndAllows2000() {
+        var repository = org.mockito.Mockito.mock(com.shanshui.apmserver.memory.internal.port.MemoryLeakReportRepository.class);
+        var service = new MemoryLeakQueryService(repository);
+        var accepted = new MemoryLeakQueryFilter(APP_ID,Instant.EPOCH,Instant.EPOCH.plusSeconds(2000*300L),null,null,null,null,null,null,null,null,null,null);
+        org.mockito.Mockito.when(repository.trend(accepted,300)).thenReturn(List.of());
+        assertThat(service.trend(accepted,"5m").points()).hasSize(2000);
+        org.mockito.Mockito.clearInvocations(repository);
+        var excessive = new MemoryLeakQueryFilter(APP_ID,Instant.EPOCH,accepted.to().plusNanos(1),null,null,null,null,null,null,null,null,null,null);
+        assertThatThrownBy(() -> service.trend(excessive,"5m")).isInstanceOf(MemoryLeakReportValidationException.class);
+        org.mockito.Mockito.verifyNoInteractions(repository);
+        var memory = new InMemoryMemoryLeakReportRepository(new StorageProperties());
+        assertThat(new MemoryLeakQueryService(memory).issues(accepted,Integer.MAX_VALUE,100,"occurrences","desc").items()).isEmpty();
+        var facade = new com.shanshui.apmserver.memory.internal.application.MemoryLeakQueryFacade(service);
+        assertThatThrownBy(() -> facade.issues(APP_ID,java.util.Map.of("page","2147483648")))
+                .isInstanceOf(com.shanshui.apmserver.platform.api.QueryValidationException.class);
+    }
+
     private String metadata(String eventId, String device) {
         return metadata(eventId, device, 1000);
     }

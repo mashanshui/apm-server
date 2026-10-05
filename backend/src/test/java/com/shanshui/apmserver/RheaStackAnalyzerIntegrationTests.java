@@ -104,12 +104,14 @@ class RheaStackAnalyzerIntegrationTests {
         assertFalse(mainThread.path("callTree").isEmpty());
     }
 
+    /** 固定经源码、发布元数据及解析回归验证的 1.0.2 制品，后续替换须重新验证。 */
     @Test
     void usesVerifiedProcessorFatJarAndPublicResolverApi() throws Exception {
+        // 检查实际加载位置，避免只校验 Maven Local 中未被运行时使用的文件。
         Path jar = Path.of(com.bytedance.rheatrace.stack.StackParser.class.getProtectionDomain()
                 .getCodeSource().getLocation().toURI());
         assertTrue(Files.isRegularFile(jar));
-        assertEquals("81b02da9cc318ec0f165c174f3a8f66c56b307fd88b7a047bceec3952223b962",
+        assertEquals("0c1ac6952ab92526bec24355523048b5e10b14a6ec8a85c9c03070cc67ddb64f",
                 hex(MessageDigest.getInstance("SHA-256").digest(Files.readAllBytes(jar))));
         assertNotNull(com.bytedance.rheatrace.stack.StackParser.class.getMethod(
                 "parseWithMappingResolver", InputStream.class,

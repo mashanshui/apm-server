@@ -98,9 +98,14 @@ GET /api/v1/apps/{appId}/memory-leaks/issues
 
 公共筛选参数：`from`、`to`（ISO-8601，UTC 左闭右开，默认最近 24 小时，最长 31 天）、`appVersion`、`deviceModel`、`processName`、`scene`、`manufacturer`、`sdkInt`、`dumpReason`、`anonymousDeviceId`、`signature` 和 `keyword`。除 `keyword` 对类名、引用、GC Root、原因和 signature 做字面子串匹配外，其余为精确匹配。
 
-问题端点还支持 `page`（默认 1）、`pageSize`（默认 20，最大 100）、`sort=occurrences|affectedDevices|lastOccurredAt` 和 `order=asc|desc`。默认按发生次数降序，并以 signature 稳定排序。
+问题端点还支持 `page`（默认 1，合法范围 1～2147483647，超出返回 400）、`pageSize`（默认 20，最大 100）、`sort=occurrences|affectedDevices|lastOccurredAt` 和 `order=asc|desc`。默认按发生次数降序，并以 signature 稳定排序。
 
 响应包含 `total`、`totalOccurrences`、`totalAffectedDevices`、`dataSource` 和 `items`。每项包含 signature、最新报告的 `leakClass`/`leakReason`/`gcRoot`/完整 `path`、最近发生时间、发生次数及占比、影响设备数及占比和去重版本集合。发生次数按 `(eventId, signature)` 计一次，`instanceCount` 不加权；空 `gcPaths` 报告会保存但不进入问题统计。
+
+
+2026-10-04 查询已下推至 ClickHouse `FINAL` 报告事实：先展开 `gc_paths_json`、筛选匹配路径并按每报告每 signature 去重，再聚合、排序和分页；不读取 `report_json`。一条查询返回全范围分母和当前页，超过末页仍保留总计并返回空 items；偏移使用 long。最大 occurredAt 相同的报告按 eventId 字符串升序选完整代表路径，版本集合按字符串升序去重；引用链/版本不会截断。
+
+keyword 使用大小写敏感字面子串，单引号、反斜杠、百分号、下划线和方括号没有通配符或 SQL 含义。报告维度和路径筛选均先于分母计算。服务端复用默认 2000 ms、扫描 500 万行/512 MiB、数据库内存 256 MiB、正文 8 MiB 的预算，无需客户端传入新参数。超时返回 `408 QUERY_TIMEOUT`，超限返回 `422 QUERY_RESOURCE_LIMIT`，存储错误返回可重试 `503 EVENT_STORE_UNAVAILABLE`；完整路径或 versions 超限也明确失败。万份报告合成证据见[查询验收](../../backend/docs/knowledge-base/backend-api-query-validation.md)。
 
 ## 趋势
 
@@ -115,3 +120,5 @@ GET /api/v1/apps/{appId}/memory-leaks/trend?interval=5m|hour|day
 当前不解析 HPROF，不计算 retained size、泄漏字节、复现率或用户数，不提供内存详情路由、附件下载和 HPROF 解析入口。行内引用链展开只属于问题列表展示。
 
 客户端构造、队列和重试步骤见[内存泄漏报告客户端接入](../client-integration/memory-leak-reports.md)。
+
+趋势桶按 UTC 起点补零；包含部分末桶时也计一桶。超过 2000 桶在访问存储前返回 400，不把失败显示为空趋势。本轮没有修改报告上传字段、multipart、队列、HPROF 保存和重试。

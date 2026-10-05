@@ -92,9 +92,15 @@ public class AppManagementService {
     public AppResponse update(UUID userId, UUID appId, AppUpdateRequest request) {
         membershipService.requireEdit(appId, userId);
         ApmApp app = appRepository.findById(appId).orElseThrow(AppNotFoundException::new);
-        String name = AppInputValidator.normalizeName(request.name());
-        String description = AppInputValidator.normalizeDescription(request.description());
-        app.update(name, description, Instant.now());
+        // 全部已提交字段先校验，再整体更新，避免多字段请求部分生效。
+        String name = request.namePresent() ? AppInputValidator.normalizeName(request.name()) : app.getName();
+        String description = request.descriptionPresent()
+                ? AppInputValidator.normalizeDescription(request.description()) : app.getDescription();
+        // 空对象和重复请求保留更新时间，权限已在读取实体之前校验。
+        if (!java.util.Objects.equals(name, app.getName())
+                || !java.util.Objects.equals(description, app.getDescription())) {
+            app.update(name, description, Instant.now());
+        }
         return AppResponse.from(app, app.getPackageName(),
                 membershipService.roleFor(appId, userId));
     }

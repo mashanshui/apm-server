@@ -83,8 +83,8 @@ const overviewRange = computed(() => query.overview.value
       <div class="panel-header"><div><h2 id="jank-issues-heading">卡顿 Issue 排行</h2><p>精确消息耗时与采样估算堆栈耗时分列展示，点击指纹查看事件列表</p></div><span v-if="query.issues.value.length" class="badge">{{ query.issues.value.length }} 个问题</span></div>
       <StatusMessage v-if="query.issuesError.value" kind="error" :message="query.issuesError.value" @retry="query.loadIssues" />
       <div v-else>
-        <div v-if="query.issueAppendError.value" class="notice">追加失败：{{ query.issueAppendError.value }}，已加载的问题仍然保留。 <button class="link-button" type="button" @click="query.loadMoreIssues">重试追加</button></div>
-        <JankIssueTable :issues="query.issues.value" :next-cursor="query.nextCursor.value" :loading="query.issuesLoading.value" :loading-more="query.issuesLoadingMore.value" @open="openIssue" @next="query.loadMoreIssues" />
+        <div v-if="query.issueAppendError.value" class="notice">追加失败：{{ query.issueAppendError.value }}，已加载的问题仍然保留。 <button v-if="query.issueCursorInvalid.value" class="link-button" type="button" @click="query.loadIssues">重新查询</button><button v-else class="link-button" type="button" @click="query.loadMoreIssues">重试追加</button></div>
+        <JankIssueTable :cursor-invalid="query.issueCursorInvalid.value" :issues="query.issues.value" :next-cursor="query.nextCursor.value" :loading="query.issuesLoading.value" :loading-more="query.issuesLoadingMore.value" @open="openIssue" @next="query.loadMoreIssues" />
       </div>
     </section>
   </AppLayout>

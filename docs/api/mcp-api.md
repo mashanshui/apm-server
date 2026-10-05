@@ -19,3 +19,14 @@
 Crash/卡顿详情默认省略大证据字段并列出 availableSections。使用 section、offset、chunkBytes 续读；content 是该字段 JSON 的 UTF-8 字节段再作 Base64 编码，按 offset 拼接并解析可恢复原字段。续读传前页 contentDigest，若内容变化返回 EVIDENCE_CHANGED。单次后端响应上限 8 MiB，完整 MCP 结果（结构化副本和文本副本合计）上限 256 KiB；超限明确返回 QUERY_BACKEND_RESPONSE_TOO_LARGE 或 RESULT_TOO_LARGE，不静默删条目。分页不提供数据库快照，迟到数据可能改变后续页。
 
 工具业务错误返回 isError，文本 JSON 包含 code、retryable、requestId、retryAfter；不转发不可信的后端错误消息，也不自动重试。MCP 入口缺失或无效 Bearer 为 HTTP 401，后端不可用为 503，关闭开关为 503 MCP_DISABLED。当前允许 HTTP 调试接入，MCP 不检查 HTTPS 代理标记；两个查询开关默认关闭，必须显式开启。Bearer 经 HTTP 明文传输，需限定受控环境；受信 HTTPS 是后续生产化要求。云端不得将 MCP 容器端口直接暴露给客户端。请求体最大 64 KiB。具体业务错误及限额见 [Agent HTTP API](agent-query-api.md)。
+
+
+## 卡顿续页与查询失败
+
+首次 `list_jank_issues` 或 `list_jank_events` 可以省略时间。收到结果后必须从 `query.from` 和 `query.to` 复制完整绝对时间（包括小数秒），与 `data.nextCursor` 一起传入下一次同一工具，并保持全部筛选。MCP 保留续页必须显式时间的约定；后端 HTTP 自行恢复时间的能力不改变此要求。
+
+```json
+{"from":"2026-10-01T00:00:00.123Z","to":"2026-10-02T00:00:00.456Z","cursor":"<首次返回的完整不透明 nextCursor>","limit":50}
+```
+
+事件工具另保留首次 fingerprint。不解析或拼装游标，页大小只改变条数。`INVALID_CURSOR`（400）须从第一页重新查询；`QUERY_TIMEOUT`（408）和 `QUERY_RESOURCE_LIMIT`（422）须缩小范围或增加筛选；`EVENT_STORE_UNAVAILABLE`（503）按暂时故障处理。协议测试覆盖上述传播、原样游标和小数秒时间，测试结果见[后端验收](../../backend/docs/knowledge-base/backend-api-query-validation.md)。

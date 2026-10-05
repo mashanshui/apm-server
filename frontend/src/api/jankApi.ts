@@ -199,5 +199,8 @@ export function isAbortError(error: unknown): boolean {
 }
 
 export function errorMessage(error: unknown): string {
+  if (error instanceof ApiError && (error.code === 'QUERY_TIMEOUT' || error.code === 'QUERY_RESOURCE_LIMIT')) {
+    return `${sharedErrorMessage(error)}，请缩小时间范围或增加筛选条件后重新查询。`
+  }
   return sharedErrorMessage(error)
 }

@@ -86,6 +86,55 @@ class JankQueryServiceTests {
         assertNull(empty.stats().exactMessageDuration().p50Ms());
     }
 
+    /** 每个筛选维度、绝对时间、应用与列表种类均绑定游标。 */
+    @Test void cursorBindsEveryDimensionAndRejectsNonLists() {
+        var app = TestAppIds.id("demo-app");
+        var first = query.issues(app, from, to, JankQueryCommand.empty().withLimit(1));
+        var continuation = JankQueryCommand.empty().withCursor(first.nextCursor());
+        for (var changed : java.util.List.of(continuation.withAppVersion("2"), continuation.withChannel("x"),
+                continuation.withEnvironment("x"), continuation.withOsVersion("x"), continuation.withDeviceModel("x"),
+                continuation.withFingerprint("x"), continuation.withScene("x"), continuation.withAlgorithmVersion("x"))) {
+            invalid(() -> query.issues(app, from, to, changed));
+        }
+        invalid(() -> query.issues(TestAppIds.id("other"),from,to,continuation));
+        invalid(() -> query.issues(app,"2026-08-15T10:00:00Z",to,continuation));
+        invalid(() -> query.events(app,first.issues().getFirst().fingerprint(),from,to,continuation));
+        invalid(() -> query.overview(app,from,to,continuation));
+        invalid(() -> query.trend(app,from,to,"hour",continuation));
+        for (String bad : java.util.List.of("old-fingerprint", "broken!", "x".repeat(2049))) {
+            invalid(() -> query.issues(app,from,to,JankQueryCommand.empty().withCursor(bad)));
+        }
+        var last = query.issues(app,from,to,continuation).issues().getLast();
+        String terminal = com.shanshui.apmserver.jank.internal.application.JankCursor.issue(
+                query.filter(app,from,to,JankQueryCommand.empty()),last);
+        assertEquals(0,query.issues(app,from,to,JankQueryCommand.empty().withCursor(terminal)).issues().size());
+    }
+
+    /** 缺省时间仅首查询生成，续页逐纳秒恢复，不随当前时钟漂移。 */
+    @Test void restoresDefaultWindowExactly() {
+        var store = org.mockito.Mockito.mock(com.shanshui.apmserver.jank.internal.port.JankAggregationRepository.class);
+        var captured = new java.util.ArrayList<com.shanshui.apmserver.jank.internal.domain.JankQueryFilter>();
+        org.mockito.Mockito.when(store.issues(org.mockito.ArgumentMatchers.any(),org.mockito.ArgumentMatchers.any())).thenAnswer(call -> {
+            var filter = (com.shanshui.apmserver.jank.internal.domain.JankQueryFilter)call.getArgument(0);
+            captured.add(filter);
+            var time = filter.to().minusSeconds(1);
+            var percentiles = new com.shanshui.apmserver.jank.api.JankDurationPercentiles(0.0,0.0,0.0);
+            return java.util.List.of(new com.shanshui.apmserver.jank.api.JankIssueSummary("a","v1","s","v1",1,1,1,time,time,percentiles,percentiles),
+                    new com.shanshui.apmserver.jank.api.JankIssueSummary("b","v1","s","v1",1,1,1,time,time,percentiles,percentiles));
+        });
+        var defaultQuery = new JankQueryService(store,CrashTestSupport.queryProperties());
+        var page = defaultQuery.issues(TestAppIds.id("demo-app"),null,null,JankQueryCommand.empty().withLimit(1));
+        defaultQuery.issues(TestAppIds.id("demo-app"),null,null,JankQueryCommand.empty().withLimit(1).withCursor(page.nextCursor()));
+        assertEquals(captured.getFirst().from(),captured.getLast().from());
+        assertEquals(captured.getFirst().to(),captured.getLast().to());
+    }
+
+    /** 统一检查失败契约，避免只验证抛出任意异常。 */
+    private void invalid(org.junit.jupiter.api.function.Executable operation) {
+        assertEquals("INVALID_CURSOR",org.junit.jupiter.api.Assertions.assertThrows(
+                com.shanshui.apmserver.platform.api.QueryValidationException.class,operation).getCode());
+    }
+
     private EventBatchRequest fixture() throws Exception {
         try (InputStream input = getClass().getResourceAsStream("/fixtures/jank-dataset.json")) {
             return mapper.readValue(input, EventBatchRequest.class);

@@ -8,6 +8,7 @@
 
 | 领域 | 文档 | 主要内容 |
 |---|---|---|
+| 通用错误 | [框架请求错误](request-errors.md) | MVC 正文、参数、校验、405/415 与安全边界 |
 | 登录与应用 | [登录与应用管理 API](app-api.md) | Session、应用创建、不可变包名、永久 Key 与按权限查询 |
 | 应用查询凭据 | [应用查询 Token 管理 API](query-token-api.md) | 只读应用 Token 创建、分页列表、撤销、期限及一次展示 |
 | Agent 查询 | [Agent 只读查询 HTTP API](agent-query-api.md) | Token 复用、19 个 GET 入口、配额和错误 |

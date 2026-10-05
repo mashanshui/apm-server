@@ -36,7 +36,19 @@ public class ClickHouseMemoryLeakReportRepository implements MemoryLeakReportRep
     private final ClickHouseHttpClient client;
     private final ObjectMapper objectMapper;
 
+    /** 所有分析查询使用服务端默认预算。 */
+    private final com.shanshui.apmserver.platform.api.QueryProperties queryProperties;
+
+    /** 测试及原有手动装配使用同一默认配置。 */
     public ClickHouseMemoryLeakReportRepository(ClickHouseHttpClient client, ObjectMapper objectMapper) {
+        this(client,objectMapper,new com.shanshui.apmserver.platform.api.QueryProperties());
+    }
+
+    /** 生产注入可配置资源预算。 */
+    @org.springframework.beans.factory.annotation.Autowired
+    public ClickHouseMemoryLeakReportRepository(ClickHouseHttpClient client, ObjectMapper objectMapper,
+                                                com.shanshui.apmserver.platform.api.QueryProperties queryProperties) {
+        this.queryProperties = queryProperties;
         this.client = client;
         this.objectMapper = objectMapper;
     }
@@ -111,6 +123,43 @@ public class ClickHouseMemoryLeakReportRepository implements MemoryLeakReportRep
                 + "attachment_path, attachment_bytes FROM apm_memory_report FINAL WHERE " + where
                 + " ORDER BY event_time, event_id FORMAT JSONEachRow";
         return rows(client.execute(sql)).stream().map(this::parse).toList();
+    }
+
+    /** 一条数据库查询返回完整分母与有界页，路径与版本集合不得截断。 */
+    @Override public com.shanshui.apmserver.memory.api.MemoryLeakIssuesResponse issues(MemoryLeakQueryFilter filter,
+                                                                                     int page,int size,String sort,String order) {
+        JsonNode row = queryRows(ClickHouseMemoryLeakQuerySql.issues(filter,page,size,sort,order)).getFirst();
+        long total = row.path("total").asLong();
+        long occurrences = row.path("total_occurrences").asLong();
+        long devices = row.path("total_devices").asLong();
+        List<com.shanshui.apmserver.memory.api.MemoryLeakIssueItem> items = new ArrayList<>();
+        for (JsonNode item : row.path("items")) {
+            // 代表路径来自同一最新报告；并列事件按 UUID 字符串升序选取。
+            MemoryLeakPath path = parsePaths(objectMapper.readTree("["+item.get(4).asText()+"]")).getFirst();
+            List<String> versions = new ArrayList<>();
+            item.get(5).forEach(version -> versions.add(version.asText()));
+            items.add(new com.shanshui.apmserver.memory.api.MemoryLeakIssueItem(item.get(0).asText(),
+                    path.path().getLast().reference(),path.leakReason(),path.gcRoot(),path.path(),
+                    Instant.ofEpochMilli(item.get(3).asLong()),item.get(1).asLong(),
+                    occurrences==0?0:(double)item.get(1).asLong()/occurrences,item.get(2).asLong(),
+                    devices==0?0:(double)item.get(2).asLong()/devices,List.copyOf(versions)));
+        }
+        return new com.shanshui.apmserver.memory.api.MemoryLeakIssuesResponse(filter.appId(),filter.from(),filter.to(),
+                total,occurrences,devices,page,size,List.copyOf(items),total==0?"no_data":"ok",dataSource());
+    }
+
+    /** 数据库仅返回非空桶，服务校验数量后补齐空桶。 */
+    @Override public List<com.shanshui.apmserver.memory.api.MemoryLeakTrendPoint> trend(MemoryLeakQueryFilter filter,long seconds) {
+        return queryRows(ClickHouseMemoryLeakQuerySql.trend(filter,seconds)).stream().map(row ->
+                new com.shanshui.apmserver.memory.api.MemoryLeakTrendPoint(Instant.ofEpochMilli(row.path("bucket_ms").asLong()),
+                        row.path("occurrences").asLong(),row.path("devices").asLong())).toList();
+    }
+
+    /** 正文、扫描、内存和时间均使用平台预算，存储失败不得伪装成空结果。 */
+    private List<JsonNode> queryRows(String sql) {
+        return rows(client.executeQuery(sql,new com.shanshui.apmserver.platform.api.QueryBudget(
+                queryProperties.getDefaultTimeoutMs(),queryProperties.getMaxRowsToRead(),queryProperties.getMaxBytesToRead(),
+                queryProperties.getMaxMemoryUsage(),queryProperties.getMaxResponseBytes())));
     }
 
     @Override

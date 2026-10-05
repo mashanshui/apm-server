@@ -14,7 +14,7 @@
 | 内存指标 | /memory-metrics/summary、/memory-metrics/trend | PSS/VSS/Java 堆 |
 | SDK 内存异常 | /memory-leaks/issues、/memory-leaks/trend | 问题页、趋势 |
 
-共 19 个入口。字段、状态、公式与单位继续沿用 [Crash](crash-api.md)、[卡顿](jank-server-api.md)、[内存指标](memory-metrics-api.md)及[内存异常](memory-leak-reports-api.md)的业务契约。所有查询拒绝未知或重复参数；详情不接受查询参数。列表默认 limit=20、最大 100，内存异常问题页沿用 page/pageSize。Crash 游标绑定首次绝对时间窗与筛选条件，失效返回 INVALID_CURSOR，客户端应重新从第一页开始。
+共 19 个入口。字段、状态、公式与单位继续沿用 [Crash](crash-api.md)、[卡顿](jank-server-api.md)、[内存指标](memory-metrics-api.md)及[内存异常](memory-leak-reports-api.md)的业务契约。所有查询拒绝未知或重复参数；详情不接受查询参数。列表默认 limit=20、最大 100，内存异常问题页沿用 page/pageSize。Crash 和 Jank 游标绑定首次绝对时间窗、入口与完整筛选条件，失效返回 INVALID_CURSOR，客户端应重新从第一页开始。
 
 请求示例：GET /api/agent/v1/crashes/overview?from=2026-09-27T00%3A00%3A00Z&to=2026-09-28T00%3A00%3A00Z，携带 Authorization: Bearer <应用查询Token>。
 
@@ -35,3 +35,7 @@
 | 503 | QUERY_AUTH_UNAVAILABLE、EVENT_STORE_UNAVAILABLE、AGENT_QUERY_DISABLED | 检查后端或开关状态 |
 
 APM_AGENT_QUERY_ENABLED=false 是默认状态；启用后才可查询和创建新 Token。关闭时仍可通过网页列出并撤销现有 Token。上报与网页 Session 查询不受此开关影响。MCP 协议映射见 [MCP 工具 API](mcp-api.md)。
+
+框架正文、参数绑定、缺失项及字段校验失败以[框架请求错误](request-errors.md)为准；安全过滤链与领域专项错误保留原语义。
+
+Jank 的 limit 仅影响 Issue/事件页，默认 20/最大 100 保持；相同筛选下总览与趋势和网页逐字段一致。内存泄漏页码合法范围 1～2147483647，趋势超量桶在存储前拒绝，问题页保留完整路径及全范围分母。预算错误保持 408/422/503，不返回截断成功，验证见[查询验收](../../backend/docs/knowledge-base/backend-api-query-validation.md)。

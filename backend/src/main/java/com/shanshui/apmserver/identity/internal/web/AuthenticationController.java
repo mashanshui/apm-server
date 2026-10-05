@@ -15,6 +15,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.web.context.SecurityContextRepository;
+import org.springframework.security.web.authentication.session.SessionAuthenticationStrategy;
 import org.springframework.security.web.csrf.CsrfToken;
 import org.springframework.security.web.csrf.CsrfTokenRepository;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -30,13 +31,17 @@ public class AuthenticationController {
     private final AuthenticationManager authenticationManager;
     private final SecurityContextRepository securityContextRepository;
     private final CsrfTokenRepository csrfTokenRepository;
+    /** 保存身份前执行会话固定攻击防护与 CSRF 认证后处理。 */
+    private final SessionAuthenticationStrategy sessionAuthenticationStrategy;
 
     public AuthenticationController(AuthenticationManager authenticationManager,
                                     SecurityContextRepository securityContextRepository,
-                                    CsrfTokenRepository csrfTokenRepository) {
+                                    CsrfTokenRepository csrfTokenRepository,
+                                    SessionAuthenticationStrategy sessionAuthenticationStrategy) {
         this.authenticationManager = authenticationManager;
         this.securityContextRepository = securityContextRepository;
         this.csrfTokenRepository = csrfTokenRepository;
+        this.sessionAuthenticationStrategy = sessionAuthenticationStrategy;
     }
 
     @GetMapping("/session")
@@ -70,6 +75,11 @@ public class AuthenticationController {
             }
             Authentication authentication = authenticationManager.authenticate(
                     UsernamePasswordAuthenticationToken.unauthenticated(request.email(), request.password()));
+            // 控制器自行认证，必须显式执行策略，不能依赖过滤器代为调用。
+            sessionAuthenticationStrategy.onAuthentication(authentication, servletRequest, servletResponse);
+            // 成功响应立即下发可用的新 Cookie，避免首个写请求仍使用登录前的值。
+            CsrfToken refreshedToken = csrfTokenRepository.generateToken(servletRequest);
+            csrfTokenRepository.saveToken(refreshedToken, servletRequest, servletResponse);
             SecurityContext context = SecurityContextHolder.createEmptyContext();
             context.setAuthentication(authentication);
             SecurityContextHolder.setContext(context);

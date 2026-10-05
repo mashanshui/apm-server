@@ -16,9 +16,12 @@ export interface AppCreateRequest {
   packageName: string
 }
 
+/** PATCH 仅更新出现的字段；描述显式 null 表示清空。 */
 export interface AppUpdateRequest {
-  name: string
-  description: string
+  /** 未提交时保留名称，提交值必须非空。 */
+  name?: string
+  /** 未提交保留，null 或空白清空。 */
+  description?: string | null
 }
 
 export interface AppIngestCredential {

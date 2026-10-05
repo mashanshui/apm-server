@@ -1,5 +1,7 @@
 # Android APM 前端知识库
 
+2026-10-05 接口正确性变更已同步并[归档](../../../openspec/changes/archive/2026-10-05-fix-backend-api-correctness/tasks.md)。[卡顿网页正式规范](../../../openspec/specs/jank-monitoring-frontend/spec.md)新增不透明游标、显式恢复及查询预算失败要求；实际云端分页与本地模拟错误恢复的验证范围见[前端测试](06-测试与质量保障.md)。
+
 本知识库是 `frontend/` 工程的中文维护入口，记录前端当前已经实现的页面、代码边界、接口契约、本地联调、测试与发布约束。平台级架构、后端协议、数据存储和 Grafana 仍以仓库根目录的[平台知识库](../../../docs/knowledge-base/README.md)为准。
 
 ## 当前状态

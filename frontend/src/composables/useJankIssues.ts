@@ -49,7 +49,7 @@ export function useJankIssues(appId: Ref<string>, filters: Ref<JankFilterForm>) 
         toJankApiFilters(snapshot.filters),
         signal,
       )
-      return { items: response.issues, nextCursor: response.nextCursor }
+      return { items: response.issues, nextCursor: response.nextCursor, from: response.from, to: response.to }
     })
   }
 
@@ -65,10 +65,10 @@ export function useJankIssues(appId: Ref<string>, filters: Ref<JankFilterForm>) 
     await issues.loadMore(async (cursor, signal) => {
       const response = await jankApi.issues(
         snapshot.appId,
-        toJankApiFilters(snapshot.filters, cursor),
+        toJankApiFilters({ ...snapshot.filters, ...issues.range.value }, cursor),
         signal,
       )
-      return { items: response.issues, nextCursor: response.nextCursor }
+      return { items: response.issues, nextCursor: response.nextCursor, from: response.from, to: response.to }
     })
   }
 
@@ -91,6 +91,7 @@ export function useJankIssues(appId: Ref<string>, filters: Ref<JankFilterForm>) 
     issuesLoadingMore: issues.loadingMore,
     issuesError: issues.error,
     issueAppendError: issues.appendError,
+    issueCursorInvalid: issues.cursorInvalid,
     loading: computed(() => overview.loading.value || trend.loading.value || issues.loading.value),
     load,
     loadOverview,

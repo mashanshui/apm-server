@@ -27,7 +27,7 @@ function queryState() {
   return {
     overview: ref(null), overviewLoading: ref(false), overviewError: ref('总览暂时不可用'),
     trend: ref({ appId: 'demo', from: '', to: '', interval: 'hour', points: [], status: 'no_data', dataSource: 'memory' }), trendLoading: ref(false), trendError: ref(null),
-    issues: ref([issue]), nextCursor: ref(null), issuesLoading: ref(false), issuesLoadingMore: ref(false), issuesError: ref(null), issueAppendError: ref(null), loading: ref(false),
+    issues: ref([issue]), nextCursor: ref(null), issuesLoading: ref(false), issuesLoadingMore: ref(false), issuesError: ref(null), issueAppendError: ref(null), issueCursorInvalid: ref(false), loading: ref(false),
     load: vi.fn(), loadOverview: vi.fn(), loadTrend: vi.fn(), loadIssues: vi.fn(), loadMoreIssues: vi.fn(), cancel: vi.fn(),
   }
 }
@@ -54,4 +54,19 @@ describe('JankIssuesView', () => {
       params: { appId: 'demo', fingerprint: 'fingerprint-1' },
     }))
   })
+  it('失效游标提示显式重新查询并保留已成功区域', async () => {
+    const state = queryState()
+    state.issueCursorInvalid.value = true
+    state.issueAppendError.value = '游标无效' as never
+    composableMock.use.mockReturnValue(state)
+    const wrapper = mount(JankIssuesView, { global: { stubs: {
+      AppLayout: { template: '<div><slot /></div>' }, JankFilterBar: true, JankTrendChart: true,
+    } } })
+    expect(wrapper.text()).toContain('fingerprint-1')
+    const button = wrapper.findAll('button').find((candidate) => candidate.text() === '重新查询')!
+    await button.trigger('click')
+    expect(state.loadIssues).toHaveBeenCalledOnce()
+    expect(state.loadMoreIssues).not.toHaveBeenCalled()
+  })
+
 })

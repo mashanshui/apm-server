@@ -28,7 +28,7 @@ export function useJankIssueEvents(
         toJankApiFilters(current.filters),
         signal,
       )
-      return { items: response.events, nextCursor: response.nextCursor }
+      return { items: response.events, nextCursor: response.nextCursor, from: response.from, to: response.to }
     })
   }
 
@@ -38,10 +38,10 @@ export function useJankIssueEvents(
       const response = await jankApi.events(
         current.appId,
         current.fingerprint,
-        toJankApiFilters(current.filters, cursor),
+        toJankApiFilters({ ...current.filters, ...query.range.value }, cursor),
         signal,
       )
-      return { items: response.events, nextCursor: response.nextCursor }
+      return { items: response.events, nextCursor: response.nextCursor, from: response.from, to: response.to }
     })
   }
 

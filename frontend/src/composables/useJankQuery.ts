@@ -1,5 +1,5 @@
 import { ref, type Ref } from 'vue'
-import { errorMessage, isAbortError } from '../api/jankApi'
+import { JankApiError, errorMessage, isAbortError } from '../api/jankApi'
 
 export interface JankQueryRegion<T> {
   data: Ref<T | null>
@@ -61,6 +61,9 @@ export function createJankQueryRegion<T>(): JankQueryRegion<T> {
 export interface JankCursorPage<T> {
   items: T[]
   nextCursor: string | null
+  /** 首次响应的绝对时间窗，续页沿用。 */
+  from?: string
+  to?: string
 }
 
 export interface JankCursorQuery<T> {
@@ -70,6 +73,9 @@ export interface JankCursorQuery<T> {
   loadingMore: Ref<boolean>
   error: Ref<string | null>
   appendError: Ref<string | null>
+  /** 游标失败只能由显式重新查询恢复。 */
+  cursorInvalid: Ref<boolean>
+  range: Ref<{ from: string; to: string } | null>
   load: (loader: (cursor: undefined, signal: AbortSignal) => Promise<JankCursorPage<T>>) => Promise<void>
   loadMore: (loader: (cursor: string, signal: AbortSignal) => Promise<JankCursorPage<T>>) => Promise<void>
   cancel: () => void
@@ -83,6 +89,9 @@ export function createJankCursorQuery<T>(keyOf: (item: T) => string): JankCursor
   const loadingMore = ref(false)
   const error = ref<string | null>(null)
   const appendError = ref<string | null>(null)
+  /** 不透明游标和时间窗只保存在本次查询状态。 */
+  const cursorInvalid = ref(false)
+  const range = ref<{ from: string; to: string } | null>(null)
   let requestToken = 0
   let controller: AbortController | null = null
 
@@ -96,6 +105,8 @@ export function createJankCursorQuery<T>(keyOf: (item: T) => string): JankCursor
     nextCursor.value = null
     error.value = null
     appendError.value = null
+    cursorInvalid.value = false
+    range.value = null
     loading.value = true
     loadingMore.value = false
     try {
@@ -104,6 +115,7 @@ export function createJankCursorQuery<T>(keyOf: (item: T) => string): JankCursor
         return
       }
       items.value = unique(page.items)
+      range.value = page.from && page.to ? { from: page.from, to: page.to } : null
       nextCursor.value = page.nextCursor
     } catch (requestError) {
       if (token === requestToken && !isAbortError(requestError)) {
@@ -137,6 +149,8 @@ export function createJankCursorQuery<T>(keyOf: (item: T) => string): JankCursor
     } catch (requestError) {
       if (token === requestToken && !isAbortError(requestError)) {
         appendError.value = errorMessage(requestError)
+        cursorInvalid.value = requestError instanceof JankApiError && requestError.code === 'INVALID_CURSOR'
+        if (cursorInvalid.value) nextCursor.value = null
       }
     } finally {
       if (token === requestToken) {
@@ -171,6 +185,8 @@ export function createJankCursorQuery<T>(keyOf: (item: T) => string): JankCursor
     nextCursor.value = null
     error.value = null
     appendError.value = null
+    cursorInvalid.value = false
+    range.value = null
   }
 
   return {
@@ -180,6 +196,8 @@ export function createJankCursorQuery<T>(keyOf: (item: T) => string): JankCursor
     loadingMore,
     error,
     appendError,
+    cursorInvalid,
+    range,
     load,
     loadMore,
     cancel,

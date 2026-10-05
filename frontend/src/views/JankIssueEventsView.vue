@@ -41,8 +41,8 @@ const backToIssues = computed(() => ({ name: 'jank-issues', params: { appId: app
     <StatusMessage v-if="query.error.value" kind="error" :message="query.error.value" @retry="query.load" />
     <section v-else class="panel">
       <div class="panel-header"><div><h2>卡顿个例</h2><p>按服务端顺序展示；精确消息耗时与采样估算总耗时分列</p></div><span v-if="query.items.value.length" class="badge">{{ query.items.value.length }} 个事件</span></div>
-      <div v-if="query.appendError.value" class="notice">追加失败：{{ query.appendError.value }}，已加载事件不受影响。 <button class="link-button" type="button" @click="query.loadMore">重试追加</button></div>
-      <JankEventTable :events="query.items.value" :next-cursor="query.nextCursor.value" :loading="query.loading.value" :loading-more="query.loadingMore.value" @open="openEvent" @next="query.loadMore" />
+      <div v-if="query.appendError.value" class="notice">追加失败：{{ query.appendError.value }}，已加载事件不受影响。 <button v-if="query.cursorInvalid.value" class="link-button" type="button" @click="query.load">重新查询</button><button v-else class="link-button" type="button" @click="query.loadMore">重试追加</button></div>
+      <JankEventTable :cursor-invalid="query.cursorInvalid.value" :events="query.items.value" :next-cursor="query.nextCursor.value" :loading="query.loading.value" :loading-more="query.loadingMore.value" @open="openEvent" @next="query.loadMore" />
     </section>
   </AppLayout>
 </template>

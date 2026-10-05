@@ -81,4 +81,20 @@ class JankDatasetStatisticsTests {
         assertEquals(java.time.LocalDate.of(2026, 8, 16),
                 Instant.ofEpochMilli(batch.events().get(7).occurredAt()).atZone(ZoneOffset.UTC).toLocalDate());
     }
+    /** 奇偶样本按 ceil(N*p)，合法零值计入，缺失耗时不填零。 */
+    @Test void referenceKeepsMissingDurationsAndExactRanks() {
+        assertEquals(new com.shanshui.apmserver.jank.api.JankDurationPercentiles(0.0, 4.0, 4.0),
+                com.shanshui.apmserver.jank.internal.application.JankReferenceQueries.percentiles(List.of(4_000_000L, 0L)));
+        assertEquals(2.0, com.shanshui.apmserver.jank.internal.application.JankReferenceQueries.percentiles(
+                List.of(0L, 2_000_000L, 4_000_000L)).p50Ms());
+        assertEquals(4.0, com.shanshui.apmserver.jank.internal.application.JankReferenceQueries.percentiles(List.of(4_000_000L)).p99Ms());
+        var metadata = new com.shanshui.apmserver.telemetry.api.EventMetadata(TestAppIds.id("null-duration"), "synthetic", "e", "jank",
+                Instant.EPOCH, Instant.EPOCH, 2, null, null, null, "1", 1, null, null, null, null, null, null, Map.of(), Map.of());
+        var event = new JankEvent(metadata, "fp", "v1", "raw_only",
+                new com.shanshui.apmserver.jank.api.JankPayload("scene", "v1", null, 0L, 0L, List.of(), Map.of(), 0, 0, 0), null);
+        assertEquals(1, com.shanshui.apmserver.jank.internal.application.JankReferenceQueries.stats(List.of(event)).jankEvents());
+        assertEquals(null, com.shanshui.apmserver.jank.internal.application.JankReferenceQueries.stats(List.of(event)).exactMessageDuration().p50Ms());
+        assertEquals(null, com.shanshui.apmserver.jank.internal.application.JankReferenceQueries.issueSummary("fp", List.of(event)).estimatedStackDuration().p50Ms());
+    }
+
 }

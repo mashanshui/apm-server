@@ -79,6 +79,40 @@ public class ClickHouseHttpClient {
                 || budget.maxMemoryUsage() < 1 || budget.maxResponseBytes() < 1) {
             throw new IllegalArgumentException("查询预算必须为正数");
         }
+        // 请求头与完整正文共用截止时间，防止响应头到达后无限等待正文。
+        java.util.concurrent.atomic.AtomicReference<InputStream> activeBody = new java.util.concurrent.atomic.AtomicReference<>();
+        java.util.concurrent.FutureTask<String> operation = new java.util.concurrent.FutureTask<>(
+                () -> executeBoundedQuery(query, budget, activeBody));
+        Thread.ofVirtual().name("clickhouse-query").start(operation);
+        try {
+            return operation.get(budget.timeoutMs() + 250, java.util.concurrent.TimeUnit.MILLISECONDS);
+        } catch (java.util.concurrent.TimeoutException ex) {
+            operation.cancel(true);
+            closeBody(activeBody);
+            throw new QueryValidationException("QUERY_TIMEOUT", "查询超过执行时间限制", 408);
+        } catch (InterruptedException ex) {
+            operation.cancel(true);
+            closeBody(activeBody);
+            Thread.currentThread().interrupt();
+            throw new QueryValidationException("QUERY_TIMEOUT", "查询已取消", 408);
+        } catch (java.util.concurrent.ExecutionException ex) {
+            if (ex.getCause() instanceof RuntimeException failure) throw failure;
+            throw new EventStoreUnavailableException();
+        }
+    }
+
+    /** 取消时关闭活跃正文流，释放底层连接与读取线程。 */
+    private void closeBody(java.util.concurrent.atomic.AtomicReference<InputStream> activeBody) {
+        // 流可能尚未返回，此时中断 send 负责取消请求。
+        InputStream body = activeBody.get();
+        if (body != null) {
+            try { body.close(); } catch (IOException ignored) { /* 超时响应已确定，关闭失败不覆盖它。 */ }
+        }
+    }
+
+    /** 执行一次查询并限制成功或失败正文，不接收部分成功。 */
+    private String executeBoundedQuery(String query, QueryBudget budget,
+                                      java.util.concurrent.atomic.AtomicReference<InputStream> activeBody) {
         String options = "?database=" + encode(properties.getDatabase())
                 + "&wait_end_of_query=1&timeout_before_checking_execution_speed=0"
                 + "&max_execution_time=" + String.format(Locale.ROOT, "%.3f", budget.timeoutMs() / 1000.0)
@@ -98,6 +132,12 @@ public class ClickHouseHttpClient {
             }
             HttpRequest request = builder.POST(HttpRequest.BodyPublishers.ofString(query, StandardCharsets.UTF_8)).build();
             HttpResponse<InputStream> response = httpClient.send(request, HttpResponse.BodyHandlers.ofInputStream());
+            activeBody.set(response.body());
+            // 取消可能与响应头到达同时发生，登记流后再次检查，避免遗留连接。
+            if (Thread.currentThread().isInterrupted()) {
+                closeBody(activeBody);
+                throw new QueryValidationException("QUERY_TIMEOUT", "查询已取消", 408);
+            }
             try (InputStream stream = response.body()) {
                 if (response.statusCode() < 200 || response.statusCode() >= 300) {
                     String error = new String(stream.readNBytes(8192), StandardCharsets.UTF_8);

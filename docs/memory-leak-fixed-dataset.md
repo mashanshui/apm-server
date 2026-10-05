@@ -17,3 +17,7 @@ metadata 使用必填 UUID v4 `processId` 标识进程实例；`sessionId` 仍�
 将同一 signature 的三份 `(eventId, signature)` 报告写入后，问题列表应按事件计数、按匿名设备去重，分页前先计算总分母；`instanceCount`、`size` 和 `leakObjects` 数组位置不参与发生次数或泄漏字节计算。趋势查询应补齐无报告的 UTC 空桶。
 
 真实 HPROF 不进入版本库；上传测试可以使用任意受限二进制占位文件验证 `attachmentStatus=stored`，服务端不应启动 HPROF 解析。
+
+## 2026-10-04 查询完整性增量
+
+新增真实 ClickHouse 逐字段对照覆盖 A=3/B=1、超过 100 个问题、重复报告/路径、空报告、字面特殊字符、全部排序和末页。万份三路径报告以及 150 个版本完整集合的资源检查见[查询验收](../backend/docs/knowledge-base/backend-api-query-validation.md)。旧固定集的人工期望值和上传入口不变。

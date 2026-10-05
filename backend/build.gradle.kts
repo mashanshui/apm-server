@@ -44,7 +44,8 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-security")
     implementation("org.springframework.boot:spring-boot-starter-validation")
     implementation("org.springframework.boot:spring-boot-starter-webmvc")
-    implementation("org.springframework.session:spring-session-jdbc")
+    // Boot 4 的会话自动配置位于独立模块，不能只声明 Spring Session 库。
+    implementation("org.springframework.boot:spring-boot-starter-session-jdbc")
     implementation("org.springframework.boot:spring-boot-starter-flyway")
     implementation("org.flywaydb:flyway-database-postgresql")
     // 官方 R8 Retrace API，用于校验和按请求还原 Android mapping。

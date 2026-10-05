@@ -118,3 +118,5 @@ NOT_REQUESTED/NOT_APPLICABLE 的修改列表为空；APPLIED/PARTIAL 必须有�
 ## 数据库切换门禁
 
 V14 要求没有旧 BLOCKED/READY/RUNNING/CANCELLING 任务，且没有 RUNNING 或 stopConfirmed=false 的 Run；不满足时迁移原子失败，保留旧结构。关闭旧任务入口，取消未运行任务，完成指定宿主的实际停止核验后才能部署。迁移仅删除分析登记及重复列，不删除原始 Crash/符号服务 buildId，终态 evidence/result JSON、摘要及停止审计保持原字节。旧二进制不能直接复用迁移后数据库，回退须使用核验过的迁移前备份。
+
+框架正文、参数绑定、缺失项及字段校验失败以[框架请求错误](request-errors.md)为准；安全过滤链与领域专项错误保留原语义。

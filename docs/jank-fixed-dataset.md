@@ -21,3 +21,7 @@
 统一趋势接口的固定期望如下：FPS `interval=hour` 返回 `2026-08-15T10:00:00Z + fps-v1`（平均 40、P50/P90/P99 为 50/30/30）和 `2026-08-16T00:00:00Z + fps-v2 = 45` 两个点；FPS `interval=day` 返回相同两个算法版本在两个 UTC 日桶中的点。挂起率 `interval=day` 返回 `2026-08-15 + suspension-v1 = 3` 和 `2026-08-16 + suspension-v2 = 2` 秒/小时两个点。`suspension_rate + hour` 必须返回 `INVALID_INTERVAL`，不得按小时拆分设备日口径。重复 `jank-001` 和 `frame-001` 都不得放大趋势统计。
 
 以上数字是固定数据集的人工计算基线；自动化测试必须使用同一文件独立计算并核对，真实 ClickHouse 验收另行记录，不能用内存测试替代外部环境验证。
+
+## 2026-10-04 查询完整性增量
+
+新增 ClickHouse 对照使用 120 事件/60 Issue（单 Issue 61 事件），limit=1/20/50 均保留完整统计并可遍历。十万事件资源检查、升序 ceil 秩/零值以及缺失值的内存参考边界见[查询验收](../backend/docs/knowledge-base/backend-api-query-validation.md)。旧固定集的人工期望值和上传入口不变。

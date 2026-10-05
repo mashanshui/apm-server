@@ -43,7 +43,11 @@ X-App-Key: <从应用设置页获取的应用级 Key>
 
 网页查询使用登录 Session 和应用成员关系授权，不接受客户端应用请求头作为授权事实。默认查询最近 24 小时，最大 31 天；`limit` 默认 50、最大 500；`timeoutMs` 默认 2000、最大 5000。筛选支持 `from`、`to`、`appVersion`、`channel`、`environment`、`osVersion`、`deviceModel`、`scene`、`algorithmVersion`、`fingerprint`、`limit`、`cursor` 和 `timeoutMs`。
 
-当前实现限制（2026-09-30 源码核对）：ClickHouse 个例查询先按 `event_time,event_id` 升序取最多 `limit` 条，再在 Java 计算总览、趋势、Issue 和事件页。超过该数量时统计输入被截断，事件游标也不保证能遍历全部记录；`status=ok` 没有额外标记这种截断。内存适配器筛选后使用全部事件，两种实现只在未触及上限的小样本下已有对照证据。此缺口见[待确认事项](../knowledge-base/13-待确认事项.md#卡顿协议与性能)，不适用于下文 FPS/挂起率数据库聚合接口；本次仅补充真实边界，未修改路由或业务代码。
+2026-10-04 已修复此前先取 limit 再统计的完整性缺口：ClickHouse 在 `FINAL` 逻辑事实中完成全范围总览、趋势及 Issue 聚合，只有最终 Issue/事件摘要页使用 limit+1；摘要不读取采样 JSON，详情独立读取。分位数为升序第 `max(1,ceil(N*p))` 个有效值；合法零值参与，无样本返回 null。Issue 按事件数降序、最近时间降序、指纹升序；事件按发生时间降序、事件 ID 升序。
+
+`nextCursor` 为版本化不透明字符串，绑定应用、入口、首次绝对时间窗和全部有效筛选及排序位置；客户端原样传递，省略续页时间时服务端恢复首次时间窗。更换筛选、应用或指纹以及旧格式/损坏/跨列表游标返回 `400 INVALID_CURSOR`，必须显式从第一页重新查询；总览/趋势不得携带 cursor。静态数据可完整遍历，游标不承诺迟到数据或新增数据的快照。
+
+查询同时限制执行时间、扫描行/字节、数据库内存和 HTTP 正文；默认扫描 500 万行/512 MiB、内存 256 MiB、正文 8 MiB。超时 `408 QUERY_TIMEOUT`，超限 `422 QUERY_RESOURCE_LIMIT`，存储失败 `503 EVENT_STORE_UNAVAILABLE`；不返回部分成功或伪造空数据。十万事件合成验证及真实边界见[查询验收](../../backend/docs/knowledge-base/backend-api-query-validation.md)，生产并发仍待验证。此前 2026-09-30 截断记录作为修复背景保留在历史验收中。
 
 ```http
 GET /api/v1/apps/{appId}/janks/overview

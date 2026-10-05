@@ -39,11 +39,125 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
 
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatusCode;
+import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.beans.TypeMismatchException;
+import org.springframework.validation.BindException;
+import org.springframework.validation.BindingResult;
+import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
+import org.springframework.web.bind.MissingRequestHeaderException;
+import org.springframework.web.multipart.support.MissingServletRequestPartException;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.method.annotation.HandlerMethodValidationException;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
+import org.springframework.web.HttpMediaTypeNotSupportedException;
+import jakarta.validation.ConstraintViolationException;
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
 @RestControllerAdvice
 public class ApiExceptionHandler {
+
+    /** 框架字段错误只包含声明字段和固定说明，不携带 rejectedValue 或原始异常。 */
+    private record RequestFieldError(String field, String code, String message) { }
+
+    /** 正文解析/解码失败统一使用受控说明，未知 JSON 属性也不回显。 */
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ResponseEntity<ApiErrorResponse> unreadableBody(HttpMessageNotReadableException ex) {
+        return response(HttpStatus.BAD_REQUEST,
+                ApiErrorResponse.of("INVALID_REQUEST_BODY", "请求正文缺失或格式错误", false, null));
+    }
+
+    /** URL 和请求头的类型转换失败，不把提交值拼入消息。 */
+    @ExceptionHandler(TypeMismatchException.class)
+    public ResponseEntity<ApiErrorResponse> invalidParameterType(TypeMismatchException ex) {
+        // MVC 参数名称来自声明；其余绑定异常无可安全定位字段时使用统一占位。
+        String field = ex instanceof MethodArgumentTypeMismatchException argument ? argument.getName() : null;
+        return frameworkError(HttpStatus.BAD_REQUEST, "INVALID_PARAMETER", "请求参数格式错误",
+                List.of(new RequestFieldError(safeField(field), "TYPE_MISMATCH", "参数类型错误")), null);
+    }
+
+    /** 只映射调用方缺失项；MissingPathVariable 等服务端声明错误不在此列。 */
+    @ExceptionHandler({MissingServletRequestParameterException.class, MissingRequestHeaderException.class,
+            MissingServletRequestPartException.class})
+    public ResponseEntity<ApiErrorResponse> missingParameter(Exception ex) {
+        // 三种异常中的名字均来自控制器声明。
+        String field = ex instanceof MissingServletRequestParameterException parameter ? parameter.getParameterName()
+                : ex instanceof MissingRequestHeaderException header ? header.getHeaderName()
+                : ((MissingServletRequestPartException) ex).getRequestPartName();
+        return frameworkError(HttpStatus.BAD_REQUEST, "INVALID_PARAMETER", "缺少必填请求项",
+                List.of(new RequestFieldError(safeField(field), "REQUIRED", "必填请求项缺失")), null);
+    }
+
+    /** ModelAttribute 的类型绑定失败必须区别于已解码值的约束失败。 */
+    @ExceptionHandler({BindException.class, MethodArgumentNotValidException.class})
+    public ResponseEntity<ApiErrorResponse> bindingValidation(BindException ex) {
+        // errors 有硬上限；消息不使用可包含敏感值的默认校验模板。
+        BindingResult result = ex.getBindingResult();
+        boolean typeMismatch = result.getFieldErrors().stream().anyMatch(error -> error.isBindingFailure());
+        List<RequestFieldError> errors = result.getFieldErrors().stream().limit(50)
+                .map(error -> new RequestFieldError(safeField(error.getField()),
+                        error.isBindingFailure() ? "TYPE_MISMATCH" : "CONSTRAINT_VIOLATION",
+                        error.isBindingFailure() ? "参数类型错误" : "字段不符合校验要求"))
+                .toList();
+        return frameworkError(HttpStatus.BAD_REQUEST, typeMismatch ? "INVALID_PARAMETER" : "VALIDATION_FAILED",
+                typeMismatch ? "请求参数格式错误" : "请求字段校验失败", errors, null);
+    }
+
+    /** 方法输入约束返回 400，返回值约束属于内部错误，保留 500。 */
+    @ExceptionHandler(HandlerMethodValidationException.class)
+    public ResponseEntity<ApiErrorResponse> methodValidation(HandlerMethodValidationException ex) {
+        // 不暴露返回值、跨参数表达式或约束模板。
+        List<RequestFieldError> errors = ex.isForReturnValue() ? List.of()
+                : ex.getParameterValidationResults().stream().limit(50)
+                .map(result -> new RequestFieldError(safeField(result.getMethodParameter().getParameterName()),
+                        "CONSTRAINT_VIOLATION", "参数不符合校验要求")).toList();
+        return frameworkError(ex.getStatusCode(), ex.isForReturnValue() ? "INTERNAL_ERROR" : "VALIDATION_FAILED",
+                ex.isForReturnValue() ? "服务内部校验失败" : "请求参数校验失败", errors, null);
+    }
+
+    /** 适用于方法输入的 Bean Validation；返回值违反约束不归为调用方错误。 */
+    @ExceptionHandler(ConstraintViolationException.class)
+    public ResponseEntity<ApiErrorResponse> constraintValidation(ConstraintViolationException ex) {
+        // 返回值校验路径节点可可靠区分服务器失败，不读取无效值。
+        boolean returnValue = ex.getConstraintViolations().stream().anyMatch(violation -> {
+            for (var node : violation.getPropertyPath()) {
+                if (node.getKind() == jakarta.validation.ElementKind.RETURN_VALUE) return true;
+            }
+            return false;
+        });
+        return frameworkError(returnValue ? HttpStatus.INTERNAL_SERVER_ERROR : HttpStatus.BAD_REQUEST,
+                returnValue ? "INTERNAL_ERROR" : "VALIDATION_FAILED",
+                returnValue ? "服务内部校验失败" : "请求参数校验失败", List.of(), null);
+    }
+
+    /** 405 保留框架 Allow 响应头。 */
+    @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
+    public ResponseEntity<ApiErrorResponse> methodNotAllowed(HttpRequestMethodNotSupportedException ex) {
+        return frameworkError(ex.getStatusCode(), "METHOD_NOT_ALLOWED", "请求方法不支持", List.of(), ex.getHeaders());
+    }
+
+    /** 框架 415 保留媒体协商响应头，不替换领域专项错误。 */
+    @ExceptionHandler(HttpMediaTypeNotSupportedException.class)
+    public ResponseEntity<ApiErrorResponse> frameworkMediaType(HttpMediaTypeNotSupportedException ex) {
+        return frameworkError(ex.getStatusCode(), "UNSUPPORTED_MEDIA_TYPE", "请求媒体类型不支持", List.of(), ex.getHeaders());
+    }
+
+    /** 字段路径只允许受控标识；客户端值或集合键不能借路径回显。 */
+    private String safeField(String field) {
+        return field != null && field.length() <= 100 && field.matches("[A-Za-z][A-Za-z0-9_.-]*")
+                ? field : "request";
+    }
+
+    /** 统一构建框架失败，沿用 requestId 可空约定。 */
+    private ResponseEntity<ApiErrorResponse> frameworkError(HttpStatusCode status, String code, String message,
+                                                           List<RequestFieldError> errors, HttpHeaders headers) {
+        return ResponseEntity.status(status).headers(headers == null ? new HttpHeaders() : headers)
+                .body(new ApiErrorResponse(code, message, false, null, errors.stream().limit(50).toList(), Instant.now()));
+    }
 
     @ExceptionHandler(InvalidAppKeyException.class)
     public ResponseEntity<ApiErrorResponse> invalidAppKey(InvalidAppKeyException ex) {

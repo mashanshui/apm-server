@@ -156,6 +156,27 @@ class AgentQueryApiIntegrationTests extends AppIngestApiTestSupport {
                 .andExpect(jsonPath("$.events.length()").value(0));
     }
 
+    /** 相同静态卡顿数据中，页大小只影响列表，网页与 Agent 统计逐字段一致。 */
+    @Test void jankStatisticsAndCursorPagesMatchWithRealData() throws Exception {
+        MockHttpSession owner=login();
+        String secret=token(owner);
+        var fixture=mapper.readValue(getClass().getResourceAsStream("/fixtures/jank-dataset.json"),com.shanshui.apmserver.ingest.api.EventBatchRequest.class);
+        JankTestSupport.appendFixture(appId(),jankEvents,fixture);
+        String range="from=2026-08-15T09:59:00Z&to=2026-08-16T00:02:00Z";
+        for(int limit:List.of(1,50)) {
+            var web=mvc.perform(MockMvcRequestBuilders.get("/api/v1/apps/"+appId()+"/janks/overview?"+range+"&limit="+limit).session(owner)).andExpect(status().isOk()).andReturn();
+            var agent=mvc.perform(MockMvcRequestBuilders.get("/api/agent/v1/janks/overview?"+range+"&limit="+limit).header("Authorization","Bearer "+secret)).andExpect(status().isOk()).andExpect(jsonPath("$.stats.jankEvents").value(3)).andReturn();
+            assertEquals(mapper.readTree(web.getResponse().getContentAsString()),mapper.readTree(agent.getResponse().getContentAsString()));
+        }
+        var page=mvc.perform(MockMvcRequestBuilders.get("/api/agent/v1/janks/issues?"+range+"&limit=1").header("Authorization","Bearer "+secret)).andExpect(status().isOk()).andReturn();
+        String cursor=mapper.readTree(page.getResponse().getContentAsString()).path("nextCursor").asText();
+        mvc.perform(MockMvcRequestBuilders.get("/api/agent/v1/janks/issues?"+range+"&limit=1&cursor="+cursor).header("Authorization","Bearer "+secret)).andExpect(status().isOk()).andExpect(jsonPath("$.issues.length()").value(1));
+        mvc.perform(MockMvcRequestBuilders.get("/api/agent/v1/janks/issues?limit=101").header("Authorization","Bearer "+secret)).andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("INVALID_LIMIT"));
+    }
+
+    /** 直接装载固定事实，不改变客户端 ZIP 入口。 */
+    @Autowired private com.shanshui.apmserver.jank.internal.persistence.InMemoryJankEventRepository jankEvents;
+
     private MockHttpSession login() throws Exception {
         MvcResult login = mvc.perform(MockMvcRequestBuilders.post("/api/v1/auth/login")
                         .with(SecurityMockMvcRequestPostProcessors.csrf())

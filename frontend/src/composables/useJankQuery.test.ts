@@ -68,4 +68,31 @@ describe('卡顿查询基础设施', () => {
     expect(query.items.value.map((item) => item.eventId)).toEqual(['a', 'b', 'c'])
     expect(query.appendError.value).toBe('追加失败')
   })
+  it('游标失效保留当前页，显式重新查询替换列表和时间窗', async () => {
+    const query = createJankCursorQuery<{ eventId: string }>((item) => item.eventId)
+    await query.load(async () => ({ items: [{ eventId: 'old' }], nextCursor: 'opaque', from: 'start', to: 'end' }))
+    await query.loadMore(async (cursor) => {
+      expect(cursor).toBe('opaque')
+      throw new ApiError({ status: 400, code: 'INVALID_CURSOR', message: '游标无效' })
+    })
+    expect(query.items.value).toEqual([{ eventId: 'old' }])
+    expect(query.cursorInvalid.value).toBe(true)
+    expect(query.nextCursor.value).toBeNull()
+    expect(query.range.value).toEqual({ from: 'start', to: 'end' })
+    await query.load(async () => ({ items: [{ eventId: 'new' }], nextCursor: null, from: 'new-start', to: 'new-end' }))
+    expect(query.items.value).toEqual([{ eventId: 'new' }])
+    expect(query.cursorInvalid.value).toBe(false)
+    expect(query.range.value).toEqual({ from: 'new-start', to: 'new-end' })
+  })
+
+  it.each(['QUERY_TIMEOUT', 'QUERY_RESOURCE_LIMIT'])('预算失败显示缩小范围提示并保留成功区域：%s', async (code) => {
+    const failed = createJankQueryRegion<string>()
+    const success = createJankQueryRegion<string>()
+    await success.run(async () => 'success')
+    await failed.run(async () => { throw new ApiError({ status: code === 'QUERY_TIMEOUT' ? 408 : 422, code, message: '查询失败' }) })
+    expect(failed.error.value).toContain('缩小时间范围')
+    expect(failed.data.value).toBeNull()
+    expect(success.data.value).toBe('success')
+  })
+
 })

@@ -5,8 +5,6 @@ import com.shanshui.apmserver.platform.api.QueryValidationException;
 import com.shanshui.apmserver.platform.api.QueryProperties;
 import com.shanshui.apmserver.platform.api.QueryParams;
 import com.shanshui.apmserver.jank.api.JankQueries;
-import com.shanshui.apmserver.jank.api.JankAnalysis;
-import com.shanshui.apmserver.jank.api.JankDurationPercentiles;
 import com.shanshui.apmserver.jank.api.JankEventDetailResponse;
 import com.shanshui.apmserver.jank.api.JankEventListResponse;
 import com.shanshui.apmserver.jank.api.JankEventSummary;
@@ -14,11 +12,9 @@ import com.shanshui.apmserver.jank.api.JankIssueResponse;
 import com.shanshui.apmserver.jank.api.JankIssueSummary;
 import com.shanshui.apmserver.jank.api.JankOverviewResponse;
 import com.shanshui.apmserver.jank.internal.domain.JankQueryFilter;
-import com.shanshui.apmserver.jank.api.JankStats;
 import com.shanshui.apmserver.jank.api.JankTrendPoint;
 import com.shanshui.apmserver.jank.api.JankTrendResponse;
 import com.shanshui.apmserver.jank.internal.domain.JankEvent;
-import com.shanshui.apmserver.jank.internal.persistence.InMemoryJankAggregationRepository;
 import com.shanshui.apmserver.jank.internal.port.JankAggregationRepository;
 import com.shanshui.apmserver.jank.internal.domain.JankQueryCommand;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -27,14 +23,7 @@ import org.springframework.stereotype.Service;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.HashSet;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.TreeMap;
 
 @Service
 public class JankQueryService implements JankQueries {
@@ -50,8 +39,9 @@ public class JankQueryService implements JankQueries {
 
     public JankOverviewResponse overview(java.util.UUID appId, String from, String to, JankQueryCommand params) {
         JankQueryFilter filter = filter(appId, from, to, params);
-        List<JankEvent> events = repository.find(filter);
-        return new JankOverviewResponse(appId, filter.from(), filter.to(), stats(events), repository.dataSource());
+        rejectCursor(filter);
+        return new JankOverviewResponse(appId, filter.from(), filter.to(), repository.overview(filter),
+                repository.dataSource());
     }
 
     /** 公共 HTTP 查询参数在域内转换，供网页和 Agent 共用业务口径。 */
@@ -87,57 +77,38 @@ public class JankQueryService implements JankQueries {
             throw new QueryValidationException("INVALID_INTERVAL", "interval 只支持 hour 或 day", 400);
         }
         JankQueryFilter filter = filter(appId, from, to, params);
-        Map<Instant, List<JankEvent>> buckets = new TreeMap<>();
-        for (JankEvent event : repository.find(filter)) {
-            Instant bucket = bucket(event.occurredAt(), interval);
-            buckets.computeIfAbsent(bucket, ignored -> new ArrayList<>()).add(event);
-        }
-        List<JankTrendPoint> points = buckets.entrySet().stream().map(entry -> {
-            Instant end = "hour".equals(interval) ? entry.getKey().plus(1, ChronoUnit.HOURS)
-                    : entry.getKey().plus(1, ChronoUnit.DAYS);
-            return new JankTrendPoint(entry.getKey(), end, stats(entry.getValue()));
-        }).toList();
-        return new JankTrendResponse(appId, filter.from(), filter.to(), interval, points,
-                points.isEmpty() ? "no_data" : "ok", repository.dataSource());
+        rejectCursor(filter);
+        // 空数据状态与列表入口保持一致。
+        List<JankTrendPoint> points = repository.trend(filter, interval);
+        return new JankTrendResponse(appId, filter.from(), filter.to(), interval,
+                points, points.isEmpty() ? "no_data" : "ok", repository.dataSource());
     }
 
     public JankIssueResponse issues(java.util.UUID appId, String from, String to, JankQueryCommand params) {
-        JankQueryFilter filter = filter(appId, from, to, params);
-        Map<String, List<JankEvent>> grouped = new LinkedHashMap<>();
-        for (JankEvent event : repository.find(filter)) {
-            if (event.crashFingerprint() != null && !event.crashFingerprint().isBlank()) {
-                grouped.computeIfAbsent(event.crashFingerprint(), ignored -> new ArrayList<>()).add(event);
-            }
-        }
-        List<JankIssueSummary> all = grouped.entrySet().stream().map(entry -> issueSummary(entry.getKey(), entry.getValue()))
-                .sorted(Comparator.comparingLong(JankIssueSummary::eventCount).reversed()
-                        .thenComparing(JankIssueSummary::lastSeenAt, Comparator.reverseOrder())
-                        .thenComparing(JankIssueSummary::fingerprint))
-                .toList();
-        int start = cursorIndex(all, filter.cursor());
-        List<JankIssueSummary> page = page(all, start, filter.limit());
-        String nextCursor = start + page.size() < all.size() && !page.isEmpty()
-                ? page.get(page.size() - 1).fingerprint() : null;
+        JankQueryFilter filter = filter(appId, from, to, params, JankCursor.Kind.ISSUES);
+        // 仓储只返回最终有序的 limit+1 聚合行。
+        List<JankIssueSummary> rows = repository.issues(filter,
+                filter.cursor() == null ? null : JankCursor.validate(filter.cursor(), JankCursor.Kind.ISSUES, filter));
+        boolean more = rows.size() > filter.limit();
+        List<JankIssueSummary> page = rows.subList(0, Math.min(rows.size(), filter.limit()));
+        String nextCursor = more ? JankCursor.issue(filter, page.getLast()) : null;
         return new JankIssueResponse(appId, filter.from(), filter.to(), page, nextCursor,
-                all.isEmpty() ? "no_data" : "ok", repository.dataSource());
+                page.isEmpty() ? "no_data" : "ok", repository.dataSource());
     }
 
     public JankEventListResponse events(java.util.UUID appId, String fingerprint,
                                         String from, String to, JankQueryCommand params) {
         JankQueryCommand effective = params == null ? JankQueryCommand.empty() : params;
         effective = effective.withFingerprint(fingerprint);
-        JankQueryFilter filter = filter(appId, from, to, effective);
-        List<JankEvent> events = repository.find(filter).stream()
-                .sorted(Comparator.comparing(JankEvent::occurredAt).reversed()
-                        .thenComparing(JankEvent::eventId))
-                .toList();
-        int start = eventCursorIndex(events, filter.cursor());
-        List<JankEvent> page = page(events, start, filter.limit());
-        String nextCursor = start + page.size() < events.size() && !page.isEmpty()
-                ? page.get(page.size() - 1).eventId() : null;
-        return new JankEventListResponse(appId, fingerprint, filter.from(), filter.to(),
-                page.stream().map(this::toSummary).toList(), nextCursor,
-                events.isEmpty() ? "no_data" : "ok", repository.dataSource());
+        JankQueryFilter filter = filter(appId, from, to, effective, JankCursor.Kind.EVENTS);
+        // 摘要独立于载荷详情，仅取有界标量页。
+        List<JankEventSummary> rows = repository.events(filter,
+                filter.cursor() == null ? null : JankCursor.validate(filter.cursor(), JankCursor.Kind.EVENTS, filter));
+        boolean more = rows.size() > filter.limit();
+        List<JankEventSummary> page = rows.subList(0, Math.min(rows.size(), filter.limit()));
+        String nextCursor = more ? JankCursor.event(filter, page.getLast()) : null;
+        return new JankEventListResponse(appId, fingerprint, filter.from(), filter.to(), page, nextCursor,
+                page.isEmpty() ? "no_data" : "ok", repository.dataSource());
     }
 
     public JankEventDetailResponse event(java.util.UUID appId, String eventId) {
@@ -152,9 +123,18 @@ public class JankQueryService implements JankQueries {
     }
 
     public JankQueryFilter filter(java.util.UUID appId, String fromText, String toText, JankQueryCommand params) {
+        return filter(appId, fromText, toText, params, null);
+    }
+
+    /** 列表续页恢复原绝对时间窗，并在规范化之后验证完整筛选摘要。 */
+    private JankQueryFilter filter(java.util.UUID appId, String fromText, String toText,
+                                   JankQueryCommand params, JankCursor.Kind kind) {
         JankQueryCommand values = params == null ? JankQueryCommand.empty() : params;
-        Instant to = parseInstant(toText, "to", Instant.now());
-        Instant from = parseInstant(fromText, "from", to.minus(24, ChronoUnit.HOURS));
+        // 只有列表可以携带游标；解码后依然执行普通筛选与范围校验。
+        JankCursor.State cursor = values.cursor() == null ? null
+                : kind == null ? invalidCursor() : JankCursor.decode(values.cursor(), kind);
+        Instant to = parseInstant(toText, "to", cursor == null ? Instant.now() : cursor.to());
+        Instant from = parseInstant(fromText, "from", cursor == null ? to.minus(24, ChronoUnit.HOURS) : cursor.from());
         if (!from.isBefore(to)) {
             throw new QueryValidationException("INVALID_TIME_RANGE", "from 必须早于 to", 400);
         }
@@ -169,124 +149,22 @@ public class JankQueryService implements JankQueries {
         if (timeout < 1 || timeout > properties.getMaxTimeoutMs()) {
             throw new QueryValidationException("INVALID_TIMEOUT", "timeoutMs 超出允许范围", 400);
         }
-        return new JankQueryFilter(appId, from, to, clean(values.appVersion()), clean(values.channel()),
+        JankQueryFilter result = new JankQueryFilter(appId, from, to, clean(values.appVersion()), clean(values.channel()),
                 clean(values.environment()), clean(values.osVersion()), clean(values.deviceModel()),
                 clean(values.scene()), clean(values.algorithmVersion()), clean(values.fingerprint()),
-                limit, clean(values.cursor()), timeout);
+                limit, values.cursor(), timeout);
+        if (cursor != null) JankCursor.validate(values.cursor(), kind, result);
+        return result;
     }
 
-    private JankStats stats(List<JankEvent> events) {
-        Set<String> sessions = new HashSet<>();
-        Set<String> devices = new HashSet<>();
-        List<Long> exact = new ArrayList<>();
-        long groupable = 0L;
-        for (JankEvent event : events) {
-            if (event.sessionId() != null) {
-                sessions.add(event.sessionId());
-            }
-            if (event.anonymousDeviceId() != null) {
-                devices.add(event.anonymousDeviceId());
-            }
-            if (event.jank() != null && event.jank().messageDurationNs() != null) {
-                exact.add(event.jank().messageDurationNs());
-            }
-            if (event.crashFingerprint() != null && !event.crashFingerprint().isBlank()) {
-                groupable++;
-            }
-        }
-        return new JankStats(events.size(), sessions.size(), devices.size(), groupable,
-                percentiles(exact), events.isEmpty() ? "no_data" : "ok");
+    /** 非列表入口拒绝游标，不能忽略输入后返回部分或第一页。 */
+    private void rejectCursor(JankQueryFilter filter) {
+        if (filter.cursor() != null) invalidCursor();
     }
 
-    private JankIssueSummary issueSummary(String fingerprint, List<JankEvent> events) {
-        Set<String> sessions = new HashSet<>();
-        Set<String> devices = new HashSet<>();
-        List<Long> exact = new ArrayList<>();
-        List<Long> estimated = new ArrayList<>();
-        JankEvent first = events.stream().min(Comparator.comparing(JankEvent::occurredAt)).orElseThrow();
-        JankEvent last = events.stream().max(Comparator.comparing(JankEvent::occurredAt)).orElseThrow();
-        for (JankEvent event : events) {
-            if (event.sessionId() != null) {
-                sessions.add(event.sessionId());
-            }
-            if (event.anonymousDeviceId() != null) {
-                devices.add(event.anonymousDeviceId());
-            }
-            if (event.jank() != null && event.jank().messageDurationNs() != null) {
-                exact.add(event.jank().messageDurationNs());
-            }
-            JankAnalysis analysis = event.jankAnalysis();
-            if (analysis != null) {
-                estimated.add(analysis.estimatedDurationNs());
-            }
-        }
-        return new JankIssueSummary(fingerprint, first.fingerprintVersion(), first.jank().scene(),
-                first.jank().algorithmVersion(), events.size(), sessions.size(), devices.size(), first.occurredAt(),
-                last.occurredAt(), percentiles(exact), percentiles(estimated));
-    }
-
-    private JankEventSummary toSummary(JankEvent event) {
-        JankAnalysis analysis = event.jankAnalysis();
-        return new JankEventSummary(event.eventId(), event.occurredAt(), event.appVersion(), event.versionCode(),
-                event.buildId(), event.channel(), event.environment(), event.osVersion(), event.deviceModel(),
-                event.sessionId(), event.anonymousDeviceId(), event.jank().scene(), event.jank().algorithmVersion(),
-                event.crashFingerprint(), event.fingerprintVersion(),
-                nanosToMillis(event.jank().messageDurationNs()), analysis == null ? null : nanosToMillis(analysis.estimatedDurationNs()),
-                analysis == null ? null : nanosToMillis(analysis.estimatedUnattributedDurationNs()),
-                analysis == null ? null : nanosToMillis(analysis.coveredDurationNs()),
-                analysis == null ? null : nanosToMillis(analysis.uncoveredDurationNs()));
-    }
-
-    private JankDurationPercentiles percentiles(List<Long> values) {
-        if (values.isEmpty()) {
-            return new JankDurationPercentiles(null, null, null);
-        }
-        List<Long> sorted = values.stream().sorted().toList();
-        return new JankDurationPercentiles(nanosToMillis(percentile(sorted, 0.50)),
-                nanosToMillis(percentile(sorted, 0.90)), nanosToMillis(percentile(sorted, 0.99)));
-    }
-
-    private long percentile(List<Long> sorted, double quantile) {
-        int index = Math.max(0, (int) Math.ceil(sorted.size() * quantile) - 1);
-        return sorted.get(Math.min(index, sorted.size() - 1));
-    }
-
-    private Double nanosToMillis(Long value) {
-        return value == null ? null : value / 1_000_000.0;
-    }
-
-    private Instant bucket(Instant value, String interval) {
-        return "day".equals(interval) ? value.truncatedTo(ChronoUnit.DAYS) : value.truncatedTo(ChronoUnit.HOURS);
-    }
-
-    private int cursorIndex(List<JankIssueSummary> values, String cursor) {
-        if (cursor == null) {
-            return 0;
-        }
-        for (int i = 0; i < values.size(); i++) {
-            if (cursor.equals(values.get(i).fingerprint())) {
-                return i + 1;
-            }
-        }
-        return 0;
-    }
-
-    private int eventCursorIndex(List<JankEvent> values, String cursor) {
-        if (cursor == null) {
-            return 0;
-        }
-        for (int i = 0; i < values.size(); i++) {
-            if (cursor.equals(values.get(i).eventId())) {
-                return i + 1;
-            }
-        }
-        return 0;
-    }
-
-    private <T> List<T> page(List<T> values, int start, int limit) {
-        int safeStart = Math.min(Math.max(0, start), values.size());
-        int end = Math.min(values.size(), safeStart + limit);
-        return values.subList(safeStart, end);
+    /** 统一失败码供网页重新查询。 */
+    private JankCursor.State invalidCursor() {
+        throw new QueryValidationException("INVALID_CURSOR", "该入口不接受游标，请从第一页重新查询", 400);
     }
 
     private Instant parseInstant(String value, String field, Instant fallback) {

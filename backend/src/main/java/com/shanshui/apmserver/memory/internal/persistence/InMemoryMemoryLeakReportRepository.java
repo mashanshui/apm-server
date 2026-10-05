@@ -41,6 +41,16 @@ public class InMemoryMemoryLeakReportRepository implements MemoryLeakReportRepos
         result.sort(Comparator.comparing(MemoryLeakReport::occurredAt).thenComparing(MemoryLeakReport::eventId));
         return List.copyOf(result);
     }
+    /** 内存模式使用确定性参考实现，不作为生产大数据查询。 */
+    @Override public com.shanshui.apmserver.memory.api.MemoryLeakIssuesResponse issues(MemoryLeakQueryFilter filter,int page,int size,String sort,String order) {
+        return new com.shanshui.apmserver.memory.internal.application.MemoryLeakReferenceQueries(findAll(filter)).issues(filter,page,size,sort,order);
+    }
+    /** 参考实现只返回非空桶，空桶由服务统一补齐。 */
+    @Override public List<com.shanshui.apmserver.memory.api.MemoryLeakTrendPoint> trend(MemoryLeakQueryFilter filter,long seconds) {
+        return new com.shanshui.apmserver.memory.internal.application.MemoryLeakReferenceQueries(findAll(filter))
+                .trend(filter,seconds==300?"5m":seconds==3600?"hour":"day").points().stream()
+                .filter(point -> point.occurrenceCount()>0).toList();
+    }
     @Override public String dataSource() { return "memory"; }
     @Override public Set<String> findAttachmentPaths() {
         ensure();

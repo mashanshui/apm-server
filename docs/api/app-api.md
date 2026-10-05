@@ -24,13 +24,17 @@ macOS 本地全栈推荐使用 `scripts/start-dev.sh`。脚本读取仓库根目
 
 ## 会话与 CSRF
 
+登录成功前执行会话 ID 轮换，再保存认证身份，并在成功响应刷新 `XSRF-TOKEN` Cookie；登录后的首个写请求必须读取新 Cookie。新 Cookie 搭配旧 CSRF 请求头返回 403。失败登录不保存身份，退出使当前 Session 失效。Cookie CSRF 不提供全部历史 Token 的服务端撤销注册表，不承诺撤销旧 Cookie 与旧请求头组合。
+
+2026-10-04 已补齐 Boot 4 JDBC 会话 starter，使用既有 Flyway 表；此前单独声明 Spring Session 库并未启用 JDBC 会话。真实 PostgreSQL/HTTP 回归验证旧 Session ID 无法恢复身份、新 ID 可恢复、8 小时超时及 HttpOnly/SameSite=Lax 本地 Cookie；生产 Secure/HTTPS 仍由部署配置单独验收。
+
 | 方法 | 路径 | 认证 | 说明 |
 |---|---|---|---|
 | `GET` | `/api/v1/session` | 可选 | 已登录返回当前用户；未登录返回 `401 AUTH_REQUIRED`，同时可下发 `XSRF-TOKEN` Cookie |
 | `POST` | `/api/v1/auth/login` | CSRF | JSON `{ "email": "...", "password": "..." }`；成功建立服务端 Session |
 | `POST` | `/api/v1/auth/logout` | Session + CSRF | 使当前 Session 失效，返回 `204` |
 
-前端应先请求 `/api/v1/session`，读取 `XSRF-TOKEN` Cookie，并在登录、退出、创建和修改请求中发送 `X-XSRF-TOKEN`。Session Cookie 为 HttpOnly；SameSite、Secure、超时可通过 `APM_SESSION_SAME_SITE`、`APM_SESSION_COOKIE_SECURE` 和 `APM_SESSION_TIMEOUT` 配置。网页请求不得把 Session、密码或 CSRF Token 写入 `localStorage`、`sessionStorage` 或 URL。
+前端应先请求 `/api/v1/session`，读取 `XSRF-TOKEN` Cookie，并在登录、退出、创建和修改请求中发送 `X-XSRF-TOKEN`。JDBC 会话 Cookie 为 HttpOnly 的 `SESSION`；补齐装配之前的 Servlet `JSESSIONID` 会话在后续部署时不迁移，用户需要重新登录。SameSite、Secure、超时可通过 `APM_SESSION_SAME_SITE`、`APM_SESSION_COOKIE_SECURE` 和 `APM_SESSION_TIMEOUT` 配置。网页请求不得把 Session、密码或 CSRF Token 写入 `localStorage`、`sessionStorage` 或 URL。
 
 认证失败统一返回：
 
@@ -92,8 +96,26 @@ macOS 本地全栈推荐使用 `scripts/start-dev.sh`。脚本读取仓库根目
 
 凭据响应包含 `Cache-Control: no-store, private` 与 `Pragma: no-cache`。`DEVELOPER`/`VIEWER` 查询凭据返回 `403 FORBIDDEN`，非成员返回 `404 APP_NOT_FOUND`，未登录返回 `401`。appKey 永久有效、不可轮换、不可撤销、不过期，并且只能通过删除应用后重新创建来终止；当前未提供应用删除接口。
 
+## 应用部分更新
+
+PATCH 仅更新出现的字段：省略 name/description 保留原值。显式 name 必须为去除首尾空白后 1～100 字符的字符串，null/空白非法；description 接受字符串或 null，null/空白表示清空，非空最长 500 字符。数字、布尔、数组、对象不强制转换为字符串，返回 INVALID_REQUEST_BODY；未知字段和身份字段也拒绝。全部字段校验后原子保存，任一非法字段不会改变其他字段或 updatedAt。
+
+```http
+PATCH /api/v1/apps/{appId}
+Content-Type: application/json
+X-XSRF-TOKEN: <当前 Cookie 值>
+
+{ "name": "新名称" }
+```
+
+该请求保留原描述。只改描述可提交 `{ "description": "新描述" }`，清空可提交 `{ "description": null }`。空对象或规范化后未变化的重复请求返回当前应用且 updatedAt 不变，仍要求 OWNER/ADMIN 与 CSRF。
+
+这是省略描述语义的不兼容调整：调用方必须显式提交 null 或空白以清空描述，不能依赖省略 description。设置页继续提交完整表单。正式回归见[后端测试](../../backend/docs/knowledge-base/06-测试与质量保障.md#2026-10-04-应用部分更新)。
+
 ## 权限与兼容边界
 
 所有成员可读取应用和查询数据，只有 `OWNER`/`ADMIN` 可修改名称、描述和查看 appKey。`/api/v1/projects/*` 不再映射到新接口；旧 `projectId`、`appPackageName`、`projectKey` 及未知字段均按请求错误处理。
 
 Crash、卡顿和指标查询统一使用 `/api/v1/apps/{appId}/...`，网页只依赖 Session 与 `app_member` 成员关系。`X-App-Id`、`X-User-App-Ids` 等请求头不参与授权；浏览器也不会发送 Android 上报用的 `X-App-Key`。
+
+框架正文、参数绑定、缺失项及字段校验失败以[框架请求错误](request-errors.md)为准；安全过滤链与领域专项错误保留原语义。

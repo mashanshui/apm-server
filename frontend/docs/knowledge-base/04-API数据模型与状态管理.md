@@ -139,3 +139,15 @@ Pinia 只管理跨页面的认证和应用状态；路由查询参数保存可�
 ## 2026-10-03 当前代码分析与明确修复
 
 AnalysisTask 仅任务/事件/证据元数据，含 evidenceSchemaVersion；Worker 仅应用身份。新报告版本 4 绑定 evidenceId/runId，repair/verification/sourceRefs 均标明宿主自报，currentCheck 只核对提交时引用位置。snapshotId、修改前后摘要和 workspaceUnchanged 仅供版本 3 历史展示。analysis-builds 客户端与类型已删除，详见 [本地分析](local-analysis.md)。
+
+## 2026-10-04 登录后 CSRF 衔接
+
+统一 HTTP 客户端每次写请求读取当前 XSRF-TOKEN Cookie；登录成功下发新 Cookie 后，首次编辑应用直接使用新值，不缓存登录前 Token，不增加 Pinia 或 Web Storage 的凭据状态。authApi.test.ts 使用真实客户端及 Session Store，模拟登录响应更新 Cookie，验证随后的 PATCH 请求头和凭据不持久化；真实后端行为见[后端测试](../../../backend/docs/knowledge-base/06-测试与质量保障.md#2026-10-04-登录会话修复)。
+
+## 2026-10-04 应用 PATCH 类型
+
+AppUpdateRequest 使用 name?: string、description?: string | null，appApi.update 原样序列化输入，不为省略字段补空；null 明确清空描述。AppSettingsView 保留完整表单提交，显示/编辑的值来自当前应用，不增加 Token 状态。appApi.test.ts 覆盖字段遗漏、null/空串、空对象和完整表单，原设置页保存回归仍通过。契约见[部分更新](../../../docs/api/app-api.md#应用部分更新)。
+
+## 2026-10-04 卡顿游标与预算错误
+
+createJankCursorQuery 原样保存不透明游标，以及首次响应 from/to 的完整小数秒；两个 Jank composable 续页沿用响应时间窗。应用/筛选切换从第一页清空状态，取消信号和请求代次隔离旧响应。INVALID_CURSOR 使旧游标失效并暴露显式恢复；重新查询替换列表，不自动追加第一页。超时/资源错误由 jankApi 提示缩小范围，其他成功区域保留。时间窗与游标只存在内存，不新增凭据持久化。

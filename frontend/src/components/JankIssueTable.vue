@@ -6,8 +6,10 @@ withDefaults(defineProps<{
   issues: JankIssueSummary[]
   nextCursor: string | null
   loading?: boolean
+  /** 游标失效时不能显示为遍历完成。 */
+  cursorInvalid?: boolean
   loadingMore?: boolean
-}>(), { loading: false, loadingMore: false })
+}>(), { loading: false, loadingMore: false, cursorInvalid: false })
 
 const emit = defineEmits<{ open: [issue: JankIssueSummary]; next: [] }>()
 const duration = (value: number | null) => value === null ? '—' : `${formatNumber(value)} ms`
@@ -32,6 +34,6 @@ const duration = (value: number | null) => value === null ? '—' : `${formatNum
         </tbody>
       </table>
     </div>
-    <div class="pagination-bar"><span>{{ nextCursor ? '可继续加载更多问题' : '已显示全部问题' }}</span><button class="button" type="button" :disabled="!nextCursor || loadingMore" @click="emit('next')">{{ loadingMore ? '加载中…' : '加载更多' }}</button></div>
+    <div class="pagination-bar"><span>{{ cursorInvalid ? '游标已失效，请重新查询' : nextCursor ? '可继续加载更多问题' : '已显示全部问题' }}</span><button class="button" type="button" :disabled="cursorInvalid || !nextCursor || loadingMore" @click="emit('next')">{{ loadingMore ? '加载中…' : '加载更多' }}</button></div>
   </template>
 </template>

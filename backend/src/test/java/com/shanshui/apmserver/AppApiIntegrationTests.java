@@ -264,6 +264,73 @@ class AppApiIntegrationTests {
                 .andExpect(status().isNotFound());
     }
 
+    /** 字段遗漏保留，显式 null/空白清空；重复请求不更新时间。 */
+    @Test
+    void patchesOnlyPresentFieldsAndPreservesNoopTimestamp() throws Exception {
+        // 建立具有描述的应用，逐次验证独立字段更新。
+        MockHttpSession session = login();
+        UUID id = createApp(session, "com.example.partial");
+        update(session, id, "{\"name\":\"原名称\",\"description\":\"原描述\"}").andExpect(status().isOk());
+        update(session, id, "{\"name\":\"新名称\"}").andExpect(status().isOk())
+                .andExpect(jsonPath("$.description").value("原描述"));
+        update(session, id, "{\"description\":\"新描述\"}").andExpect(status().isOk())
+                .andExpect(jsonPath("$.name").value("新名称"));
+        update(session, id, "{\"description\":null}").andExpect(status().isOk())
+                .andExpect(jsonPath("$.description").value(org.hamcrest.Matchers.nullValue()));
+        update(session, id, "{\"description\":\"复原\"}").andExpect(status().isOk());
+        update(session, id, "{\"description\":\"   \"}").andExpect(status().isOk())
+                .andExpect(jsonPath("$.description").value(org.hamcrest.Matchers.nullValue()));
+        Instant time = appRepository.findById(id).orElseThrow().getUpdatedAt();
+        update(session, id, "{}").andExpect(status().isOk());
+        update(session, id, "{\"name\":\" 新名称 \",\"description\":null}").andExpect(status().isOk());
+        assertEquals(time, appRepository.findById(id).orElseThrow().getUpdatedAt());
+    }
+
+    /** 所有非法字段必须原子拒绝，包括默认可能被强制转换的 JSON 类型。 */
+    @Test
+    void rejectsInvalidPatchAtomically() throws Exception {
+        // 比较数据库实体而非响应副本。
+        MockHttpSession session = login();
+        UUID id = createApp(session, "com.example.atomic");
+        Instant time = appRepository.findById(id).orElseThrow().getUpdatedAt();
+        for (String invalid : java.util.List.of("{\"name\":null}", "{\"name\":\"  \"}", "{\"name\":17}",
+                "{\"name\":true}", "{\"description\":42}", "{\"description\":[]}", "{\"description\":{}}",
+                "{\"name\":\"新名称\",\"description\":\"" + "x".repeat(501) + "\"}",
+                "{\"name\":\"新名称\",\"appId\":\"other\"}", "{\"appKey\":\"other\"}",
+                "{\"packageName\":\"com.other.package\"}", "{\"unknown\":null}")) {
+            update(session, id, invalid).andExpect(status().isBadRequest());
+            var app = appRepository.findById(id).orElseThrow();
+            assertEquals("com.example.atomic", app.getName());
+            assertEquals(null, app.getDescription());
+            assertEquals(time, app.getUpdatedAt());
+        }
+    }
+
+    /** 无操作请求也须经过角色与 CSRF 校验；Admin 可部分更新。 */
+    @Test
+    void checksPermissionsAndCsrfEvenForEmptyPatch() throws Exception {
+        // 管理员可改描述，低权限成员连空对象也不能写。
+        MockHttpSession owner = login();
+        UUID id = createApp(owner, "com.example.roles");
+        MockHttpSession admin = createMemberAndLogin(id, AppRole.ADMIN, "partial-admin");
+        update(admin, id, "{\"description\":\"管理员描述\"}").andExpect(status().isOk())
+                .andExpect(jsonPath("$.name").value("com.example.roles"));
+        for (AppRole role : java.util.List.of(AppRole.DEVELOPER, AppRole.VIEWER)) {
+            MockHttpSession member = createMemberAndLogin(id, role, "partial-" + role.name().toLowerCase(java.util.Locale.ROOT));
+            update(member, id, "{}").andExpect(status().isForbidden());
+            update(member, id, "{\"name\":\"越权\"}").andExpect(status().isForbidden());
+        }
+        mockMvc.perform(patch("/api/v1/apps/{appId}", id).session(owner)
+                .contentType(MediaType.APPLICATION_JSON).content("{}")).andExpect(status().isForbidden());
+        assertEquals("管理员描述", appRepository.findById(id).orElseThrow().getDescription());
+    }
+
+    /** 构造合法认证与 CSRF 的 PATCH 请求。 */
+    private ResultActions update(MockHttpSession session, UUID id, String content) throws Exception {
+        return mockMvc.perform(patch("/api/v1/apps/{appId}", id).session(session)
+                .with(SecurityMockMvcRequestPostProcessors.csrf()).contentType(MediaType.APPLICATION_JSON).content(content));
+    }
+
     private ResultActions postApp(MockHttpSession session, String content) throws Exception {
         return mockMvc.perform(post("/api/v1/apps")
                         .session(session)

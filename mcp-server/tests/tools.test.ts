@@ -180,3 +180,42 @@ test('oversized result fails explicitly', async () => {
     await handler.close();
   }
 });
+
+/** Jank 不透明游标透传，续页显式使用首次响应的完整绝对时间窗。 */
+test('jank continuation preserves window and backend error codes', async () => {
+  const seen: URL[] = [];
+  let status = 200;
+  const backend = new ApmClient('http://backend.test', async (url) => {
+    seen.push(new URL(url instanceof Request ? url.url : String(url)));
+    return new Response(JSON.stringify(status === 200
+      ? { appId: 'app-a', from: '2026-10-01T00:00:00.123Z', to: '2026-10-02T00:00:00.456Z',
+          issues: [{ fingerprint: 'fp', eventCount: 61 }], nextCursor: 'opaque+/=_cursor', status: 'ok' }
+      : { code: ({ 400: 'INVALID_CURSOR', 408: 'QUERY_TIMEOUT', 422: 'QUERY_RESOURCE_LIMIT', 503: 'EVENT_STORE_UNAVAILABLE' } as Record<number, string>)[status] }), { status });
+  });
+  const handler = createProtocolHandler(backend);
+  const transport = new StreamableHTTPClientTransport(new URL('http://test.local/mcp'), {
+    fetch: (url, init) => handler.fetch(new Request(url, init), { authInfo: { token: 'a', clientId: 'app-a', scopes: ['apm:read'] } })
+  });
+  const client = new Client({ name: 'test', version: '0.1.0' });
+  try {
+    await client.connect(transport);
+    const first = await client.callTool({ name: 'list_jank_issues', arguments: { limit: 1 } });
+    const result = first.structuredContent as { query: { from: string; to: string }; data: { nextCursor: string } };
+    await client.callTool({ name: 'list_jank_issues', arguments: { ...result.query, cursor: result.data.nextCursor, limit: 50 } });
+    assert.equal(seen[1]!.searchParams.get('from'), result.query.from);
+    assert.equal(seen[1]!.searchParams.get('to'), result.query.to);
+    assert.equal(seen[1]!.searchParams.get('cursor'), 'opaque+/=_cursor');
+    assert.equal(seen[1]!.searchParams.get('limit'), '50');
+    for (const value of [400, 408, 422, 503]) {
+      status = value;
+      const failed = await client.callTool({ name: 'list_jank_issues', arguments: {} });
+      assert.equal(failed.isError, true);
+      assert.match(JSON.stringify(failed.content), new RegExp(({ 400: 'INVALID_CURSOR', 408: 'QUERY_TIMEOUT', 422: 'QUERY_RESOURCE_LIMIT', 503: 'EVENT_STORE_UNAVAILABLE' } as Record<number, string>)[value]!));
+    }
+    const count = seen.length;
+    const missing = await client.callTool({ name: 'list_jank_issues', arguments: { cursor: 'opaque' } });
+    assert.equal(missing.isError, true);
+    assert.match(JSON.stringify(missing.content), /INVALID_CURSOR/);
+    assert.equal(seen.length, count);
+  } finally { await client.close(); await handler.close(); }
+});

@@ -1,5 +1,7 @@
 # Android APM 平台知识库
 
+2026-10-05 接口正确性修复已同步正式规范并[归档](../../openspec/changes/archive/2026-10-05-fix-backend-api-correctness/tasks.md)，任务 31/31 完成。覆盖统一请求错误、登录会话、应用 PATCH、卡顿/报告查询与卡顿分页；[云端验收](../backend-api-cloud-validation.md)和生产边界分别保留。
+
 本地分析 Skill 已随附 Python Worker，安装包与生成命令见 [Agent Skill 交付](../../agent-skills/README.md)，独立安装验证见 [交付验收](../analysis-validation/skill-package-validation.md)。
 
 本知识库是项目的中文总入口，用于连接目标架构、当前实现、接口文档、验证证据和待确认事项。原始方案见《[Android APM 服务端与 Dashboard 技术方案](../../Android_APM服务端与Dashboard技术方案.md)》。
@@ -24,7 +26,7 @@
 
 ## 核心知识地图
 
-Agent 扩展的目标设计见 [APM Agent 平台方案](../../apm-agent-platform-design.md)。应用查询 Token、独立只读 Agent HTTP 入口及 TypeScript MCP 已实现，对应 OpenSpec 变更已归档，默认开关关闭；本地双应用真实数据和云端五容器入口冒烟见 [Agent 查询链路记录](../agent-query-e2e-validation.md)。2026-09-29 调试环境已显式开启两个查询开关；云端有效 Token 查询、审批、隔离修复和确定性 CI 验证仍未完成。查询契约见 [Agent HTTP API](../api/agent-query-api.md) 和 [MCP 工具 API](../api/mcp-api.md)。
+Agent 扩展的目标设计见 [APM Agent 平台方案](../../apm-agent-platform-design.md)。应用查询 Token、独立只读 Agent HTTP 入口及 TypeScript MCP 已实现，对应 OpenSpec 变更已归档，默认开关关闭；本地双应用真实数据和云端五容器入口冒烟见 [Agent 查询链路记录](../agent-query-e2e-validation.md)。2026-09-29 调试环境已显式开启两个查询开关；2026-10-05 云端有效 Token 查询、MCP 分页与跨应用拒绝已在有限合成数据上通过，见[接口正确性云端验收](../backend-api-cloud-validation.md)。审批、隔离修复和确定性 CI 验证仍为独立边界。查询契约见 [Agent HTTP API](../api/agent-query-api.md) 和 [MCP 工具 API](../api/mcp-api.md)。
 
 ### 产品与架构
 

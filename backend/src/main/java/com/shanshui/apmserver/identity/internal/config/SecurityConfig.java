@@ -19,6 +19,11 @@ import org.springframework.security.web.context.HttpSessionSecurityContextReposi
 import org.springframework.security.web.context.SecurityContextRepository;
 import org.springframework.security.web.context.NullSecurityContextRepository;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
+import org.springframework.security.web.csrf.CsrfAuthenticationStrategy;
+import org.springframework.security.web.authentication.session.ChangeSessionIdAuthenticationStrategy;
+import org.springframework.security.web.authentication.session.CompositeSessionAuthenticationStrategy;
+import org.springframework.security.web.authentication.session.SessionAuthenticationStrategy;
+import java.util.List;
 import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.core.annotation.Order;
@@ -42,6 +47,16 @@ public class SecurityConfig {
     @Bean
     public CookieCsrfTokenRepository csrfTokenRepository() {
         return CookieCsrfTokenRepository.withHttpOnlyFalse();
+    }
+
+    /** 手动登录与网页安全链共用认证后策略，先轮换会话再清除旧 CSRF。 */
+    @Bean
+    public SessionAuthenticationStrategy sessionAuthenticationStrategy(CookieCsrfTokenRepository repository) {
+        // 与 SPA 的明文 Cookie/请求头约定保持一致。
+        CsrfAuthenticationStrategy csrfStrategy = new CsrfAuthenticationStrategy(repository);
+        csrfStrategy.setRequestHandler(new CsrfTokenRequestAttributeHandler());
+        return new CompositeSessionAuthenticationStrategy(List.of(
+                new ChangeSessionIdAuthenticationStrategy(), csrfStrategy));
     }
 
     @Bean
@@ -85,11 +100,13 @@ public class SecurityConfig {
     public SecurityFilterChain securityFilterChain(HttpSecurity http,
                                                    SecurityContextRepository securityContextRepository,
                                                    CookieCsrfTokenRepository csrfRepository,
+                                                   SessionAuthenticationStrategy sessionAuthenticationStrategy,
                                                    JsonResponseWriter responseWriter) throws Exception {
         CsrfTokenRequestAttributeHandler csrfRequestHandler = new CsrfTokenRequestAttributeHandler();
         http
                 .securityContext(security -> security.securityContextRepository(securityContextRepository))
-                .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED))
+                .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED)
+                        .sessionAuthenticationStrategy(sessionAuthenticationStrategy))
                 .csrf(csrf -> csrf
                         .csrfTokenRepository(csrfRepository)
                         .csrfTokenRequestHandler(csrfRequestHandler)

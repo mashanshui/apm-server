@@ -2,7 +2,7 @@
 import type { JankEventSummary } from '../types/jank'
 import { formatDateTime, formatNumber } from '../utils/format'
 
-withDefaults(defineProps<{ events: JankEventSummary[]; nextCursor: string | null; loading?: boolean; loadingMore?: boolean }>(), { loading: false, loadingMore: false })
+withDefaults(defineProps<{ events: JankEventSummary[]; nextCursor: string | null; loading?: boolean; loadingMore?: boolean; cursorInvalid?: boolean }>(), { loading: false, loadingMore: false, cursorInvalid: false })
 const emit = defineEmits<{ open: [event: JankEventSummary]; next: [] }>()
 const duration = (value: number | null) => value === null ? '—' : `${formatNumber(value)} ms`
 </script>
@@ -21,6 +21,6 @@ const duration = (value: number | null) => value === null ? '—' : `${formatNum
         <td>{{ event.appVersion || '—' }} / {{ event.buildId || '—' }}</td><td>{{ event.deviceModel || '—' }} / Android {{ event.osVersion || '—' }}</td>
       </tr></tbody>
     </table></div>
-    <div class="pagination-bar"><span>{{ nextCursor ? '可继续加载更多事件' : '已显示全部事件' }}</span><button class="button" type="button" :disabled="!nextCursor || loadingMore" @click="emit('next')">{{ loadingMore ? '加载中…' : '加载更多' }}</button></div>
+    <div class="pagination-bar"><span>{{ cursorInvalid ? '游标已失效，请重新查询' : nextCursor ? '可继续加载更多事件' : '已显示全部事件' }}</span><button class="button" type="button" :disabled="cursorInvalid || !nextCursor || loadingMore" @click="emit('next')">{{ loadingMore ? '加载中…' : '加载更多' }}</button></div>
   </template>
 </template>

@@ -112,6 +112,32 @@ class ClickHouseHttpClientQueryBudgetTests {
         }
     }
 
+    /** 即使响应头已发送，迟缓的成功与错误正文仍受同一截止时间限制。 */
+    @Test void boundsSlowBodiesAfterHeaders() throws Exception {
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.setExecutor(java.util.concurrent.Executors.newVirtualThreadPerTaskExecutor());
+        server.createContext("/", exchange -> {
+            exchange.getRequestBody().readAllBytes();
+            exchange.sendResponseHeaders(exchange.getRequestURI().getPath().equals("/error") ? 500 : 200, 0);
+            exchange.getResponseBody().write('x');
+            exchange.getResponseBody().flush();
+            try { Thread.sleep(2000); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
+            exchange.close();
+        });
+        server.start();
+        try {
+            for (String path : java.util.List.of("", "/error")) {
+                ClickHouseProperties properties = new ClickHouseProperties();
+                properties.setUrl("http://127.0.0.1:" + server.getAddress().getPort() + path);
+                long started = System.nanoTime();
+                assertEquals("QUERY_TIMEOUT", assertThrows(QueryValidationException.class,
+                        () -> new ClickHouseHttpClient(properties).executeQuery("SELECT 1",
+                                new QueryBudget(50, 100, 1024, 2048, 8192))).getCode());
+                assertTrue(java.time.Duration.ofNanos(System.nanoTime()-started).toMillis() < 1500);
+            }
+        } finally { server.stop(0); }
+    }
+
     /** 测试服务不接触生产账号和查询数据。 */
     private ClickHouseHttpClient client(HttpServer server) {
         ClickHouseProperties properties = new ClickHouseProperties();

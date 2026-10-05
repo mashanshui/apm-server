@@ -121,6 +121,8 @@ class MemoryLeakArtifactStoreTests {
         @Override public Optional<MemoryLeakReport> findByEventId(UUID appId, UUID eventId) { throw unavailable(); }
         @Override public void append(MemoryLeakReport report) { throw unavailable(); }
         @Override public List<MemoryLeakReport> findAll(MemoryLeakQueryFilter filter) { throw unavailable(); }
+        @Override public com.shanshui.apmserver.memory.api.MemoryLeakIssuesResponse issues(MemoryLeakQueryFilter filter,int page,int size,String sort,String order) { throw unavailable(); }
+        @Override public List<com.shanshui.apmserver.memory.api.MemoryLeakTrendPoint> trend(MemoryLeakQueryFilter filter,long seconds) { throw unavailable(); }
         @Override public Set<String> findAttachmentPaths() { throw unavailable(); }
         @Override public String dataSource() { return "test"; }
         private EventStoreUnavailableException unavailable() { return new EventStoreUnavailableException(); }
