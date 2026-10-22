@@ -1,7 +1,5 @@
 # Android APM 前端知识库
 
-2026-10-05 接口正确性变更已同步并[归档](../../../openspec/changes/archive/2026-10-05-fix-backend-api-correctness/tasks.md)。[卡顿网页正式规范](../../../openspec/specs/jank-monitoring-frontend/spec.md)新增不透明游标、显式恢复及查询预算失败要求；实际云端分页与本地模拟错误恢复的验证范围见[前端测试](06-测试与质量保障.md)。
-
 本知识库是 `frontend/` 工程的中文维护入口，记录前端当前已经实现的页面、代码边界、接口契约、本地联调、测试与发布约束。平台级架构、后端协议、数据存储和 Grafana 仍以仓库根目录的[平台知识库](../../../docs/knowledge-base/README.md)为准。
 
 ## 当前状态
@@ -14,9 +12,9 @@
 | 图表 | 已落地 | ECharts 展示 Crash/卡顿问题趋势、多算法指标趋势和 PSS/VSS/Java 堆趋势；原生 SVG 展示采样估算火焰图 |
 | 视觉范围 | 已落地 | 浅色语义 Token、固定 1280px PC 设计基线；不承诺移动端适配 |
 | 自动化验证 | 已覆盖关键行为 | Vitest、Vue Test Utils、`vue-tsc` 和 Vite 构建；页面、Store、路由、Crash API、卡顿状态/证据/应用切换、内存筛选和统计卡片均有测试 |
-| 生产能力 | 部分完成 | 登录/应用成员授权已由后端强制执行；生产同源网关、HTTPS、静态资源部署和 OIDC 仍待实现 |
+| 生产能力 | 部分完成 | 登录/应用成员授权已由后端强制执行；Nginx 同源 HTTP 静态托管已提供；生产 HTTPS、完整安全验收和 OIDC 仍待完成 |
 
-当前实现基线：2026-09-19。Crash 页面、卡顿指标/问题/Issue/事件证据页面、PSS/VSS/Java 堆内存指标页面、SDK 内存异常报告页面和 Android mapping 网页管理页面均已落地；卡顿详情质量字段已切换为 expected/parsed/missing。代码与已发布 API 是当前事实，本文档中的“目标”或“待确认”不代表已经实现。内存异常页面不包含 HPROF 解析或内存详情入口。
+Crash 页面、卡顿指标/问题/Issue/事件证据页面、PSS/VSS/Java 堆内存指标页面、SDK 内存异常报告页面和 Android mapping 网页管理页面均已落地；卡顿详情质量字段已切换为 expected/parsed/missing。代码与已发布 API 是当前事实，本文档中的“目标”或“待确认”不代表已经实现。内存异常页面不包含 HPROF 解析或内存详情入口。
 
 ## 知识导航
 
@@ -59,6 +57,6 @@
 
 本地单事件分析代码入口：`src/api/analysisApi.ts`、`src/types/analysis.ts`、`src/components/CrashAnalysisPanel.vue`、`src/components/AnalysisAdminPanel.vue`。
 
-2026-10-02 当前本地分析改为宿主 Agent 直接分析；Python 负责材料和生命周期，停止未知保留门禁。当前证据见[宿主分析验收](../../../docs/analysis-validation/host-analysis-validation.md)。
+## 维护原则
 
-2026-10-03 当前代码分析与明确本地修复的逐项验证见 [当前代码验收](../../../docs/analysis-validation/current-code-validation.md)。
+当前说明原位更新，不追加部署流水、逐轮计数或迁移进度；环境核验只在[平台状态](../../../docs/knowledge-base/00-当前实现与验证边界.md#环境最近核验)维护，前端验证方法见[测试页](06-测试与质量保障.md)。完整规则见[维护约定](08-维护约定与待办.md)。

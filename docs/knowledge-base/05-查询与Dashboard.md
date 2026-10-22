@@ -24,7 +24,7 @@ GET /api/v1/apps/{appId}/janks/events/{eventId}
 
 卡顿总览返回事件数、受影响会话/设备、可归组事件数和精确消息耗时分位数；Issue 和事件详情额外返回明确标记的采样估算耗时、覆盖/空洞和采集质量。卡顿查询默认使用成员 Session 授权，状态区分 `ok` 与 `no_data`。FPS、设备日挂起率和白名单多维查询已实现，状态额外区分 `no_valid_data` 与 `denominator_insufficient`。
 
-2026-10-04 卡顿总览、趋势与 Issue 聚合改为完整逻辑事实上的数据库统计，只有最终列表使用 limit+1；事件摘要不加载采样 JSON。版本化游标绑定首次绝对时间窗与完整筛选，失效必须显式重新查询。此前统计前截断的缺口已通过真实数据库 120 事件/60 Issue 对照修复，十万事件顺序基线见[后端查询验收](../../backend/docs/knowledge-base/backend-api-query-validation.md)。生产并发容量仍需独立验收。
+卡顿总览、趋势与 Issue 聚合使用完整逻辑事实上的数据库统计，只有最终列表使用 limit+1；事件摘要不加载采样 JSON。版本化游标绑定首次绝对时间窗与完整筛选，失效必须显式重新查询。完整性已由真实数据库 120 事件/60 Issue 对照验证，十万事件顺序基线见[后端查询验收](../../backend/docs/knowledge-base/backend-api-query-validation.md)。生产并发容量仍需独立验收。
 
 指标查询接口为：
 
@@ -132,4 +132,4 @@ Grafana JSON 位于 `backend/src/main/resources/grafana/dashboards/jvm-crash.jso
 
 ## Agent 只读查询边界
 
-只读 Agent HTTP 入口复用 Crash、卡顿和内存查询服务，共 19 个 GET 路由；MCP 提供对应 19 个工具。Crash 已改为 ClickHouse 聚合下推、逻辑事件去重和版本化游标。具体业务字段仍以各领域 API 为准；认证、额度和证据边界见 [Agent HTTP API](../api/agent-query-api.md) 与 [MCP API](../api/mcp-api.md)。本地真实客户端全链路已验收；云端部署及入口冒烟已完成，有效 Token 的云端工具查询和生产容量尚未验收。
+只读 Agent HTTP 入口复用 Crash、卡顿和内存查询服务，共 19 个 GET 路由；MCP 提供对应 19 个工具。Crash 已改为 ClickHouse 聚合下推、逻辑事件去重和版本化游标。具体业务字段仍以各领域 API 为准；认证、额度和证据边界见 [Agent HTTP API](../api/agent-query-api.md) 与 [MCP API](../api/mcp-api.md)。本地真实客户端全链路已验收；有限云端有效 Token 查询见[接口证据](../backend-api-cloud-validation.md)；HTTPS 与生产容量尚未验收。

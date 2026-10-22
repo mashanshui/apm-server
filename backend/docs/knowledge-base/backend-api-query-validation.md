@@ -26,8 +26,7 @@ JAVA_HOME=$(/usr/libexec/java_home -v 21) bash backend/gradlew -p backend test -
 
 `AuthenticationHttpPostgresTests` 四项使用真实 Servlet、随机端口、PostgreSQL JDBC 会话及独立 Cookie 容器，覆盖旧 Session 拒绝、首个 PATCH、CSRF 刷新、退出、网页/Agent/Worker 框架错误、Jank 跨页和详情、报告末页和趋势及 Token 应用隔离。该 HTTP 查询综合样本使用内存事实适配器；ClickHouse 语义及预算由独立真实数据库测试证明，没有将其描述为 HTTP + ClickHouse 一条综合链路。
 
-前端本地 Vite + 模拟 API 页面通过浏览器检查：总览 422 的缩小范围提示、成功 Issue 保留、续页 INVALID_CURSOR 后“重新查询”替换第一页及恢复分页。[页面截图](../../../frontend/docs/knowledge-base/evidence/jank-query-recovery.jpg)属于模拟 API 视觉验收。云端未部署，HTTPS 入口与生产安全及容量需要独立验收。
-
+前端本地 Vite + 模拟 API 页面通过浏览器检查：总览 422 的缩小范围提示、成功 Issue 保留、续页 INVALID_CURSOR 后“重新查询”替换第一页及恢复分页。[页面截图](../../../frontend/docs/knowledge-base/evidence/jank-query-recovery.jpg)属于模拟 API 视觉验收。此记录仅针对当日本地验收；后续有限云端验证见[云端接口记录](../../../docs/backend-api-cloud-validation.md)，当前环境见[平台状态](../../../docs/knowledge-base/00-当前实现与验证边界.md#环境最近核验)。HTTPS 与生产安全及容量仍独立验收。
 
 ## 十万卡顿事件
 
@@ -42,10 +41,9 @@ JAVA_HOME=$(/usr/libexec/java_home -v 21) bash backend/gradlew -p backend test -
 | 问题页（limit=1） | 15 | 16.29 | 100000 | 7784693 | 10878609 | 2 | 523 |
 | 总览/趋势 | 6 | 7.26 | 100000 | 5184693 | 8677032 | 1 | 115 |
 
-实际执行计划（小页）：
+执行计划关键算子（小页，省略冗长输出列展开）：
 
 ```text
-Output: fingerprint, count(), uniqExactIf(session_id, notEmpty(session_id)), uniqExactIf(anonymous_device_id, notEmpty(anonymous_device_id)), toUnixTimestamp64Milli(min(event_time)), toUnixTimestamp64Milli(max(event_time)), argMin(tuple(fingerprint_version, scene, algorithm_version), tuple(event_time, event_id)), if(empty(arraySort(groupArray(message_duration_ns))), NULL, arraySort(groupArray(message_duration_ns))[greatest(1, toUInt64(ceil(length(arraySort(groupArray(message_duration_ns))) * 0.5)))] / 1000000.), if(empty(arraySort(groupArray(message_duration_ns))), NULL, arraySort(groupArray(message_duration_ns))[greatest(1, toUInt64(ceil(length(arraySort(groupArray(message_duration_ns))) * 0.9)))] / 1000000.), if(empty(arraySort(groupArray(message_duration_ns))), NULL, arraySort(groupArray(message_duration_ns))[greatest(1, toUInt64(ceil(length(arraySort(groupArray(message_duration_ns))) * 0.99)))] / 1000000.), if(empty(arraySort(groupArray(estimated_duration_ns))), NULL, arraySort(groupArray(estimated_duration_ns))[greatest(1, toUInt64(ceil(length(arraySort(groupArray(estimated_duration_ns))) * 0.5)))] / 1000000.), if(empty(arraySort(groupArray(estimated_duration_ns))), NULL, arraySort(groupArray(estimated_duration_ns))[greatest(1, toUInt64(ceil(length(arraySort(groupArray(estimated_duration_ns))) * 0.9)))] / 1000000.), if(empty(arraySort(groupArray(estimated_duration_ns))), NULL, arraySort(groupArray(estimated_duration_ns))[greatest(1, toUInt64(ceil(length(arraySort(groupArray(estimated_duration_ns))) * 0.99)))] / 1000000.)
 
 Limit (preliminary LIMIT)
 │  Limit 2
@@ -90,7 +88,6 @@ Limit (preliminary LIMIT)
 
 小页与大页均保留完整聚合输入；Issue SQL 的最终 limit+1 为 2/51，Java 最多映射这些标量行。默认预算下十万事件顺序查询成功，更大规模及不同分布尚未验证。
 
-
 ## 一万份多路径报告
 
 10,000 份报告，每份 A/B/C 三条路径，同一 UTC 小时，100 个设备、150 个版本；共 30,000 次事件及 signature 组合。
@@ -101,10 +98,9 @@ Limit (preliminary LIMIT)
 | 问题页（pageSize=100） | 50 | 51.56 | 30000 | 23059905 | 44973324 | 1 | 3836 |
 | 问题页（pageSize=1） | 50 | 52.18 | 30000 | 23059905 | 44943588 | 1 | 1324 |
 
-实际执行计划（小页）：
+执行计划关键算子（小页，省略冗长输出列展开）：
 
 ```text
-Output: 3, count(), uniqExact(anonymous_device_id), [(\'A\', 10000, 100, 1790812800000, \'{"signature":"A","gcRoot":"root","leakReason":"reason","instanceCount":1,"path":[{"reference":"root","referenceType":"static","declaredClass":"Root"},{"reference":"a","referenceType":"instance","declaredClass":"Class"}],"contentHash":""}\', [\'v0\', \'v1\', \'v10\', \'v100\', \'v101\', \'v102\', \'v103\', \'v104\', \'v105\', \'v106\', \'v107\', \'v108\', \'v109\', \'v11\', \'v110\', \'v111\', \'v112\', \'v113\', \'v114\', \'v115\', \'v116\', \'v117\', \'v118\', \'v119\', \'v12\', \'v120\', \'v121\', \'v122\', \'v123\', \'v124\', \'v125\', \'v126\', \'v127\', \'v128\', \'v129\', \'v13\', \'v130\', \'v131\', \'v132\', \'v133\', \'v134\', \'v135\', \'v136\', \'v137\', \'v138\', \'v139\', \'v14\', \'v140\', \'v141\', \'v142\', \'v143\', \'v144\', \'v145\', \'v146\', \'v147\', \'v148\', \'v149\', \'v15\', \'v16\', \'v17\', \'v18\', \'v19\', \'v2\', \'v20\', \'v21\', \'v22\', \'v23\', \'v24\', \'v25\', \'v26\', \'v27\', \'v28\', \'v29\', \'v3\', \'v30\', \'v31\', \'v32\', \'v33\', \'v34\', \'v35\', \'v36\', \'v37\', \'v38\', \'v39\', \'v4\', \'v40\', \'v41\', \'v42\', \'v43\', \'v44\', \'v45\', \'v46\', \'v47\', \'v48\', \'v49\', \'v5\', \'v50\', \'v51\', \'v52\', \'v53\', \'v54\', \'v55\', \'v56\', \'v57\', \'v58\', \'v59\', \'v6\', \'v60\', \'v61\', \'v62\', \'v63\', \'v64\', \'v65\', \'v66\', \'v67\', \'v68\', \'v69\', \'v7\', \'v70\', \'v71\', \'v72\', \'v73\', \'v74\', \'v75\', \'v76\', \'v77\', \'v78\', \'v79\', \'v8\', \'v80\', \'v81\', \'v82\', \'v83\', \'v84\', \'v85\', \'v86\', \'v87\', \'v88\', \'v89\', \'v9\', \'v90\', \'v91\', \'v92\', \'v93\', \'v94\', \'v95\', \'v96\', \'v97\', \'v98\', \'v99\'])]
 
 Aggregating
 │  Keys:

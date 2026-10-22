@@ -110,7 +110,7 @@ X-XSRF-TOKEN: <当前 Cookie 值>
 
 该请求保留原描述。只改描述可提交 `{ "description": "新描述" }`，清空可提交 `{ "description": null }`。空对象或规范化后未变化的重复请求返回当前应用且 updatedAt 不变，仍要求 OWNER/ADMIN 与 CSRF。
 
-这是省略描述语义的不兼容调整：调用方必须显式提交 null 或空白以清空描述，不能依赖省略 description。设置页继续提交完整表单。正式回归见[后端测试](../../backend/docs/knowledge-base/06-测试与质量保障.md#2026-10-04-应用部分更新)。
+这是省略描述语义的不兼容调整：调用方必须显式提交 null 或空白以清空描述，不能依赖省略 description。设置页继续提交完整表单。正式回归见[后端测试](../../backend/docs/knowledge-base/06-测试与质量保障.md#按能力查证据)。
 
 ## 权限与兼容边界
 

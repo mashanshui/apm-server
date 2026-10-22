@@ -32,4 +32,4 @@
 - SDK 批次部分接受仍在批次响应中返回事件级错误，不转换为整个请求失败。
 - 内存报告接收入口自行检查 metadata/report，因此缺失 part 仍返回其专项业务错误；框架声明的必填 part 缺失才映射为 INVALID_PARAMETER。上传格式、持久队列和重试步骤未改变。
 
-2026-10-04 正式 MockMvc 与真实 PostgreSQL/HTTP 验证边界见[后端测试记录](../../backend/docs/knowledge-base/06-测试与质量保障.md#2026-10-04-框架错误响应)。本轮未改变 Nginx 或云端部署。
+2026-10-04 正式 MockMvc 与真实 PostgreSQL/HTTP 验证边界见[后端测试记录](../../backend/docs/knowledge-base/06-测试与质量保障.md#按能力查证据)。本轮未改变 Nginx 或云端部署。

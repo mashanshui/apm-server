@@ -1,5 +1,7 @@
 # 接口正确性修复云端部署与验收（2026-10-05）
 
+本页是 2026-10-05 的独立验收证据。当前版本与数据以[环境最近核验](knowledge-base/00-当前实现与验证边界.md#环境最近核验)为准；2026-10-22 云端重置已删除这里的测试应用、事件、凭据和服务器备份，以下路径及截图仅作历史证据，不是可用恢复点或在线演示。
+
 用户在完成本地 Rhea 制品核验和摘要更新后，明确授权部署云端测试。`fix-backend-api-correctness` 的后端、前端与 MCP 已发布到现有 `124.221.252.121` HTTP 调试环境；真实网关、PostgreSQL/JDBC 会话、ClickHouse、MCP 和登录后的 Edge 页面验证通过。本记录补充此前“本轮未部署云端”的历史记录，不扩大生产验收结论。
 
 ## 发布制品与备份
@@ -56,11 +58,11 @@ Edge 实际登录后，卡顿页显示 ClickHouse 来源与完整 120 事件；�
 - [卡顿详情](../frontend/docs/knowledge-base/evidence/cloud-jank-detail-20261005.png)
 - [内存报告](../frontend/docs/knowledge-base/evidence/cloud-memory-reports-20261005.png)
 
-[打开保留的验收页面](http://124.221.252.121/apps/8c13a72c-d446-47ca-8a9e-1fedcc351667/janks?from=2026-10-05T06%3A20%3A18.965Z&to=2026-10-05T06%3A40%3A18.965Z)。默认最近 24 小时到期后应使用这个固定时间窗查看样本。本轮没有人为制造浏览器失效游标；其页面恢复操作仍以[本地模拟 API 验收](../frontend/docs/knowledge-base/06-测试与质量保障.md#2026-10-04-卡顿分页最终回归)为证，云端错误传播由 HTTP/MCP 直接验证。
+原在线验收页面已随数据重置失效，使用上方截图核对历史展示。本轮没有人为制造浏览器失效游标；其页面恢复操作仍以[本地模拟 API 验收](../frontend/docs/knowledge-base/06-测试与质量保障.md#浏览器证据)为证，云端错误传播由 HTTP/MCP 直接验证。
 
 ## 仍未覆盖与文档归属
 
-生产 HTTPS、Secure=true、数据库网络收敛、多实例/并发容量、长期稳定性、备份恢复、真实 release mapping 专项和 Android 完整生命周期仍需各自验收。现有三个条件跳过项及启动条件见[后端最新构建记录](../backend/docs/knowledge-base/06-测试与质量保障.md#2026-10-05-rhea-制品校验与摘要更新)。本轮有限样本不能替代[本地查询资源基线](../backend/docs/knowledge-base/backend-api-query-validation.md)或生产性能证明。
+生产 HTTPS、Secure=true、数据库网络收敛、多实例/并发容量、长期稳定性、备份恢复、真实 release mapping 专项和 Android 完整生命周期仍需各自验收。现有三个条件跳过项及启动条件见[后端最新构建记录](../backend/docs/knowledge-base/06-测试与质量保障.md#processor-制品校验)。本轮有限样本不能替代[本地查询资源基线](../backend/docs/knowledge-base/backend-api-query-validation.md)或生产性能证明。
 
 本轮同步文件如下，并从 OpenSpec 任务记录关联本页：
 

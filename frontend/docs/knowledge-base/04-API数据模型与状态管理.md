@@ -56,7 +56,7 @@ GET /api/v1/apps/{appId}/memory-leaks/trend?interval=5m|hour|day
 
 `memoryLeakApi.ts` 对问题和趋势分别维护查询参数白名单；`useMemoryLeakReports` 将两个请求独立加载、取消和重试，避免趋势失败覆盖列表结果。筛选进入 URL，应用切换沿用 `jankNavigation` 的路由状态保留逻辑。正式字段、统计口径和错误语义见[内存泄漏报告 API](../../../docs/api/memory-leak-reports-api.md)。
 
-两个端点都支持 `from`、`to`、`appVersion`、`osVersion`、`deviceModel`、`processName`、`scene`、`foreground`；其中 `scene` 是采样时当前应用的 Activity 名称。趋势额外使用 `metric` 和 `interval`。服务端响应的三个指标各自包含 `sampleCount`、平均值和 P50/P90/P95/P99，单位为字节，缺失指标不计入对应统计。前端只在展示层换算 MiB，不把趋势桶重新汇总成概览。
+内存指标的 summary/trend 两个端点都支持 `from`、`to`、`appVersion`、`osVersion`、`deviceModel`、`processName`、`scene`、`foreground`；其中 `scene` 是采样时当前应用的 Activity 名称。趋势额外使用 `metric` 和 `interval`。服务端响应的三个指标各自包含 `sampleCount`、平均值和 P50/P90/P95/P99，单位为字节，缺失指标不计入对应统计。前端只在展示层换算 MiB，不把趋势桶重新汇总成概览。
 
 已发布契约、统计公式和服务端限制以[服务端 API 文档](../../../docs/api/README.md)、[Crash API 文档](../../../docs/api/crash-api.md)、[卡顿服务端 API](../../../docs/api/jank-server-api.md)及[平台查询与 Dashboard](../../../docs/knowledge-base/05-查询与Dashboard.md)为准；本页只记录前端消费方式。
 
@@ -133,21 +133,18 @@ Pinia 只管理跨页面的认证和应用状态；路由查询参数保存可�
 - 页面只展示服务端返回的脱敏数据，不在浏览器尝试恢复敏感原文。
 - `dataSource` 只是联调标识，不是权限或数据正确性的证明。
 
-
-2026-10-01 新增[单事件本地分析](local-analysis.md)：事件详情创建与历史回显、管理员构建/Worker 表单、轮询与迟到响应控制、凭据一次展示。接口和验收以专项记录为准，未提供网页模型管理或云端修复。
-
-## 2026-10-03 当前代码分析与明确修复
+## 分析任务与报告类型
 
 AnalysisTask 仅任务/事件/证据元数据，含 evidenceSchemaVersion；Worker 仅应用身份。新报告版本 4 绑定 evidenceId/runId，repair/verification/sourceRefs 均标明宿主自报，currentCheck 只核对提交时引用位置。snapshotId、修改前后摘要和 workspaceUnchanged 仅供版本 3 历史展示。analysis-builds 客户端与类型已删除，详见 [本地分析](local-analysis.md)。
 
-## 2026-10-04 登录后 CSRF 衔接
+## 登录后 CSRF 衔接
 
-统一 HTTP 客户端每次写请求读取当前 XSRF-TOKEN Cookie；登录成功下发新 Cookie 后，首次编辑应用直接使用新值，不缓存登录前 Token，不增加 Pinia 或 Web Storage 的凭据状态。authApi.test.ts 使用真实客户端及 Session Store，模拟登录响应更新 Cookie，验证随后的 PATCH 请求头和凭据不持久化；真实后端行为见[后端测试](../../../backend/docs/knowledge-base/06-测试与质量保障.md#2026-10-04-登录会话修复)。
+统一 HTTP 客户端每次写请求读取当前 XSRF-TOKEN Cookie；登录成功下发新 Cookie 后，首次编辑应用直接使用新值，不缓存登录前 Token，不增加 Pinia 或 Web Storage 的凭据状态。authApi.test.ts 使用真实客户端及 Session Store，模拟登录响应更新 Cookie，验证随后的 PATCH 请求头和凭据不持久化；真实后端行为见[后端测试](../../../backend/docs/knowledge-base/06-测试与质量保障.md#按能力查证据)。
 
-## 2026-10-04 应用 PATCH 类型
+## 应用 PATCH 类型
 
 AppUpdateRequest 使用 name?: string、description?: string | null，appApi.update 原样序列化输入，不为省略字段补空；null 明确清空描述。AppSettingsView 保留完整表单提交，显示/编辑的值来自当前应用，不增加 Token 状态。appApi.test.ts 覆盖字段遗漏、null/空串、空对象和完整表单，原设置页保存回归仍通过。契约见[部分更新](../../../docs/api/app-api.md#应用部分更新)。
 
-## 2026-10-04 卡顿游标与预算错误
+## 卡顿游标与预算错误
 
 createJankCursorQuery 原样保存不透明游标，以及首次响应 from/to 的完整小数秒；两个 Jank composable 续页沿用响应时间窗。应用/筛选切换从第一页清空状态，取消信号和请求代次隔离旧响应。INVALID_CURSOR 使旧游标失效并暴露显式恢复；重新查询替换列表，不自动追加第一页。超时/资源错误由 jankApi 提示缩小范围，其他成功区域保留。时间窗与游标只存在内存，不新增凭据持久化。

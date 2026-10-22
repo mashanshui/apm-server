@@ -36,4 +36,4 @@ Spring multipart 默认上限为 32 MiB 文件、34 MiB 请求；Nginx 或其他
 
 ## 验证边界
 
-已通过官方依赖在线解析、后端 `clean build`、真实 release mapping 的完整 Retrace 测试、Docker PostgreSQL 16 的 Flyway/JPA schema 校验、符号文件卷租约/回收测试和 Crash 异常链格式测试；并已在受控本机环境通过管理员网页替换、Crash 连续详情、Jank v3 新事件解析与后端重启读取验收。端到端 HTTP、浏览器和性能数据见[平台测试记录](../../../docs/knowledge-base/08-测试与质量保障.md#2026-09-20-android-符号表端到端验收)及[后端性能测试记录](06-测试与质量保障.md#2026-09-20-符号表端到端与性能验收)。性能数据是当前主机的小样本测量，不代表生产容量。
+已通过官方依赖在线解析、后端 `clean build`、真实 release mapping 的完整 Retrace 测试、Docker PostgreSQL 16 的 Flyway/JPA schema 校验、符号文件卷租约/回收测试和 Crash 异常链格式测试；并已在受控本机环境通过管理员网页替换、Crash 连续详情、Jank v3 新事件解析与后端重启读取验收。端到端 HTTP、浏览器和性能数据见[平台测试记录](../../../docs/knowledge-base/08-测试与质量保障.md#跨端证据索引)及[后端性能测试记录](06-测试与质量保障.md#符号表端到端与性能边界)。性能数据是当前主机的小样本测量，不代表生产容量。

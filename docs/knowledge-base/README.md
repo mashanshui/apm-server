@@ -1,14 +1,8 @@
 # Android APM 平台知识库
 
-2026-10-05 接口正确性修复已同步正式规范并[归档](../../openspec/changes/archive/2026-10-05-fix-backend-api-correctness/tasks.md)，任务 31/31 完成。覆盖统一请求错误、登录会话、应用 PATCH、卡顿/报告查询与卡顿分页；[云端验收](../backend-api-cloud-validation.md)和生产边界分别保留。
-
-本地分析 Skill 已随附 Python Worker，安装包与生成命令见 [Agent Skill 交付](../../agent-skills/README.md)，独立安装验证见 [交付验收](../analysis-validation/skill-package-validation.md)。
-
 本知识库是项目的中文总入口，用于连接目标架构、当前实现、接口文档、验证证据和待确认事项。原始方案见《[Android APM 服务端与 Dashboard 技术方案](../../Android_APM服务端与Dashboard技术方案.md)》。
 
 阅读时遵循以下事实优先级：当前代码、数据库迁移和已发布 API 优先于知识库描述；知识库优先于原始方案中的历史规划。发现冲突时应记录差异并确认，不能静默覆盖。
-
-2026-09-30 后端知识库已完成源码、配置、迁移和测试核对，具体差异见[后端核对记录](../../backend/docs/knowledge-base/00-当前实现与验证边界.md#2026-09-30-后端文档核对与差异修正)。卡顿个例统计截断、报告隐私与查询预算、架构门禁缺口按当前实现记录；本次回归结果见[后端测试记录](../../backend/docs/knowledge-base/06-测试与质量保障.md#2026-09-30-文档核对与后端回归)。
 
 ## 从这里开始
 
@@ -26,7 +20,7 @@
 
 ## 核心知识地图
 
-Agent 扩展的目标设计见 [APM Agent 平台方案](../../apm-agent-platform-design.md)。应用查询 Token、独立只读 Agent HTTP 入口及 TypeScript MCP 已实现，对应 OpenSpec 变更已归档，默认开关关闭；本地双应用真实数据和云端五容器入口冒烟见 [Agent 查询链路记录](../agent-query-e2e-validation.md)。2026-09-29 调试环境已显式开启两个查询开关；2026-10-05 云端有效 Token 查询、MCP 分页与跨应用拒绝已在有限合成数据上通过，见[接口正确性云端验收](../backend-api-cloud-validation.md)。审批、隔离修复和确定性 CI 验证仍为独立边界。查询契约见 [Agent HTTP API](../api/agent-query-api.md) 和 [MCP 工具 API](../api/mcp-api.md)。
+只读 Agent 查询、宿主本地分析与未来云端修复是不同能力。当前实现和证据见[状态页](00-当前实现与验证边界.md)，协议见 [Agent HTTP API](../api/agent-query-api.md)、[MCP API](../api/mcp-api.md)及[分析 API](../api/analysis-api.md)；未来审批/CI 设计见 [Agent 平台方案](../../apm-agent-platform-design.md)。
 
 ### 产品与架构
 
@@ -88,13 +82,14 @@ Agent 扩展的目标设计见 [APM Agent 平台方案](../../apm-agent-platform
 
 ## 内容归属与维护约定
 
-1. 平台实现状态和验证层级在[当前实现与验证边界](00-当前实现与验证边界.md)汇总；平台端到端证据在[测试与质量保障](08-测试与质量保障.md)维护，后端和前端专项命令、数量与日期分别由各自知识库维护。
-2. 原理、长期约束和领域模型写入对应主题页；已经接受的关键技术取舍写入[架构决策记录](10-架构决策记录.md)。
-3. 未确定的容量、SLA、保留期限、多租户和运维参数写入[待确认事项](13-待确认事项.md)，不要混入“当前已实现”描述。
-4. 正式 API、事件字段或统计口径变更时，同时更新主题页、专项 API 文档、示例和测试要求。
-5. 前端实现细节统一维护在[前端知识库](../../frontend/docs/knowledge-base/README.md)；平台知识库只保留跨端架构、正式接口、安全和部署边界。
-6. 新增文档必须使用中文，标题直接表达要回答的问题，并从本页或所属专项目录建立入口。
-7. 只记录已验证的事实，并明确区分代码存在、自动化验证、外部环境冒烟和生产就绪。
+1. 知识库解释当前事实、操作方法与长期约束。修改原有章节时原位更新，删除失效描述，不按任务日期追加“本次/本轮”进度。
+2. 平台能力及环境最近核验只在[状态页](00-当前实现与验证边界.md)维护；核验保留日期、版本、范围与限制，更新时替换旧摘要。各工程测试页只保留最近完整基线、条件跳过和证据入口。
+3. 普通构建、部署、重启、镜像清理和文档检查的日志与结果留在任务回复或 CI/发布系统，不写入知识库，不为每次成功操作新建记录文件。
+4. 只有可复用的故障结论、重要不可逆迁移、独立验收或性能基线需要长期证据时，才在现有专题原位维护；保留环境、复现命令、关键结果与局限，省略完整终端输出、临时路径、测试资源 ID 和重复摘要。正文通过一个稳定入口引用。
+5. 关键架构取舍用[ADR](10-架构决策记录.md)记录理由、影响和替代关系；迁移步骤写入部署/存储主题。历史过程由 Git、OpenSpec 归档或已有专项证据承载，不复制成多份时间线。
+6. 未确定的生产参数放入[待确认事项](13-待确认事项.md)；已确认内容移到对应主题或 ADR，删除过期待办。区分实现、自动化、外部冒烟与生产验收。
+7. API、统计口径与客户端步骤各有唯一正文，知识库解释职责并链接。相关变化同时核对主题、正式契约、示例和测试，不复制完整契约。
+8. 新文档使用中文并加入所属入口。修改或合并章节时检查所有引用、本地文件、锚点及代码围栏；不因整理删除有效性能证据或扩大历史验收结论。
 
 ## 工程与知识库边界
 
@@ -107,12 +102,4 @@ Agent 扩展的目标设计见 [APM Agent 平台方案](../../apm-agent-platform
 | [API 文档](../api/README.md) | 对外字段、错误语义与统计口径 |
 | [客户端接入](../client-integration/README.md) | Android 构造事件、队列、上传和重试 |
 
-后端详细测试计数与工程命令只在后端维护，平台状态页保留能力摘要和证据入口。拆分章节的来源映射见[后端迁移索引](../../backend/docs/knowledge-base/README.md#本次内容迁移索引)。
-
-- 单事件本地分析：[前端交互](../../frontend/docs/knowledge-base/local-analysis.md)、[Worker 运行](../../agent-skills/apm-crash-analyze/worker/README.md)、[跨端验收](../analysis-validation/README.md)。
-
-2026-10-02 当前本地分析改为宿主 Agent 直接分析；Python 负责材料和生命周期，停止未知保留门禁。当前证据见[宿主分析验收](../analysis-validation/host-analysis-validation.md)。
-
-2026-10-03 当前代码分析与明确本地修复的逐项验证见 [当前代码验收](../analysis-validation/current-code-validation.md)。
-
-Skill 本地空配置、权限及更新保留步骤见[安装使用](../../agent-skills/apm-crash-analyze/README.md#最小配置)，当前受控结果见[配置验收](../analysis-validation/current-code-validation.md#skill-本地配置增量验收)。
+后端与前端维护各自内部主题，平台页通过链接引用，避免同一事实在多个目录重复维护。

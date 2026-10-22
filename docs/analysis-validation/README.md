@@ -1,6 +1,6 @@
 # 单事件本地分析跨端验收
 
-2026-10-04 已发布云端控制面并完成真实 Python 回传与浏览器冒烟，见[云端发布验收](cloud-current-code-validation.md)。宿主仍在本地执行，完整回归保留一项既有 Rhea 摘要失败。
+本目录保留分层验收证据，带日期结果只描述当时的样本和环境。当前实现、构建与环境核验分别见[平台状态](../knowledge-base/00-当前实现与验证边界.md)、[后端测试](../../backend/docs/knowledge-base/06-测试与质量保障.md)；旧记录中的 Rhea 摘要失败已在后续制品核验中解决，历史云端资源已重置。控制面有限云端证据见[发布验收](cloud-current-code-validation.md)，源码分析/明确修复仍在宿主本地执行。
 
 Skill 随附 Worker 的 ZIP 交付与独立安装验证见 [交付验收](skill-package-validation.md)。
 
