@@ -144,4 +144,4 @@ GET /api/v1/apps/{appId}/memory-metrics/trend?metric=pss&interval=hour&from=2026
 | 503 `EVENT_STORE_UNAVAILABLE` | 是 | 存储不可用，响应带 `Retry-After: 30`；不能当作 accepted 或 no_data |
 | 网络中断、408、429 或其他 5xx | 是 | 保留原批次和原 `eventId`，按退避重试 |
 
-服务端当前使用同步写入；`dataSource` 仅标识内存或 ClickHouse 适配器。内存模式重启会丢失数据，ClickHouse 模式依赖迁移脚本和 `FINAL` 查询获得最终去重视图。详见[内存固定数据集](../memory-fixed-dataset.md)。
+服务端当前使用同步写入；`dataSource` 仅标识内存或 ClickHouse 适配器。内存模式重启会丢失数据，ClickHouse 模式依赖迁移脚本和 `FINAL` 查询获得最终去重视图。详见[内存固定数据集](../datasets/memory-fixed-dataset.md)。

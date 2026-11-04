@@ -1,10 +1,12 @@
 # apm-crash-analyze Skill 验收
 
-日期：2026-10-02。对应 [实施任务 7.1～7.5](../../openspec/changes/archive/2026-10-04-add-local-crash-analysis/tasks.md)。Skill 交付为中文指令与安装说明，复用现有 CLI；本轮没有修改后端、前端、Worker 执行代码、API 或 Android 事件契约。
+本页是带日期的阶段验收证据，工具、版本和测试数字只描述当时结果。当前流程与后续证据见[分析验收索引](README.md)，旧应用、凭据及备份是否仍可用以[平台状态](../../knowledge-base/00-当前实现与验证边界.md#环境最近核验)为准。
+
+日期：2026-10-02。对应 [实施任务 7.1～7.5](../../../openspec/changes/archive/2026-10-04-add-local-crash-analysis/tasks.md)。Skill 交付为中文指令与安装说明，复用现有 CLI；本轮没有修改后端、前端、Worker 执行代码、API 或 Android 事件契约。
 
 ## 结构和运行条件
 
-- [Skill 入口](../../agent-skills/apm-crash-analyze/SKILL.md)、[安装与使用](../../agent-skills/apm-crash-analyze/README.md) 和 Codex 展示信息已交付。项目 `.agents/skills/apm-crash-analyze` 使用相对符号链接指向交付目录，无本机固定路径。
+- [Skill 入口](../../../agent-skills/apm-crash-analyze/SKILL.md)、[安装与使用](../../../agent-skills/apm-crash-analyze/README.md) 和 Codex 展示信息已交付。项目 `.agents/skills/apm-crash-analyze` 使用相对符号链接指向交付目录，无本机固定路径。
 - skill-creator 官方 `quick_validate.py` 通过。其 PyYAML 6.0.3 仅安装在临时验证目录，没有修改 Worker 依赖或锁文件。
 - `.venv/bin/python -m pytest -q tests/test_cli.py tests/test_runner.py tests/test_state.py`：22 项通过。覆盖配置阻断零模型、诊断不输出秘密、回传响应丢失同摘要恢复、停止未知门禁及私有状态保护。
 - 本机 Codex CLI 版本 `0.159.2`，已有 ChatGPT 登录；真实本地后端和 Vite 健康入口分别返回 200。用户已明确允许独立宿主进程、受控失败场景和一次 READY 任务分析。

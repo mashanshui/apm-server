@@ -1,6 +1,6 @@
 # 单事件分析 API
 
-2026-10-04 当前契约已发布到云端，任务/凭据/报告完成真实受控冒烟；HTTP 字段与权限未作额外变更，见[云端发布验收](../analysis-validation/cloud-current-code-validation.md)。
+2026-10-04 当前契约已发布到云端，任务/凭据/报告完成真实受控冒烟；HTTP 字段与权限未作额外变更，见[云端发布验收](../validation/analysis/cloud-current-code-validation.md)。
 
 当前实现单事件证据、Worker 身份、领取/租约、停止/重试、结构化结果及内容到期。Python 正式任务和网页入口已实现；真实链路和受控质量评估见跨端验收。默认 `apm.agent.analysis.enabled=false`，开启后管理员可写入。网页使用既有 Session、CSRF 和应用成员授权，不接受 App Key 或查询 Token 替代登录。
 
@@ -10,7 +10,7 @@ Python 0.4.0 与报告版本 4 配套使用。宿主直接搜索/读取当前项
 
 ## 当前代码唯一模式
 
-2026-10-03 后端源码改为当前工作区分析/修复契约，V14 追加迁移；Python、Skill 和网页已切换新协议，跨端验收进度见 [当前记录](../analysis-validation/current-code-validation.md)。原始 Crash 上报与 mapping 仍使用 buildId，客户端接入见 [JVM Crash](../client-integration/crash-client-integration.md)。
+2026-10-03 后端源码改为当前工作区分析/修复契约，V14 追加迁移；Python、Skill 和网页已切换新协议，跨端验收进度见 [当前记录](../validation/analysis/current-code-validation.md)。原始 Crash 上报与 mapping 仍使用 buildId，客户端接入见 [JVM Crash](../client-integration/crash-client-integration.md)。
 
 分析专用 `analysis-builds` 的登记、当前列表、历史接口均已删除。新任务不接收 buildId、commitSha、repositoryId、origin、登记版本、混淆声明或核验依据。使用宿主已配置模型，不配置独立模型密钥。
 
@@ -113,7 +113,7 @@ NOT_REQUESTED/NOT_APPLICABLE 的修改列表为空；APPLIED/PARTIAL 必须有�
 | ANALYSIS_REFERENCE_INVALID/ANALYSIS_CONFIG_MISMATCH | 409 | 证据/源码结构或实际配置不匹配 |
 | INVALID_ANALYSIS_RESULT/INVALID_ANALYSIS_FAILURE/INVALID_STOP_BASIS | 400 | 结构、大小、停止或终止字段无效 |
 
-2026-10-02 按用户授权替换为宿主分析，调整新任务策略、结果版本及停止字段；不再接受旧 Worker 的 complete(stopConfirmed=true) 写入。旧报告只读保留，旧冻结策略需另建新任务；未保留旧执行器写入兼容。自动化、真实宿主和质量边界见 [宿主验收](../analysis-validation/host-analysis-validation.md)；原五例质量评估结论继续见 [跨端历史](../analysis-validation/README.md)。
+2026-10-02 按用户授权替换为宿主分析，调整新任务策略、结果版本及停止字段；不再接受旧 Worker 的 complete(stopConfirmed=true) 写入。旧报告只读保留，旧冻结策略需另建新任务；未保留旧执行器写入兼容。自动化、真实宿主和质量边界见 [宿主验收](../validation/analysis/host-analysis-validation.md)；原五例质量评估结论继续见 [跨端历史](../validation/analysis/historical-analysis-validation.md)。
 
 ## 数据库切换门禁
 

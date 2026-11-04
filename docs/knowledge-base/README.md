@@ -1,6 +1,6 @@
 # Android APM 平台知识库
 
-本知识库是项目的中文总入口，用于连接目标架构、当前实现、接口文档、验证证据和待确认事项。原始方案见《[Android APM 服务端与 Dashboard 技术方案](../../Android_APM服务端与Dashboard技术方案.md)》。
+本知识库维护平台目标架构、当前实现、跨端约定与待确认事项；全部资料的分类入口见[项目文档导航](../README.md)。原始方案见《[Android APM 服务端与 Dashboard 技术方案](../../Android_APM服务端与Dashboard技术方案.md)》。
 
 阅读时遵循以下事实优先级：当前代码、数据库迁移和已发布 API 优先于知识库描述；知识库优先于原始方案中的历史规划。发现冲突时应记录差异并确认，不能静默覆盖。
 
@@ -58,18 +58,18 @@
 
 ## 交付与接入文档
 
-云服务器连接参数与历史验证边界见 [SSH 连接说明](../cloud-ssh.md)，操作授权遵循[仓库协作规则](../../AGENTS.md#云服务器访问)。
+云服务器连接参数与历史验证边界见 [SSH 连接说明](../operations/cloud-ssh.md)，操作授权遵循[仓库协作规则](../../AGENTS.md#云服务器访问)。
 
 | 使用者 | 文档入口 |
 |---|---|
-| Android SDK 开发 | [客户端接入目录](../client-integration/README.md)、[内存指标上传接入](../client-integration/memory-metrics.md)、[内存泄漏报告上传接入](../client-integration/memory-leak-reports.md)、[卡顿监控上传接入](../client-integration/jank-monitoring.md)、[卡顿压缩包上传接入](../client-integration/stack-artifact-upload.md)、[卡顿压缩包 manifest v3](../client-integration/jank-artifact-manifest.md)、[JVM Crash 上传接入](../client-integration/crash-client-integration.md) |
-| 后端接口联调 | [服务端 API 目录](../api/README.md)、[内存指标 API](../api/memory-metrics-api.md)、[内存泄漏报告 API](../api/memory-leak-reports-api.md)、[Crash API 与统计公式](../api/crash-api.md)、[Crash 错误码](../api/crash-error-codes.md)、[卡顿监控服务端 API](../api/jank-server-api.md)、[卡顿压缩包解析与落库 API](../api/stack-artifact-api.md)、[登录与应用管理 API](../api/app-api.md) |
-| 数据与验收 | [Crash 固定数据集](../crash-fixed-dataset.md)、[内存固定数据集](../memory-fixed-dataset.md)、[内存泄漏固定数据](../memory-leak-fixed-dataset.md)、[卡顿固定数据集](../jank-fixed-dataset.md)、[卡顿指标性能基线](../../backend/docs/knowledge-base/jank-performance-baseline.md) |
-| ClickHouse 与 Grafana | [ClickHouse 本地初始化](../clickhouse-local.md)、[Grafana/ClickHouse 安装与应用接入](../grafana-clickhouse-install.md)、[灰度、开关与回滚](../crash-rollout.md) |
-| Web 前端开发 | [前端知识库](../../frontend/docs/knowledge-base/README.md) |
+| Android SDK 开发 | [客户端接入目录](../client-integration/README.md) |
+| 后端接口联调 | [服务端 API 目录](../api/README.md) |
+| 数据与验收 | [固定数据集](../datasets/README.md)、[跨端验收资料](../validation/README.md)、[后端测试与专项基线](../../backend/docs/knowledge-base/06-测试与质量保障.md) |
+| 部署与运维 | [平台部署步骤](07-部署与运维.md)、[SSH/ClickHouse/Grafana/灰度资料](../operations/README.md) |
+| 工程开发 | [后端知识库](../../backend/docs/knowledge-base/README.md)、[前端知识库](../../frontend/docs/knowledge-base/README.md) |
 | Android 符号表 | [符号表管理 API](../api/symbol-api.md)、[网页上传与生效语义](../client-integration/symbol-mapping.md) |
-| Agent 只读查询 | [查询 Token 管理 API](../api/query-token-api.md)、[Agent HTTP API](../api/agent-query-api.md)、[MCP API](../api/mcp-api.md)、[MCP 运行说明](../../mcp-server/README.md)、[本地与云端验收记录](../agent-query-e2e-validation.md) |
-| 本地 Crash 分析 | [Python Worker 运行](../../agent-skills/apm-crash-analyze/worker/README.md)、[Skill 安装与自然语言调用](../../agent-skills/apm-crash-analyze/README.md)、[跨端验收](../analysis-validation/README.md)、[已归档实施任务](../../openspec/changes/archive/2026-10-04-add-current-code-crash-fix/tasks.md)、[当前代码正式规范](../../openspec/specs/current-code-crash-fix/spec.md)、[旧方案历史归档](../../openspec/changes/archive/2026-10-04-add-local-crash-analysis/tasks.md)；实现、宿主调用与模型质量分别核验 |
+| Agent 只读查询 | [查询 Token 管理 API](../api/query-token-api.md)、[Agent HTTP API](../api/agent-query-api.md)、[MCP API](../api/mcp-api.md)、[MCP 运行说明](../../mcp-server/README.md) |
+| 本地 Crash 分析 | [Worker 运行](../../agent-skills/apm-crash-analyze/worker/README.md)、[Skill 安装与调用](../../agent-skills/apm-crash-analyze/README.md)、[分阶段验收索引](../validation/analysis/README.md)、[当前代码正式规范](../../openspec/specs/current-code-crash-fix/spec.md) |
 
 ## 推荐阅读路径
 

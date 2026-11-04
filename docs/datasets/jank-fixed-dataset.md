@@ -24,4 +24,4 @@
 
 ## 2026-10-04 查询完整性增量
 
-新增 ClickHouse 对照使用 120 事件/60 Issue（单 Issue 61 事件），limit=1/20/50 均保留完整统计并可遍历。十万事件资源检查、升序 ceil 秩/零值以及缺失值的内存参考边界见[查询验收](../backend/docs/knowledge-base/backend-api-query-validation.md)。旧固定集的人工期望值和上传入口不变。
+新增 ClickHouse 对照使用 120 事件/60 Issue（单 Issue 61 事件），limit=1/20/50 均保留完整统计并可遍历。十万事件资源检查、升序 ceil 秩/零值以及缺失值的内存参考边界见[查询验收](../../backend/docs/knowledge-base/backend-api-query-validation.md)。旧固定集的人工期望值和上传入口不变。

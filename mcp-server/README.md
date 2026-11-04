@@ -27,7 +27,7 @@
 
 需要 Node.js 24 与 npm 11。按顺序执行 npm ci、npm run typecheck、npm test、npm run build，然后设置 APM_BACKEND_ORIGIN=http://127.0.0.1:8080、MCP_ENABLED=true、MCP_ALLOWED_HOSTS=127.0.0.1,localhost、MCP_ALLOWED_ORIGINS=127.0.0.1,localhost，再执行 npm start。默认监听 127.0.0.1:3010/mcp。后端也须设置 APM_AGENT_QUERY_ENABLED=true。完整 Token 只从网页创建结果复制到支持手工 Bearer 的受信 MCP 客户端，不写入代码、日志、命令历史或版本库。
 
-Inspector CLI 2.8.0 可用 --transport http --protocol-era modern --header "Authorization: Bearer <应用查询Token>" 手工配置凭据，并以 --method tools/list、--method tools/call 检查发现和调用。2026-09-29 已在本地真实 PostgreSQL/ClickHouse 双应用数据上完成 Inspector 查询、错误、分片及断连验证；范围见[端到端验收记录](../docs/agent-query-e2e-validation.md)。
+Inspector CLI 2.8.0 可用 --transport http --protocol-era modern --header "Authorization: Bearer <应用查询Token>" 手工配置凭据，并以 --method tools/list、--method tools/call 检查发现和调用。2026-09-29 已在本地真实 PostgreSQL/ClickHouse 双应用数据上完成 Inspector 查询、错误、分片及断连验证；范围见[端到端验收记录](../docs/validation/agent-query-e2e-validation.md)。
 
 ## 部署与保护
 

@@ -1,10 +1,12 @@
 # 宿主 Agent 直接分析验收
 
-日期：2026-10-02。对应 [实施任务第 8 节](../../openspec/changes/archive/2026-10-04-add-local-crash-analysis/tasks.md)、[该阶段历史设计](../../openspec/changes/archive/2026-10-04-add-local-crash-analysis/design.md) 和 [分析 API](../api/analysis-api.md)。用户确认提案后授权继续到执行阶段，不再逐份询问；本轮同步规划与实现。
+本页是带日期的阶段验收证据，工具、版本和测试数字只描述当时结果。当前流程与后续证据见[分析验收索引](README.md)，旧应用、凭据及备份是否仍可用以[平台状态](../../knowledge-base/00-当前实现与验证边界.md#环境最近核验)为准。
+
+日期：2026-10-02。对应 [实施任务第 8 节](../../../openspec/changes/archive/2026-10-04-add-local-crash-analysis/tasks.md)、[该阶段历史设计](../../../openspec/changes/archive/2026-10-04-add-local-crash-analysis/design.md) 和 [分析 API](../../api/analysis-api.md)。用户确认提案后授权继续到执行阶段，不再逐份询问；本轮同步规划与实现。
 
 ## 当前实现与边界
 
-新任务使用 HOST_AGENT，当前宿主按 [apm-crash-analyze](../../agent-skills/apm-crash-analyze/SKILL.md) 直接分析。Python 0.2.0 提供 prepare/read/search/submit/status/stop，负责固定提交材料、独立 Worker 身份、租约看护、真实读取范围、引用和结果幂等核验；当前 CLI 不启动 OpenCode、Docker 或 DeepSeek。旧执行器代码与测试保留为历史验证材料，不作为新任务入口。
+新任务使用 HOST_AGENT，当前宿主按 [apm-crash-analyze](../../../agent-skills/apm-crash-analyze/SKILL.md) 直接分析。Python 0.2.0 提供 prepare/read/search/submit/status/stop，负责固定提交材料、独立 Worker 身份、租约看护、真实读取范围、引用和结果幂等核验；当前 CLI 不启动 OpenCode、Docker 或 DeepSeek。旧执行器代码与测试保留为历史验证材料，不作为新任务入口。
 
 工具与宿主停止分别记录。Python 可以关闭材料并报告 localToolsStopped=true，不能统一控制宿主所有模型请求、Token 或中止。报告成功可保持 hostStopState=UNKNOWN、stopConfirmed=false，继续阻止新尝试及原 Worker 新领取。管理员须实际核验本次宿主分析结束后另留审计；不要求关闭整个桌面应用，也不能只引用模型回答作为证明。
 
@@ -66,7 +68,7 @@ agent-worker/.venv/bin/pytest agent-worker/tests -q
 
 本次成功区分外层 IllegalStateException 包装与 NumberFormatException cause。事件与源码共同证明：固定 not-a-number 在第 43 行 toInt 失败，第 45 行保留 cause 包装，TestCrashActivity 第 49 行直接调用且未处理。报告承认这是受控测试，未将注释中的持久化场景当真实文件损坏。
 
-这是既有包装样本在新流程中的一次复测，形成新增分析结果；不能当作新增独立事件、独立根因或未参与开发的质量样本。原 [五例评估](README.md#五个受控质量样本评估结果2026-10-01) 和 [旧 Skill 验收](skill-validation.md) 保持原结论。仅此一例成功不能证明已解决旧方案全部格式/引用失败，也不能证明两类证据不足枚举正确、生产定位率、自动修复或其他宿主兼容。
+这是既有包装样本在新流程中的一次复测，形成新增分析结果；不能当作新增独立事件、独立根因或未参与开发的质量样本。原 [五例评估](historical-analysis-validation.md#五个受控质量样本评估结果2026-10-01) 和 [旧 Skill 验收](skill-validation.md) 保持原结论。仅此一例成功不能证明已解决旧方案全部格式/引用失败，也不能证明两类证据不足枚举正确、生产定位率、自动修复或其他宿主兼容。
 
 ## 文档同步与差异
 
@@ -82,13 +84,13 @@ agent-worker/.venv/bin/pytest agent-worker/tests -q
 
 | 归属 | 文件 |
 |---|---|
-| 根知识库 | [入口](../knowledge-base/README.md)、[实现边界](../knowledge-base/00-当前实现与验证边界.md)、[安全](../knowledge-base/06-安全与隐私.md)、[运维](../knowledge-base/07-部署与运维.md)、[测试](../knowledge-base/08-测试与质量保障.md) |
-| 后端知识库 | [入口](../../backend/docs/knowledge-base/README.md)、[实现边界](../../backend/docs/knowledge-base/00-当前实现与验证边界.md)、[分析专题](../../backend/docs/knowledge-base/local-analysis.md)、[测试](../../backend/docs/knowledge-base/06-测试与质量保障.md) |
-| 前端知识库 | [入口](../../frontend/docs/knowledge-base/README.md)、[分析专题](../../frontend/docs/knowledge-base/local-analysis.md)、[测试](../../frontend/docs/knowledge-base/06-测试与质量保障.md) |
-| API | [分析契约](../api/analysis-api.md) |
-| 客户端 | [接入入口](../client-integration/README.md)，仅补试点验收导航，事件契约无变化 |
-| 跨端 | [Agent 总体方案](../../apm-agent-platform-design.md)、[验收入口](README.md)、本文及脱敏 JSON/截图 |
-| Worker/Skill | [Worker README](../../agent-skills/apm-crash-analyze/worker/README.md)、[Skill](../../agent-skills/apm-crash-analyze/SKILL.md)、[安装说明](../../agent-skills/apm-crash-analyze/README.md) |
-| OpenSpec | [提案](../../openspec/changes/archive/2026-10-04-add-local-crash-analysis/proposal.md)、[设计](../../openspec/changes/archive/2026-10-04-add-local-crash-analysis/design.md)、Worker/任务/前端 delta 规范和[任务清单](../../openspec/changes/archive/2026-10-04-add-local-crash-analysis/tasks.md) |
+| 根知识库 | [入口](../../knowledge-base/README.md)、[实现边界](../../knowledge-base/00-当前实现与验证边界.md)、[安全](../../knowledge-base/06-安全与隐私.md)、[运维](../../knowledge-base/07-部署与运维.md)、[测试](../../knowledge-base/08-测试与质量保障.md) |
+| 后端知识库 | [入口](../../../backend/docs/knowledge-base/README.md)、[实现边界](../../../backend/docs/knowledge-base/00-当前实现与验证边界.md)、[分析专题](../../../backend/docs/knowledge-base/local-analysis.md)、[测试](../../../backend/docs/knowledge-base/06-测试与质量保障.md) |
+| 前端知识库 | [入口](../../../frontend/docs/knowledge-base/README.md)、[分析专题](../../../frontend/docs/knowledge-base/local-analysis.md)、[测试](../../../frontend/docs/knowledge-base/06-测试与质量保障.md) |
+| API | [分析契约](../../api/analysis-api.md) |
+| 客户端 | [接入入口](../../client-integration/README.md)，仅补试点验收导航，事件契约无变化 |
+| 跨端 | [Agent 总体方案](../../../apm-agent-platform-design.md)、[验收入口](README.md)、本文及脱敏 JSON/截图 |
+| Worker/Skill | [Worker README](../../../agent-skills/apm-crash-analyze/worker/README.md)、[Skill](../../../agent-skills/apm-crash-analyze/SKILL.md)、[安装说明](../../../agent-skills/apm-crash-analyze/README.md) |
+| OpenSpec | [提案](../../../openspec/changes/archive/2026-10-04-add-local-crash-analysis/proposal.md)、[设计](../../../openspec/changes/archive/2026-10-04-add-local-crash-analysis/design.md)、Worker/任务/前端 delta 规范和[任务清单](../../../openspec/changes/archive/2026-10-04-add-local-crash-analysis/tasks.md) |
 
 未归档、未提交、未部署云端修复或模型管理。实际宿主停止未知仍需真实管理员核验，质量和生产能力继续按上述边界记录。

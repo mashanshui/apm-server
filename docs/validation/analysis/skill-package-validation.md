@@ -1,5 +1,7 @@
 # Skill 内置 Worker 交付验收
 
+本页是带日期的阶段验收证据，工具、版本和测试数字只描述当时结果。当前流程与后续证据见[分析验收索引](README.md)，旧应用、凭据及备份是否仍可用以[平台状态](../../knowledge-base/00-当前实现与验证边界.md#环境最近核验)为准。
+
 ## 2026-10-03 当前代码包
 
 新版仍为 20 文件，增加 repair、删除 repositories 示例和旧执行器。当前安装、启动返回码、独立依赖与真实项目证据见 [当前代码验收](current-code-validation.md)。下面 2026-10-02 的固定提交配置和测试数仅为历史记录。
@@ -30,7 +32,7 @@
 
 ## 文档归属
 
-同步 [Skill 安装](../../agent-skills/apm-crash-analyze/README.md)、[交付入口](../../agent-skills/README.md)、[Worker 说明](../../agent-skills/apm-crash-analyze/worker/README.md)、平台知识库及后端/前端已有 Worker 导航。API、客户端事件和 MCP 契约没有变化。既有 [宿主分析验收](host-analysis-validation.md) 和历史质量结果保持原边界。
+同步 [Skill 安装](../../../agent-skills/apm-crash-analyze/README.md)、[交付入口](../../../agent-skills/README.md)、[Worker 说明](../../../agent-skills/apm-crash-analyze/worker/README.md)、平台知识库及后端/前端已有 Worker 导航。API、客户端事件和 MCP 契约没有变化。既有 [宿主分析验收](host-analysis-validation.md) 和历史质量结果保持原边界。
 
 ## 2026-10-03 本地配置交付增量
 

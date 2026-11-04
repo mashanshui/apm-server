@@ -70,7 +70,7 @@
 完成 2.2～2.4、3.1/3.2/3.4～3.6：真实 PostgreSQL 的 AnalysisTaskPostgresTests 22 项与相关五组 24 项通过。3.3 的结果/失败/重试接口已实现并验证；配置缺失零模型调用需在任务 Worker 4.2 中联合验证后勾选。全量曾为 253 项、249 通过、1 个已有 processor SHA 失败、3 跳过，最新 Run 后最终全量仍待交付核对。当前无正式 Python 任务或网页、设备/质量验收。
 
 
-继续实施完成 3.3、4.1～4.5、5.1～5.3、6.1/6.4/6.5：Python 正式任务、恢复状态、租约出口、引用核验及网页组件已实现；真实官方模型的独立合成 CLI 成功，未知回传不会重复模型。全量后端 264 项为 260 通过、既有 Rhea processor SHA 失败 1、条件跳过 3；MCP 15 项通过。前端最新检查、文档链接与 Performance 分层验收见[跨端记录](../../../../docs/analysis-validation/README.md)。
+继续实施完成 3.3、4.1～4.5、5.1～5.3、6.1/6.4/6.5：Python 正式任务、恢复状态、租约出口、引用核验及网页组件已实现；真实官方模型的独立合成 CLI 成功，未知回传不会重复模型。全量后端 264 项为 260 通过、既有 Rhea processor SHA 失败 1、条件跳过 3；MCP 15 项通过。前端最新检查、文档链接与 Performance 分层验收见[跨端记录](../../../../docs/validation/analysis/historical-analysis-validation.md)。
 
 Performance 已连接设备并成功安装同次 Release，实际 APK 摘要一致，既有崩溃按钮上报真实 eventId；在临时本地环境重放并网页创建 READY。固定提交包含签名文件，模型前提按现行规则阻断，等待用户确认明确排除签名/私钥文件的规范调整。5.4 的文档/测试/构建及任务/登记浏览器检查完成，结果浏览器检查仍待；6.2 模型分析与回显未完成，6.3 独立质量样本未完成，不归档。
 
@@ -86,7 +86,7 @@ Performance 已连接设备并成功安装同次 Release，实际 APK 摘要一�
 
 ## 2026-10-02 Skill 实施记录
 
-完成 7.1～7.5：交付中文 Skill、Codex 展示信息、项目发现链接与安装说明；结构校验通过，相关 Worker 测试 22 项通过。九个独立 Codex 合成行为场景核对输入门禁、配置、失败、恢复和停止未知处理，未出现秘密回显或自动新尝试。用户授权的一次真实 READY 任务经独立 Codex 自然语言请求加载 Skill，调用现有 CLI；Run `d5e32dcf-c536-4f52-8bba-b222ee618c11` 返回 FAILED / FORMAT_INVALID，未得到有效新报告，用量未知。停止确认、无残留标签资源及网页失败回显均独立核验，未自动重试；详见 [Skill 验收](../../../../docs/analysis-validation/skill-validation.md)。
+完成 7.1～7.5：交付中文 Skill、Codex 展示信息、项目发现链接与安装说明；结构校验通过，相关 Worker 测试 22 项通过。九个独立 Codex 合成行为场景核对输入门禁、配置、失败、恢复和停止未知处理，未出现秘密回显或自动新尝试。用户授权的一次真实 READY 任务经独立 Codex 自然语言请求加载 Skill，调用现有 CLI；Run `d5e32dcf-c536-4f52-8bba-b222ee618c11` 返回 FAILED / FORMAT_INVALID，未得到有效新报告，用量未知。停止确认、无残留标签资源及网页失败回显均独立核验，未自动重试；详见 [Skill 验收](../../../../docs/validation/analysis/skill-validation.md)。
 
 受影响的 Worker 说明、根知识库、总体 Agent 方案和跨端验收入口已同步；后端、前端、API、客户端契约与文档本轮不受影响。九份 Markdown 的 193 个本地文件链接有效，OpenSpec 严格校验及差异检查通过。当前 34/34 表示实施与入口验收记录完成；既有模型质量未通过结论保持有效，其他宿主未验收，未归档、未部署云端分析或实现修复。
 
@@ -116,7 +116,7 @@ Python 92 项、前端 121 项、MCP 15 项通过；类型检查、前端构建�
 
 当前 Codex 读取 Skill 后通过 Python 实际读取、直接分析并回传包装 cause 样本，Run b33ceae8-05d9-4023-96eb-88c872d4d88d 为 SUCCEEDED。两处引用独立从完整提交核验一致，真实网页显示完成、宿主自报及未知模型/用量；材料目录和看护已清理，hostStopState=UNKNOWN 保持门禁，未自动做停止审计。重复 prepare 只返回原概述。该结果是旧包装事件在新流程的一次复测，不计新的独立质量样本；旧五例及旧 Skill 失败记录保留，不能宣称质量、其他宿主或生产通过。
 
-根/后端/前端知识库、API、Worker/Skill、Agent 方案和客户端试点入口已同步；客户端事件与 MCP 契约不变。验证细节、脱敏结果与网页截图见[宿主验收](../../../../docs/analysis-validation/host-analysis-validation.md)。交付 Markdown 本地文件链接已核对，OpenSpec 严格校验及跟踪/新增文本差异检查通过。当前 42/42 代表实施与分层验收记录完成，未归档、未提交或部署云端修复。
+根/后端/前端知识库、API、Worker/Skill、Agent 方案和客户端试点入口已同步；客户端事件与 MCP 契约不变。验证细节、脱敏结果与网页截图见[宿主验收](../../../../docs/validation/analysis/host-analysis-validation.md)。交付 Markdown 本地文件链接已核对，OpenSpec 严格校验及跟踪/新增文本差异检查通过。当前 42/42 代表实施与分层验收记录完成，未归档、未提交或部署云端修复。
 
 ## 9. Skill 内置 Worker 交付
 
@@ -131,7 +131,7 @@ Python 92 项、前端 121 项、MCP 15 项通过；类型检查、前端构建�
 
 完成 9.1～9.4，当前 46/46。ZIP 包含 20 个公开文件与当前生产源码，不包含凭据、虚拟环境、测试、旧执行器或真实事件材料。98 项 Python 测试通过；独立中文空格目录使用已有 Python 3.12 新建环境和安装锁定生产依赖，help/doctor/非法 UUID 的实际返回码核对通过。Python 自动下载尝试耗时较长后终止，未声明下载验收通过；其他系统和其他宿主任务兼容仍未验收。
 
-同步根知识库总入口、当前边界、运维和测试主题，后端/前端 local-analysis 导航及 Skill/Worker/交付文档。API、客户端和 MCP 契约及文档本轮不受影响。54 份 Markdown 的 485 个本地链接有效，Skill 结构、OpenSpec 严格校验和差异检查通过；详见 [交付验收](../../../../docs/analysis-validation/skill-package-validation.md)。本轮没有新任务、模型调用、提交、归档或云端部署。
+同步根知识库总入口、当前边界、运维和测试主题，后端/前端 local-analysis 导航及 Skill/Worker/交付文档。API、客户端和 MCP 契约及文档本轮不受影响。54 份 Markdown 的 485 个本地链接有效，Skill 结构、OpenSpec 严格校验和差异检查通过；详见 [交付验收](../../../../docs/validation/analysis/skill-package-validation.md)。本轮没有新任务、模型调用、提交、归档或云端部署。
 
 
 ## 2026-10-04 被替代方案历史归档

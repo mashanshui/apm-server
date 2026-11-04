@@ -19,6 +19,6 @@ Worker 唯一源码位于 `apm-crash-analyze/worker`。根 `agent-worker` 是指
 
 Worker 测试从 `agent-skills/apm-crash-analyze/worker` 执行 `uv run --locked pytest`。导出包只安装生产依赖，测试留在开发仓库，历史执行器说明仅作为验收档案保留。不要把开发目录递归压缩作为发布包，使用上述打包命令。
 
-独立安装与启动验证见 [交付验收](../docs/analysis-validation/skill-package-validation.md)。其他宿主实际任务兼容、质量及生产能力需要分别验证。
+独立安装与启动验证见 [交付验收](../docs/validation/analysis/skill-package-validation.md)。其他宿主实际任务兼容、质量及生产能力需要分别验证。
 
 当前最小配置及升级时保留配置步骤见[安装使用](apm-crash-analyze/README.md#最小配置)。首次配置不足时工具会提示文件位置，且不领取任务；doctor 不输出秘密。

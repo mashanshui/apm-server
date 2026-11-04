@@ -1,21 +1,15 @@
-# 单事件本地分析跨端验收
+# 单事件分析历史验收与质量样本
 
-本目录保留分层验收证据，带日期结果只描述当时的样本和环境。当前实现、构建与环境核验分别见[平台状态](../knowledge-base/00-当前实现与验证边界.md)、[后端测试](../../backend/docs/knowledge-base/06-测试与质量保障.md)；旧记录中的 Rhea 摘要失败已在后续制品核验中解决，历史云端资源已重置。控制面有限云端证据见[发布验收](cloud-current-code-validation.md)，源码分析/明确修复仍在宿主本地执行。
-
-Skill 随附 Worker 的 ZIP 交付与独立安装验证见 [交付验收](skill-package-validation.md)。
-
-**当前方案（2026-10-04）为宿主直接读取当前代码、明确授权时修改和测试；Python 管理任务/证据/租约/报告**，进度与证据见 [当前代码验收](current-code-validation.md)。原 2026-10-02 已改为宿主 Agent 直接分析，实现、自动化、真实 Codex 结果与停止未知见[宿主分析验收](host-analysis-validation.md)。下述固定 OpenCode/DeepSeek 与五例质量内容是历史记录，不代表当前任务仍使用该执行器。
-
-新增自然语言入口的宿主加载、受控行为和真实任务结果见 [apm-crash-analyze Skill 验收](skill-validation.md)。安装与调用说明见 [Skill README](../../agent-skills/apm-crash-analyze/README.md)，以下既有质量评估继续独立保留。
+本页完整保留 2026-10-01～2026-10-02 的阶段证据，原固定提交、OpenCode/DeepSeek 流程及测试数字仅描述当时结果。当前能力与后续阶段从[分析验收索引](README.md)进入；历史云端资源已经重置，旧记录中的 Rhea 摘要失败已在后续制品核验中解决。
 
 ## 已验证范围
 
-日期：2026-10-01。变更为 [add-local-crash-analysis](../../openspec/changes/archive/2026-10-04-add-local-crash-analysis/tasks.md)。本次保留 Performance 源码与签名配置，不部署新功能到云端。临时本地 PostgreSQL 16 使用 Flyway V1～V11，事件存储为明确启用的 memory 联调适配器，Dashboard 通过同源 Vite 代理访问真实后端。
+日期：2026-10-01。变更为 [add-local-crash-analysis](../../../openspec/changes/archive/2026-10-04-add-local-crash-analysis/tasks.md)。本次保留 Performance 源码与签名配置，不部署新功能到云端。临时本地 PostgreSQL 16 使用 Flyway V1～V11，事件存储为明确启用的 memory 联调适配器，Dashboard 通过同源 Vite 代理访问真实后端。
 
 | 层次 | 事实与限制 |
 |---|---|
 | 自动化 | 后端 264 项：260 通过、既有 processor SHA 失败 1、条件跳过 3；构建登记/任务 PostgreSQL 25 项通过。Python 68 项、前端 120 项通过，前端类型检查与生产构建通过；MCP 15 项通过 |
-| 真实模型合成任务 | 正式 Python CLI、Docker/OpenCode/DeepSeek 官方模型完成三行独立合成 Git 源码分析和回传；见 [Worker 记录](../../agent-skills/apm-crash-analyze/worker/validation.md)，不计入质量样本 |
+| 真实模型合成任务 | 正式 Python CLI、Docker/OpenCode/DeepSeek 官方模型完成三行独立合成 Git 源码分析和回传；见 [Worker 记录](../../../agent-skills/apm-crash-analyze/worker/validation.md)，不计入质量样本 |
 | Performance 构建 | 完整干净提交 d9ea6b51b39b1435c9c5d1aebad9ada8b9c10610；JBR 21 assembleRelease 成功，既有签名覆盖安装成功，拉取设备实际 base.apk 后 SHA-256 与本次产物相同，无源码/签名配置改动 |
 | 真机上报 | Android 10 设备触发现有崩溃按钮，重启后云端取得本次 buildId 的真实单事件；未保存设备序列号或安装标识到仓库 |
 | 本地重放 | 仅为开发验收按 buildId、近一小时、LIMIT 1 的有界云端查询取得事件，在临时本地应用重放同 eventId 和原始异常链；验收工具执行数据库查询，Worker 本身始终只调用授权 HTTP |
@@ -44,7 +38,7 @@ JAVA_HOME='/Users/mashanshui/Library/Java/JavaVirtualMachines/jbr-21.0.11/Conten
 
 ![网页单事件任务 READY](task-ready.jpg)
 
-文档归属：根知识库当前状态、安全/运维和导航；后端知识库存储/身份/运行与回归；前端知识库页面/状态/联调/测试/安全；[分析 API](../api/analysis-api.md)与登录/迁移说明；[客户端目录](../client-integration/README.md)增加试点链接。Android 事件契约、批量、持久化及重试规则不变。
+文档归属：根知识库当前状态、安全/运维和导航；后端知识库存储/身份/运行与回归；前端知识库页面/状态/联调/测试/安全；[分析 API](../../api/analysis-api.md)与登录/迁移说明；[客户端目录](../../client-integration/README.md)增加试点链接。Android 事件契约、批量、持久化及重试规则不变。
 
 ## 未完成验收
 
@@ -81,11 +75,11 @@ Run `a7c41ebf-0916-4b1e-a15b-c23102678e5c` 第一次执行成功，结论 ROOT_C
 
 ## 新增样本入口（2026-10-01）
 
-Performance 独立测试页增加主动异常、空指针、数组越界、运行时状态异常和异步外部输入异常。后两项由人工输入模拟状态/响应，同一异常分支不包含实际输入；它们用于检验分析是否承认实际输入及上游来源缺失。完整堆栈保持原 SDK 采集规则，不人为截断。该页面在 Debug/Release 中可用，签名和 SDK 上传契约不变。源码与操作说明见外部检出的 [Performance 示例应用](../../../../AndroidStudioProjects/Performance/docs/knowledge-base/10-示例应用与调试路径.md)；该链接依赖同级外部仓库。
+Performance 独立测试页增加主动异常、空指针、数组越界、运行时状态异常和异步外部输入异常。后两项由人工输入模拟状态/响应，同一异常分支不包含实际输入；它们用于检验分析是否承认实际输入及上游来源缺失。完整堆栈保持原 SDK 采集规则，不人为截断。该页面在 Debug/Release 中可用，签名和 SDK 上传契约不变。源码与操作说明见外部检出的 [Performance 示例应用](../../../../../AndroidStudioProjects/Performance/docs/knowledge-base/10-示例应用与调试路径.md)；该链接依赖同级外部仓库。
 
 新增页面、构建及设备烟测与五例模型质量验收分别记录。当前未把新增源码登记为已有固定提交，不以旧 HEAD 指代尚未提交的改动；未将新测试的存在计为质量样本通过。
 
-页面增量验证：Performance 应用 JVM 测试 6/6、Crash 页面 Release 仪器测试 3/3 通过；Android 10 设备上五类未捕获异常分别触发成功，其中外部输入异常发生在命名后台线程。Release APK 已沿用现有签名更新安装。此次新增样本尚未逐例核验服务端 eventId，也未执行正式模型质量评估；具体构建身份和截图见外部检出的 [Performance 构建测试](../../../../AndroidStudioProjects/Performance/docs/knowledge-base/11-构建测试与本地发布.md)。
+页面增量验证：Performance 应用 JVM 测试 6/6、Crash 页面 Release 仪器测试 3/3 通过；Android 10 设备上五类未捕获异常分别触发成功，其中外部输入异常发生在命名后台线程。Release APK 已沿用现有签名更新安装。此次新增样本尚未逐例核验服务端 eventId，也未执行正式模型质量评估；具体构建身份和截图见外部检出的 [Performance 构建测试](../../../../../AndroidStudioProjects/Performance/docs/knowledge-base/11-构建测试与本地发布.md)。
 
 ## 五例续跑首次阻塞记录（后续已解除）
 

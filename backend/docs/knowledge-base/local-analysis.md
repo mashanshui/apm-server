@@ -14,7 +14,7 @@ Run 使用稳定 requestId，同请求换任务冲突；新分配 snapshotId=nul
 
 V14 删除分析登记结构及重复列，保留终态 JSON 原字节、摘要和审计；活动旧任务或未确认停止 Run 阻止迁移。迁移与回退见 [存储](03-持久化与数据库迁移.md) 和 [部署](../../../docs/knowledge-base/07-部署与运维.md)。默认功能关闭；控制面和网页已有有限云端验收，执行位置仍在宿主本地，环境状态见[平台最近核验](../../../docs/knowledge-base/00-当前实现与验证边界.md#环境最近核验)。
 
-自动化与外部范围分别见[后端测试](06-测试与质量保障.md)和[当前代码验收](../../../docs/analysis-validation/current-code-validation.md)。正式契约见 [分析 API](../../../docs/api/analysis-api.md)，安装见 [Skill](../../../agent-skills/apm-crash-analyze/README.md)。
+自动化与外部范围分别见[后端测试](06-测试与质量保障.md)和[当前代码验收](../../../docs/validation/analysis/current-code-validation.md)。正式契约见 [分析 API](../../../docs/api/analysis-api.md)，安装见 [Skill](../../../agent-skills/apm-crash-analyze/README.md)。
 
 ## Run 可靠性与恢复
 

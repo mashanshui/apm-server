@@ -1,12 +1,12 @@
 # 接口正确性修复云端部署与验收（2026-10-05）
 
-本页是 2026-10-05 的独立验收证据。当前版本与数据以[环境最近核验](knowledge-base/00-当前实现与验证边界.md#环境最近核验)为准；2026-10-22 云端重置已删除这里的测试应用、事件、凭据和服务器备份，以下路径及截图仅作历史证据，不是可用恢复点或在线演示。
+本页是 2026-10-05 的独立验收证据。当前版本与数据以[环境最近核验](../knowledge-base/00-当前实现与验证边界.md#环境最近核验)为准；2026-10-22 云端重置已删除这里的测试应用、事件、凭据和服务器备份，以下路径及截图仅作历史证据，不是可用恢复点或在线演示。
 
 用户在完成本地 Rhea 制品核验和摘要更新后，明确授权部署云端测试。`fix-backend-api-correctness` 的后端、前端与 MCP 已发布到现有 `124.221.252.121` HTTP 调试环境；真实网关、PostgreSQL/JDBC 会话、ClickHouse、MCP 和登录后的 Edge 页面验证通过。本记录补充此前“本轮未部署云端”的历史记录，不扩大生产验收结论。
 
 ## 发布制品与备份
 
-SSH 使用既有 Mac 私钥和严格主机密钥校验，连接参数见[SSH 说明](cloud-ssh.md)。发布前确认已有五个容器健康、磁盘空间足够，保留服务器权限为 `600` 的 `.env.cloud`、数据库卷及既有应用。未修改密钥、密码、查询或分析开关。
+SSH 使用既有 Mac 私钥和严格主机密钥校验，连接参数见[SSH 说明](../operations/cloud-ssh.md)。发布前确认已有五个容器健康、磁盘空间足够，保留服务器权限为 `600` 的 `.env.cloud`、数据库卷及既有应用。未修改密钥、密码、查询或分析开关。
 
 | 项目 | 核验值 |
 |---|---|
@@ -54,21 +54,21 @@ PATCH 时间比较以更新前 GET 的数据库持久化值为基准；初版验
 
 Edge 实际登录后，卡顿页显示 ClickHouse 来源与完整 120 事件；点击“加载更多”从 50 个 Issue 到 60 个并显示全部；下钻最大 Issue，从 50 个事件加载到 61 个并显示全部，详情展示采样证据。内存报告页显示 2 个问题、总次数 4、A=3/B=1 与完整版本集合。以下是正式云端页面截图，未使用模拟 API：
 
-- [卡顿总览](../frontend/docs/knowledge-base/evidence/cloud-jank-overview-20261005.png)
-- [卡顿详情](../frontend/docs/knowledge-base/evidence/cloud-jank-detail-20261005.png)
-- [内存报告](../frontend/docs/knowledge-base/evidence/cloud-memory-reports-20261005.png)
+- [卡顿总览](../../frontend/docs/knowledge-base/evidence/cloud-jank-overview-20261005.png)
+- [卡顿详情](../../frontend/docs/knowledge-base/evidence/cloud-jank-detail-20261005.png)
+- [内存报告](../../frontend/docs/knowledge-base/evidence/cloud-memory-reports-20261005.png)
 
-原在线验收页面已随数据重置失效，使用上方截图核对历史展示。本轮没有人为制造浏览器失效游标；其页面恢复操作仍以[本地模拟 API 验收](../frontend/docs/knowledge-base/06-测试与质量保障.md#浏览器证据)为证，云端错误传播由 HTTP/MCP 直接验证。
+原在线验收页面已随数据重置失效，使用上方截图核对历史展示。本轮没有人为制造浏览器失效游标；其页面恢复操作仍以[本地模拟 API 验收](../../frontend/docs/knowledge-base/06-测试与质量保障.md#浏览器证据)为证，云端错误传播由 HTTP/MCP 直接验证。
 
 ## 仍未覆盖与文档归属
 
-生产 HTTPS、Secure=true、数据库网络收敛、多实例/并发容量、长期稳定性、备份恢复、真实 release mapping 专项和 Android 完整生命周期仍需各自验收。现有三个条件跳过项及启动条件见[后端最新构建记录](../backend/docs/knowledge-base/06-测试与质量保障.md#processor-制品校验)。本轮有限样本不能替代[本地查询资源基线](../backend/docs/knowledge-base/backend-api-query-validation.md)或生产性能证明。
+生产 HTTPS、Secure=true、数据库网络收敛、多实例/并发容量、长期稳定性、备份恢复、真实 release mapping 专项和 Android 完整生命周期仍需各自验收。现有三个条件跳过项及启动条件见[后端最新构建记录](../../backend/docs/knowledge-base/06-测试与质量保障.md#processor-制品校验)。本轮有限样本不能替代[本地查询资源基线](../../backend/docs/knowledge-base/backend-api-query-validation.md)或生产性能证明。
 
 本轮同步文件如下，并从 OpenSpec 任务记录关联本页：
 
-- 根知识库：[README](knowledge-base/README.md)、[00-当前实现与验证边界](knowledge-base/00-当前实现与验证边界.md)、[07-部署与运维](knowledge-base/07-部署与运维.md)、[08-测试与质量保障](knowledge-base/08-测试与质量保障.md)。
-- 后端知识库：[00-当前实现与验证边界](../backend/docs/knowledge-base/00-当前实现与验证边界.md)、[05-构建配置与本地运行](../backend/docs/knowledge-base/05-构建配置与本地运行.md)、[06-测试与质量保障](../backend/docs/knowledge-base/06-测试与质量保障.md)。
-- 前端知识库：[06-测试与质量保障](../frontend/docs/knowledge-base/06-测试与质量保障.md)、[07-部署安全与运行边界](../frontend/docs/knowledge-base/07-部署安全与运行边界.md)，以及三张页面截图。
+- 根知识库：[README](../knowledge-base/README.md)、[00-当前实现与验证边界](../knowledge-base/00-当前实现与验证边界.md)、[07-部署与运维](../knowledge-base/07-部署与运维.md)、[08-测试与质量保障](../knowledge-base/08-测试与质量保障.md)。
+- 后端知识库：[00-当前实现与验证边界](../../backend/docs/knowledge-base/00-当前实现与验证边界.md)、[05-构建配置与本地运行](../../backend/docs/knowledge-base/05-构建配置与本地运行.md)、[06-测试与质量保障](../../backend/docs/knowledge-base/06-测试与质量保障.md)。
+- 前端知识库：[06-测试与质量保障](../../frontend/docs/knowledge-base/06-测试与质量保障.md)、[07-部署安全与运行边界](../../frontend/docs/knowledge-base/07-部署安全与运行边界.md)，以及三张页面截图。
 - API 文档：此前实现已同步的契约继续有效；本次部署不新增 HTTP 契约，无需新增改动。
 - 客户端文档：上传、队列及重试步骤不变，无需新增改动。
 
@@ -76,8 +76,8 @@ Edge 实际登录后，卡顿页显示 ClickHouse 来源与完整 120 事件；�
 
 ## 2026-10-05 后续同步归档
 
-用户随后授权同步归档。六个能力的增量已同步至正式规范，19 个正式规范严格校验通过；本变更连同全部规划材料和 31/31 任务移至[2026-10-05 归档](../openspec/changes/archive/2026-10-05-fix-backend-api-correctness/tasks.md)。前文“未归档”为云端验收结束时的历史状态；本次仅同步规范和维护文档入口，没有再次部署或改变接口/客户端契约。
+用户随后授权同步归档。六个能力的增量已同步至正式规范，19 个正式规范严格校验通过；本变更连同全部规划材料和 31/31 任务移至[2026-10-05 归档](../../openspec/changes/archive/2026-10-05-fix-backend-api-correctness/tasks.md)。前文“未归档”为云端验收结束时的历史状态；本次仅同步规范和维护文档入口，没有再次部署或改变接口/客户端契约。
 
 归档后复核六份增量均与正式规范对应、`.openspec.yaml` 保留、原活动目录消失；`openspec list --json` 没有活动变更。48 篇修改/新增 Markdown 的链接、锚点和围栏检查通过，`git diff --check` 通过。归档任务校验中本变更有效；CLI 的 `--archived` 会检查全部归档，仍因三份历史变更各有一项未完成任务而整体失败：`2026-08-26-add-auth-project-workspace`、`2026-08-27-add-jank-monitoring-server`、`2026-09-13-add-memory-leak-reports`。这些既有记录本次未修改，不能将全库归档校验记为全绿。
 
-归档阶段的知识库同步文件为根 [README](knowledge-base/README.md)/[09-实施路线图](knowledge-base/09-实施路线图.md)、后端 [README](../backend/docs/knowledge-base/README.md)、前端 [README](../frontend/docs/knowledge-base/README.md)及本页；API 与客户端文档没有新增改动。
+归档阶段的知识库同步文件为根 [README](../knowledge-base/README.md)/[09-实施路线图](../knowledge-base/09-实施路线图.md)、后端 [README](../../backend/docs/knowledge-base/README.md)、前端 [README](../../frontend/docs/knowledge-base/README.md)及本页；API 与客户端文档没有新增改动。

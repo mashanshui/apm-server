@@ -132,4 +132,4 @@ Grafana JSON 位于 `backend/src/main/resources/grafana/dashboards/jvm-crash.jso
 
 ## Agent 只读查询边界
 
-只读 Agent HTTP 入口复用 Crash、卡顿和内存查询服务，共 19 个 GET 路由；MCP 提供对应 19 个工具。Crash 已改为 ClickHouse 聚合下推、逻辑事件去重和版本化游标。具体业务字段仍以各领域 API 为准；认证、额度和证据边界见 [Agent HTTP API](../api/agent-query-api.md) 与 [MCP API](../api/mcp-api.md)。本地真实客户端全链路已验收；有限云端有效 Token 查询见[接口证据](../backend-api-cloud-validation.md)；HTTPS 与生产容量尚未验收。
+只读 Agent HTTP 入口复用 Crash、卡顿和内存查询服务，共 19 个 GET 路由；MCP 提供对应 19 个工具。Crash 已改为 ClickHouse 聚合下推、逻辑事件去重和版本化游标。具体业务字段仍以各领域 API 为准；认证、额度和证据边界见 [Agent HTTP API](../api/agent-query-api.md) 与 [MCP API](../api/mcp-api.md)。本地真实客户端全链路已验收；有限云端有效 Token 查询见[接口证据](../validation/backend-api-cloud-validation.md)；HTTPS 与生产容量尚未验收。

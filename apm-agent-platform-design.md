@@ -1,12 +1,12 @@
-> 2026-10-04 当前实现：宿主直接读取、明确授权时修改/验证当前代码；Python 只管理配置、冻结证据、Run/租约、引用提交时核对与报告回传。结果版本 4，旧快照和补丁工具方案保留历史。详见 [当前验收](docs/analysis-validation/current-code-validation.md)。
+> 2026-10-04 当前实现：宿主直接读取、明确授权时修改/验证当前代码；Python 只管理配置、冻结证据、Run/租约、引用提交时核对与报告回传。结果版本 4，旧快照和补丁工具方案保留历史。详见 [当前验收](docs/validation/analysis/current-code-validation.md)。
 
 # APM Agent 平台设计与分阶段实施方案
 
 > 状态：设计草案，尚未实现，不作为已发布 API 或生产能力承诺。
 > 更新日期：2026-09-26。
 > 2026-10-01 首个实施单元调整：已确认先按单次 JVM Crash eventId 实现本地只读分析，Python Worker 使用固定 OpenCode/DeepSeek 官方模型。下文 Jank 窗口分析、TypeScript Worker、修复与云端执行为后续规划；现有只读 TypeScript MCP 保留。当前实现与验证见 [后端分析记录](backend/docs/knowledge-base/local-analysis.md) 和 [首版 OpenSpec](openspec/changes/archive/2026-10-04-add-local-crash-analysis/design.md)。任何只读 Run 也必须先确认旧环境停止才能重试。
-> 2026-10-02 自然语言入口增量：交付 [apm-crash-analyze Skill](agent-skills/apm-crash-analyze/SKILL.md)，由宿主 Agent 接收已有 `taskId` 并调用 Python CLI。任务创建继续使用网页 Session/CSRF；实际分析仍为隔离 OpenCode 与预配置 DeepSeek，宿主模型只负责启动及解释执行概述。安装与环境注入见 [使用说明](agent-skills/apm-crash-analyze/README.md)，宿主加载、真实调用及模型质量分别见 [Skill 验收](docs/analysis-validation/skill-validation.md)。不新增模型管理、修复审批或云端调度。
-> 2026-10-02 后续执行方案已替换：新任务由当前宿主 Agent 直接分析，Python 提供 prepare/read/search/submit、租约看护和引用核验，不启动 OpenCode 或调用 DeepSeek。下文 OpenCode/TypeScript Worker 隔离设计为后续平台参考及历史目标，当前宿主方案不承诺同等模型预算或中止控制。工具关闭、宿主停止和报告保存分别记录；详见 [宿主验收](docs/analysis-validation/host-analysis-validation.md) 与 [该阶段历史设计](openspec/changes/archive/2026-10-04-add-local-crash-analysis/design.md)。
+> 2026-10-02 自然语言入口增量：交付 [apm-crash-analyze Skill](agent-skills/apm-crash-analyze/SKILL.md)，由宿主 Agent 接收已有 `taskId` 并调用 Python CLI。任务创建继续使用网页 Session/CSRF；实际分析仍为隔离 OpenCode 与预配置 DeepSeek，宿主模型只负责启动及解释执行概述。安装与环境注入见 [使用说明](agent-skills/apm-crash-analyze/README.md)，宿主加载、真实调用及模型质量分别见 [Skill 验收](docs/validation/analysis/skill-validation.md)。不新增模型管理、修复审批或云端调度。
+> 2026-10-02 后续执行方案已替换：新任务由当前宿主 Agent 直接分析，Python 提供 prepare/read/search/submit、租约看护和引用核验，不启动 OpenCode 或调用 DeepSeek。下文 OpenCode/TypeScript Worker 隔离设计为后续平台参考及历史目标，当前宿主方案不承诺同等模型预算或中止控制。工具关闭、宿主停止和报告保存分别记录；详见 [宿主验收](docs/validation/analysis/host-analysis-validation.md) 与 [该阶段历史设计](openspec/changes/archive/2026-10-04-add-local-crash-analysis/design.md)。
 
 > 范围：在现有 APM 项目上增量实现只读分析，再按验收结果接入审批、隔离修复与 CI 验证。
 

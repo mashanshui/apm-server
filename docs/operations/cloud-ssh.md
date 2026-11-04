@@ -1,6 +1,6 @@
 # 云服务器 SSH 连接说明
 
-连接授权以[仓库协作规则](../AGENTS.md#云服务器访问)为准。以下参数与历史记录从根规则迁入；2026-09-29 已核对服务器主机指纹，并用新 Mac 客户端密钥完成免交互 SSH 登录。
+连接授权以[仓库协作规则](../../AGENTS.md#云服务器访问)为准。以下参数与历史记录从根规则迁入；2026-09-29 已核对服务器主机指纹，并用新 Mac 客户端密钥完成免交互 SSH 登录。
 
 ## 连接参数
 
@@ -17,4 +17,4 @@
 ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=15 -o IdentitiesOnly=yes -i "$HOME/.ssh/apm_cloud_mac" ubuntu@124.221.252.121 'id; hostname'
 ```
 
-2026-09-29 使用新 Mac 密钥再次验证免交互登录成功，远程用户为 `ubuntu`，主机名为 `VM-0-4-ubuntu`；`sudo -n docker compose ps` 成功。部署及接口冒烟结果见[Agent 查询链路验收记录](agent-query-e2e-validation.md#2026-09-29-云端部署与入口冒烟)。更换本机环境后，先检查私钥是否存在和主机信任记录是否已配置，不要自动覆盖或重新生成现有密钥。
+2026-09-29 使用新 Mac 密钥再次验证免交互登录成功，远程用户为 `ubuntu`，主机名为 `VM-0-4-ubuntu`；`sudo -n docker compose ps` 成功。部署及接口冒烟结果见[Agent 查询链路验收记录](../validation/agent-query-e2e-validation.md#2026-09-29-云端部署与入口冒烟)。更换本机环境后，先检查私钥是否存在和主机信任记录是否已配置，不要自动覆盖或重新生成现有密钥。

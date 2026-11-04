@@ -10,7 +10,7 @@ Task/Run 均后端分页（每页 20，页码至多 1000）。活动任务及停
 
 AppSettingsView 的 AnalysisAdminPanel 仅管理应用 Worker 名称、创建/分页/撤销；不发出 analysis-builds 请求，不登记源码或配置模型。完整凭据仅组件内存显示一次、主动复制，关闭、离页、角色/应用切换或认证到期清空，不写浏览器存储。创建结果未知提示核对并撤销，不自动重复创建。
 
-所有模型内容和命令用普通 Vue 文本插值，禁止解析 HTML/Markdown。分析面板沿用 meta-item 和统一内边距，长 UUID 可换行。自动化与真实浏览器范围分别见[前端测试](06-测试与质量保障.md)和[当前代码验收](../../../docs/analysis-validation/current-code-validation.md)。
+所有模型内容和命令用普通 Vue 文本插值，禁止解析 HTML/Markdown。分析面板沿用 meta-item 和统一内边距，长 UUID 可换行。自动化与真实浏览器范围分别见[前端测试](06-测试与质量保障.md)和[当前代码验收](../../../docs/validation/analysis/current-code-validation.md)。
 
 入口见 [Skill](../../../agent-skills/apm-crash-analyze/README.md)、[Worker](../../../agent-skills/apm-crash-analyze/worker/README.md) 和 [分析 API](../../../docs/api/analysis-api.md)。原 Crash 原始堆栈与实时 mapping 详情保留。
 
@@ -18,4 +18,4 @@ AppSettingsView 的 AnalysisAdminPanel 仅管理应用 Worker 名称、创建/�
 
 新报告中的宿主名称来自自报，模型/用量无法核验时显示未知；旧版本按原字段展示，不提供旧执行入口。SUCCEEDED 与 hostStopState=UNKNOWN 可同时存在，页面分别展示工具关闭、宿主停止与实际核验依据。管理员须核验本次宿主分析结束后才能确认整体停止，不能用模型回答代替。
 
-长任务 ID 可换行，标题与正文沿用统一卡片内边距和 meta-item 样式；不保留单次样式修复流水。有限历史模型评估和页面截图由[跨端验收](../../../docs/analysis-validation/README.md)维护，不代表当前生产修复质量。
+长任务 ID 可换行，标题与正文沿用统一卡片内边距和 meta-item 样式；不保留单次样式修复流水。有限历史模型评估和页面截图由[跨端历史验收](../../../docs/validation/analysis/historical-analysis-validation.md)维护，不代表当前生产修复质量。

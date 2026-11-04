@@ -26,5 +26,5 @@
 
 - 本目录记录服务端正式契约；代码、控制器和 JSON Schema 是当前实现事实来源。
 - Android SDK 对接步骤放在 `docs/client-integration/`，不在 API 文档中重复维护客户端队列与采集实现。
-- 固定数据集、性能基线、数据库初始化和部署文档继续保留在 `docs/` 下，通过对应 API 文档建立链接。
+- 固定样本见[数据集目录](../datasets/README.md)，数据库初始化与部署见[运维资料](../operations/README.md)，独立跨端证据见[验收资料](../validation/README.md)；后端性能基线由[后端知识库](../../backend/docs/knowledge-base/README.md)维护，通过对应 API 文档建立链接。
 - API、错误码或统计口径变化时，应同时更新对应控制器测试、专项文档和[平台知识库](../knowledge-base/README.md)。

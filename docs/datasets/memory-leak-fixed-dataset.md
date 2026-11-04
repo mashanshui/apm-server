@@ -20,4 +20,4 @@ metadata 使用必填 UUID v4 `processId` 标识进程实例；`sessionId` 仍�
 
 ## 2026-10-04 查询完整性增量
 
-新增真实 ClickHouse 逐字段对照覆盖 A=3/B=1、超过 100 个问题、重复报告/路径、空报告、字面特殊字符、全部排序和末页。万份三路径报告以及 150 个版本完整集合的资源检查见[查询验收](../backend/docs/knowledge-base/backend-api-query-validation.md)。旧固定集的人工期望值和上传入口不变。
+新增真实 ClickHouse 逐字段对照覆盖 A=3/B=1、超过 100 个问题、重复报告/路径、空报告、字面特殊字符、全部排序和末页。万份三路径报告以及 150 个版本完整集合的资源检查见[查询验收](../../backend/docs/knowledge-base/backend-api-query-validation.md)。旧固定集的人工期望值和上传入口不变。

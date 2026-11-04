@@ -2,7 +2,7 @@
 
 ## 灰度顺序
 
-1. 执行 backend/src/main/resources/db/clickhouse/001_crash_schema.sql，验证原始表、明细表和两个小时聚合对象可重复初始化。
+1. 确认数据库结构符合当前版本；新空库按[ClickHouse 初始化](clickhouse-local.md#空库初始化与已有数据边界)执行 `001～007`，已有数据环境不得重跑整套脚本，尤其不能绕过 `004` 的空表前提。
 2. 生产默认使用 ClickHouse；如需隔离外部依赖，可临时以 `APM_STORAGE_MODE=memory` 联调 API 和固定数据集，验收后恢复 ClickHouse。
 3. Android SDK 只灰度发送 JVM fatal Crash，保留本地队列并观察 accepted、rejected、duplicate 和临时失败重试。
 4. 通过 Grafana 检查总览、趋势、问题排行、版本对比、无数据、分母不足和详情下钻。
@@ -25,4 +25,4 @@ apm.clickhouse.enabled=true
 - 发现 Dashboard 查询异常：只下线 Crash Dashboard，不改写已写入的原始事件和事件 ID。
 - 修复后先用固定数据集验证去重和分母，再恢复灰度。
 
-回滚不使用 git reset 或删除 ClickHouse 表；历史原始事件和聚合数据按保留策略继续保存。正式生产环境还需要把开发期请求头权限替换为真实登录、Session/OIDC 与项目成员授权。
+回滚不使用 git reset 或删除 ClickHouse 表；历史原始事件和聚合数据按保留策略继续保存。当前网页已实现真实登录、Session、CSRF 和应用成员授权，Android 上报使用独立 App Key；OIDC 尚未实现。身份边界见[安全与隐私](../knowledge-base/06-安全与隐私.md)。

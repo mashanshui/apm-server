@@ -1,6 +1,8 @@
 # 当前代码分析与本地修复验收
 
-日期：2026-10-03。实施变更 [add-current-code-crash-fix](../../openspec/changes/archive/2026-10-04-add-current-code-crash-fix/tasks.md) 替代原固定提交方案；原 46 项完成及五例质量记录仍为历史，不重新计为本次修复质量。
+本页是带日期的阶段验收证据，工具、版本和测试数字只描述当时结果。当前流程与后续证据见[分析验收索引](README.md)，旧应用、凭据及备份是否仍可用以[平台状态](../../knowledge-base/00-当前实现与验证边界.md#环境最近核验)为准。
+
+日期：2026-10-03。实施变更 [add-current-code-crash-fix](../../../openspec/changes/archive/2026-10-04-add-current-code-crash-fix/tasks.md) 替代原固定提交方案；原 46 项完成及五例质量记录仍为历史，不重新计为本次修复质量。
 
 ## 切换前停止核验
 
@@ -74,7 +76,7 @@ Task 7b7b1a3c-208b-4016-9b01-065feb54e04b，Run 6f680ede-fec7-4ed5-bc3d-8ae70f23
 - API：docs/api/README.md、analysis-api.md、app-api.md；删除分析登记接口、新证据与结果、应用 Worker、V14 和历史只读说明。原 Crash/符号表与只读 MCP 契约核对未变。
 - 客户端：docs/client-integration/README.md 追加当前验收导航；Crash buildId、mapping、事件字段、队列和重试文档核对未改契约。
 - Skill/Worker：agent-skills/README.md、apm-crash-analyze/SKILL.md、README.md、agents/openai.yaml、worker/README.md；旧 worker/validation.md 去掉已删除配置的本地链接，内容仍为历史。
-- 验收：analysis-validation/README.md、current-code-validation.md、skill-package-validation.md 及四张当前页面截图。
+- 验收：docs/validation/analysis/README.md、current-code-validation.md、skill-package-validation.md 及四张当前页面截图。
 - Performance 外部项目知识库：README、00 项目概览与能力状态、10 示例应用与调试路径、11 构建测试与本地发布；新增专用样本及三项契约测试，受控修复仅一个方法。
 
 最终核对：96 个 Markdown 文件的 888 个本地文件链接全部有效；两个仓库 git diff --check 通过；Skill quick_validate 通过；ZIP 20 个公开文件逐字节与当前源码一致；OpenSpec 严格验证通过。源码、自动化、真实本地服务与受控宿主质量分别记录，未部署云端或自动归档。

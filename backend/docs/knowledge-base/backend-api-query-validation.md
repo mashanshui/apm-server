@@ -26,7 +26,7 @@ JAVA_HOME=$(/usr/libexec/java_home -v 21) bash backend/gradlew -p backend test -
 
 `AuthenticationHttpPostgresTests` 四项使用真实 Servlet、随机端口、PostgreSQL JDBC 会话及独立 Cookie 容器，覆盖旧 Session 拒绝、首个 PATCH、CSRF 刷新、退出、网页/Agent/Worker 框架错误、Jank 跨页和详情、报告末页和趋势及 Token 应用隔离。该 HTTP 查询综合样本使用内存事实适配器；ClickHouse 语义及预算由独立真实数据库测试证明，没有将其描述为 HTTP + ClickHouse 一条综合链路。
 
-前端本地 Vite + 模拟 API 页面通过浏览器检查：总览 422 的缩小范围提示、成功 Issue 保留、续页 INVALID_CURSOR 后“重新查询”替换第一页及恢复分页。[页面截图](../../../frontend/docs/knowledge-base/evidence/jank-query-recovery.jpg)属于模拟 API 视觉验收。此记录仅针对当日本地验收；后续有限云端验证见[云端接口记录](../../../docs/backend-api-cloud-validation.md)，当前环境见[平台状态](../../../docs/knowledge-base/00-当前实现与验证边界.md#环境最近核验)。HTTPS 与生产安全及容量仍独立验收。
+前端本地 Vite + 模拟 API 页面通过浏览器检查：总览 422 的缩小范围提示、成功 Issue 保留、续页 INVALID_CURSOR 后“重新查询”替换第一页及恢复分页。[页面截图](../../../frontend/docs/knowledge-base/evidence/jank-query-recovery.jpg)属于模拟 API 视觉验收。此记录仅针对当日本地验收；后续有限云端验证见[云端接口记录](../../../docs/validation/backend-api-cloud-validation.md)，当前环境见[平台状态](../../../docs/knowledge-base/00-当前实现与验证边界.md#环境最近核验)。HTTPS 与生产安全及容量仍独立验收。
 
 ## 十万卡顿事件
 

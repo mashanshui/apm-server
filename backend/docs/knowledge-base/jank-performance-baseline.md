@@ -52,7 +52,7 @@ JAVA_HOME="$(/usr/libexec/java_home -v 21)" \
 | 时间桶 | FPS 按 UTC 小时、挂起率按 UTC 天，并保持算法版本隔离 |
 | 初始化保护 | 受影响业务表非空时拒绝 004，不静默删除 |
 
-完整夹具与计算见[固定数据集](../../../docs/jank-fixed-dataset.md)。当前复验命令（根目录）：
+完整夹具与计算见[固定数据集](../../../docs/datasets/jank-fixed-dataset.md)。当前复验命令（根目录）：
 
 ```bash
 python3 scripts/validate-jank-clickhouse.py

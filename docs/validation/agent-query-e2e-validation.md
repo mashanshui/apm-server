@@ -15,10 +15,10 @@
 ## 自动化与边界
 
 - MCP 测试覆盖 19 工具路由映射、输入白名单、双应用隔离、字段语义、详情分片与摘要、输出上限、错误/取消、Host/Origin、HTTP 调试接入和撤销，15 个用例通过；TypeScript 类型检查和构建通过。
-- 云端部署脚本的最小 MCP 打包内容另行复制到隔离临时目录，并从该目录成功构建 Docker 镜像；脚本语法检查通过。历史默认私钥 `~/.ssh/apm_cloud` 不在本机；用户授权新 Mac 公钥后，已用 `~/.ssh/apm_cloud_mac` 严格校验主机密钥并完成云端部署，详情见[SSH 说明](cloud-ssh.md)和下文云端冒烟。
+- 云端部署脚本的最小 MCP 打包内容另行复制到隔离临时目录，并从该目录成功构建 Docker 镜像；脚本语法检查通过。历史默认私钥 `~/.ssh/apm_cloud` 不在本机；用户授权新 Mac 公钥后，已用 `~/.ssh/apm_cloud_mac` 严格校验主机密钥并完成云端部署，详情见[SSH 说明](../operations/cloud-ssh.md)和下文云端冒烟。
 - 前端 42 个测试文件、106 个用例通过；类型检查和生产构建通过。组件和模拟浏览器结果不能代替真实浏览器创建 Token。
-- 后端新功能的定向测试及 ClickHouse 真实查询测试通过。全量测试执行 239 个用例，1 个与本变更无关的 Rhea fat JAR 本地摘要断言失败，3 个跳过；失败原因和测试入口见[后端测试与质量保障](../backend/docs/knowledge-base/06-测试与质量保障.md)。
-- Crash 使用 1 万、10 万、100 万合成事件测量；百万级宽查询触发明确资源限制，窄时间窗按下推条件扫描，具体环境与数值见[Crash 查询基线](../backend/docs/knowledge-base/crash-query-performance-baseline.md)。
+- 后端新功能的定向测试及 ClickHouse 真实查询测试通过。全量测试执行 239 个用例，1 个与本变更无关的 Rhea fat JAR 本地摘要断言失败，3 个跳过；失败原因和测试入口见[后端测试与质量保障](../../backend/docs/knowledge-base/06-测试与质量保障.md)。
+- Crash 使用 1 万、10 万、100 万合成事件测量；百万级宽查询触发明确资源限制，窄时间窗按下推条件扫描，具体环境与数值见[Crash 查询基线](../../backend/docs/knowledge-base/crash-query-performance-baseline.md)。
 - 尚未验证真实 HTTPS 反向代理、实际 Android 卡顿 ZIP 全链路、生产容量及跨浏览器行为。云端仅完成有限的部署和无凭据入口冒烟，不能据此宣称完整云端查询链路已验收。
 
 验收文档只保留脱敏统计，不记录完整 Token、应用 Key 或实际密钥。临时脚本将创建响应保存在权限为 600 的本地临时文件中，测试结束后撤销 Token 并删除文件。
