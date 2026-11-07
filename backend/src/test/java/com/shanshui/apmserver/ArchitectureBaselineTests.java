@@ -33,7 +33,7 @@ class ArchitectureBaselineTests {
             Map.entry("crash", Set.of("identity", "telemetry", "symbol", "platform")),
             Map.entry("jank", Set.of("identity", "telemetry", "symbol", "platform")),
             Map.entry("memory", Set.of("identity", "telemetry", "platform")),
-            Map.entry("symbol", Set.of("identity", "platform")),
+            Map.entry("symbol", Set.of("identity", "platform", "crash")),
             Map.entry("agentquery", Set.of("identity", "crash", "jank", "memory", "platform")),
             Map.entry("agent", Set.of("identity", "crash", "symbol", "telemetry", "platform")),
             Map.entry("platform", Set.of()));

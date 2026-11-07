@@ -44,7 +44,7 @@ class SymbolManagementServiceTests {
         SymbolFileStore.StagedFile staged = staged("disk-staged");
         when(store.stage(any(InputStream.class), eq(properties.getMaxFileBytes()))).thenReturn(staged);
         doNothing().when(retrace).validate(staged.path());
-        when(repository.findByAppIdAndBuildId(any(), eq("release-1"))).thenReturn(Optional.empty());
+        when(repository.findByAppIdAndBuildIdAndDeletedAtIsNull(any(), eq("release-1"))).thenReturn(Optional.empty());
         when(store.publish(staged)).thenThrow(new SymbolStoreUnavailableException("disk unavailable"));
         SymbolManagementService service = service(repository, writer, store, retrace, properties);
 
@@ -66,7 +66,7 @@ class SymbolManagementServiceTests {
         R8RetraceEngine retrace = mock(R8RetraceEngine.class);
         SymbolFileStore.StagedFile staged = staged("database-staged");
         when(store.stage(any(InputStream.class), eq(properties.getMaxFileBytes()))).thenReturn(staged);
-        when(repository.findByAppIdAndBuildId(any(), eq("release-2")))
+        when(repository.findByAppIdAndBuildIdAndDeletedAtIsNull(any(), eq("release-2")))
                 .thenThrow(new DataAccessResourceFailureException("database unavailable"));
         SymbolManagementService service = service(repository, writer, store, retrace, properties);
 
@@ -78,9 +78,9 @@ class SymbolManagementServiceTests {
         verifyNoMoreInteractions(writer);
     }
 
-    /** 替换事务失败时只回收新发布文件，保留数据库仍引用的旧文件。 */
+    /** 替换提交确认未知时保留新旧文件，不能误删可能已被引用的新文件。 */
     @Test
-    void retiresNewFileButNeverCurrentFileWhenReplacementFails() {
+    void preservesBothFilesWhenReplacementCommitIsUnknown() {
         SymbolProperties properties = properties();
         SymbolFileRepository repository = mock(SymbolFileRepository.class);
         SymbolRecordWriter writer = mock(SymbolRecordWriter.class);
@@ -104,7 +104,7 @@ class SymbolManagementServiceTests {
                 () -> service.replace(appId, symbolId, UUID.randomUUID(), 1,
                         new MockMultipartFile("file", "new.txt", "text/plain", "mapping".getBytes())));
 
-        verify(store).retire(newKey);
+        verify(store, never()).retire(newKey);
         verify(store, never()).retire(oldKey);
     }
 

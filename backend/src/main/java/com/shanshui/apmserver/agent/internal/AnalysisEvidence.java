@@ -39,35 +39,35 @@ public final class AnalysisEvidence {
         event.put("appVersion", detail.appVersion());
         event.put("versionCode", detail.versionCode());
         event.put("osVersion", detail.osVersion());
-        // 原始链保持帧与异常顺序，消息内容执行统一脱敏。
-        List<Map<String, Object>> chain = new ArrayList<>();
-        for (var throwable : detail.rawCrash().throwableChain()) {
-            Map<String, Object> node = new LinkedHashMap<>(); // 单个异常节点。
-            node.put("type", redact(throwable.type()));
-            node.put("message", redact(throwable.message()));
-            node.put("frames", throwable.frames().stream().map(frame -> new com.shanshui.apmserver.telemetry.api.StackFrame(
-                    redact(frame.className()), redact(frame.methodName()), redact(frame.fileName()),
-                    frame.lineNumber(), frame.applicationFrame())).toList());
-            chain.add(node);
+        // 片段只保存当前一种载荷，不复制已不存在的原始材料。
+        Object content;
+        if ("raw_chain".equals(detail.stack().format())) {
+            var raw = (com.shanshui.apmserver.crash.api.CrashPayload) detail.stack().content();
+            content = new com.shanshui.apmserver.crash.api.CrashPayload(raw.kind(), raw.fatal(), raw.throwableChain().stream()
+                    .map(node -> new com.shanshui.apmserver.crash.api.ThrowableNode(redact(node.type()), redact(node.message()),
+                            node.frames().stream().map(frame -> new com.shanshui.apmserver.telemetry.api.StackFrame(
+                                    redact(frame.className()), redact(frame.methodName()), redact(frame.fileName()), frame.lineNumber(), frame.applicationFrame())).toList())).toList());
+        } else {
+            content = redact((String) detail.stack().content());
         }
-        // 片段标识由服务端生成，供后续结果校验归属。
-        List<Map<String, Object>> fragments = new ArrayList<>();
-        fragments.add(Map.of("id", "raw-crash", "kind", "jvm-crash", "content", chain));
-        if (detail.symbolicatedStackText() != null) {
-            fragments.add(Map.of("id", "retrace", "kind", "retrace", "text", redact(detail.symbolicatedStackText())));
-        }
+        List<Map<String, Object>> fragments = List.of(Map.of("id", "crash-stack", "kind", "crash-stack",
+                "format", detail.stack().format(), "content", content));
+        event.put("crashKind", detail.crashKind());
+        event.put("fatal", detail.fatal());
+        event.put("groupingKind", detail.groupingKind());
         // 冻结所有关联版本；不包含登记核验备注，避免传出人工备注中的身份材料。
         Map<String, Object> evidence = new LinkedHashMap<>();
-        evidence.put("schemaVersion", 2);
+        evidence.put("schemaVersion", 3);
         evidence.put("evidenceId", evidenceId);
         evidence.put("event", event);
         // 不存在 mapping 时不制造版本或摘要。
         Map<String, Object> symbol = new LinkedHashMap<>();
         symbol.put("symbolId", detail.symbolFileId());
         symbol.put("revision", detail.symbolFileRevision());
-        symbol.put("sha256", snapshot.mappingSha256());
+        symbol.put("sha256", detail.symbolFileSha256());
         symbol.put("status", detail.symbolicationStatus());
         symbol.put("reason", detail.symbolicationReason());
+        symbol.put("processedAt", detail.processedAt());
         evidence.put("mapping", symbol);
         evidence.put("fragments", fragments);
         return mapper.writeValueAsString(evidence);

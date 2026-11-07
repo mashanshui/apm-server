@@ -16,5 +16,6 @@ public record CrashEventSummary(
         String anonymousDeviceId,
         String exceptionType,
         String fingerprint,
-        String symbolicationStatus) {
+        String symbolicationStatus,
+        /** temporary 或 resolved。 */ String groupingKind) {
 }

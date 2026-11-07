@@ -33,7 +33,7 @@ public class AnalysisMaintenance {
     public void sweep() {
         if (!enabled) stopDisabled();
         // 同时识别租约到期、总时间上限及执行凭据失效；不加载业务 Crash 数据。
-        List<UUID> expired = jdbc.queryForList("SELECT r.run_id FROM crash_analysis_run r JOIN analysis_worker_credential c ON c.credential_id=r.credential_id WHERE r.state='RUNNING' AND (r.lease_expires_at<=clock_timestamp() OR r.deadline_at<=clock_timestamp() OR c.revoked_at IS NOT NULL OR c.expires_at<=clock_timestamp()) ORDER BY r.lease_expires_at,r.run_id LIMIT 100", UUID.class);
+        List<UUID> expired = jdbc.queryForList("SELECT r.run_id FROM crash_analysis_run r JOIN analysis_worker_credential c ON c.credential_id=r.credential_id JOIN crash_analysis_task t ON t.task_id=r.task_id AND t.contract_version=3 WHERE r.state='RUNNING' AND (r.lease_expires_at<=clock_timestamp() OR r.deadline_at<=clock_timestamp() OR c.revoked_at IS NOT NULL OR c.expires_at<=clock_timestamp()) ORDER BY r.lease_expires_at,r.run_id LIMIT 100", UUID.class);
         for (UUID runId : expired) {
             // 仅从本次最多百条候选读取应用锁标识。
             UUID appId = jdbc.queryForObject("SELECT app_id FROM crash_analysis_run WHERE run_id=?", UUID.class, runId);
@@ -50,10 +50,10 @@ public class AnalysisMaintenance {
     /** 功能关闭后取消待启动任务，已运行的任务等待 Worker 停止确认。 */
     private void stopDisabled() {
         // 每批有限任务避免停用时产生大事务。
-        List<UUID> ids = jdbc.queryForList("SELECT task_id FROM crash_analysis_task WHERE state IN ('BLOCKED','READY','RUNNING') ORDER BY created_at,task_id LIMIT 100", UUID.class);
+        List<UUID> ids = jdbc.queryForList("SELECT task_id FROM crash_analysis_task WHERE contract_version=3 AND state IN ('BLOCKED','READY','RUNNING') ORDER BY created_at,task_id LIMIT 100", UUID.class);
         for (UUID id : ids) {
             // 此处仅使用平台生成的任务标识，不接受调用方应用扩权。
-            UUID appId = jdbc.queryForObject("SELECT app_id FROM crash_analysis_task WHERE task_id=?", UUID.class, id);
+            UUID appId = jdbc.queryForObject("SELECT app_id FROM crash_analysis_task WHERE contract_version=3 AND task_id=?", UUID.class, id);
             transaction.executeWithoutResult(status -> {
                 lock(appId);
                 jdbc.update("UPDATE crash_analysis_task SET state=CASE WHEN state='RUNNING' THEN 'CANCELLING' ELSE 'CANCELLED' END,terminal_at=CASE WHEN state='RUNNING' THEN NULL ELSE clock_timestamp() END,preparation_generation=preparation_generation+1,block_reason=NULL WHERE app_id=? AND task_id=? AND state IN ('BLOCKED','READY','RUNNING')", appId, id);
@@ -64,10 +64,10 @@ public class AnalysisMaintenance {
     /** 终态保留三十天正文，停止尚未确认的任何 Run 均不得清理。 */
     private void expireContents() {
         // 索引先按终态时间过滤，最多百条进入逐任务事务。
-        List<UUID> ids = jdbc.queryForList("SELECT t.task_id FROM crash_analysis_task t WHERE t.content_expired=false AND t.state IN ('SUCCEEDED','FAILED','CANCELLED') AND t.terminal_at<clock_timestamp()-INTERVAL '30 days' AND NOT EXISTS(SELECT 1 FROM crash_analysis_run r WHERE r.task_id=t.task_id AND r.stop_confirmed=false) ORDER BY t.terminal_at,t.task_id LIMIT 100", UUID.class);
+        List<UUID> ids = jdbc.queryForList("SELECT t.task_id FROM crash_analysis_task t WHERE t.contract_version=3 AND t.content_expired=false AND t.state IN ('SUCCEEDED','FAILED','CANCELLED') AND t.terminal_at<clock_timestamp()-INTERVAL '30 days' AND NOT EXISTS(SELECT 1 FROM crash_analysis_run r WHERE r.task_id=t.task_id AND r.stop_confirmed=false) ORDER BY t.terminal_at,t.task_id LIMIT 100", UUID.class);
         for (UUID id : ids) {
             // 等待锁后必须重复状态条件，防止刚重试的活动证据被清理。
-            UUID appId = jdbc.queryForObject("SELECT app_id FROM crash_analysis_task WHERE task_id=?", UUID.class, id);
+            UUID appId = jdbc.queryForObject("SELECT app_id FROM crash_analysis_task WHERE contract_version=3 AND task_id=?", UUID.class, id);
             transaction.executeWithoutResult(status -> {
                 lock(appId);
                 int changed = jdbc.update("UPDATE crash_analysis_task t SET content_expired=true,evidence=NULL,evidence_text=NULL WHERE t.app_id=? AND t.task_id=? AND t.content_expired=false AND t.state IN ('SUCCEEDED','FAILED','CANCELLED') AND t.terminal_at<clock_timestamp()-INTERVAL '30 days' AND NOT EXISTS(SELECT 1 FROM crash_analysis_run r WHERE r.task_id=t.task_id AND r.stop_confirmed=false)", appId, id);

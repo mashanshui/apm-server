@@ -39,3 +39,9 @@ APM_AGENT_QUERY_ENABLED=false 是默认状态；启用后才可查询和创建�
 框架正文、参数绑定、缺失项及字段校验失败以[框架请求错误](request-errors.md)为准；安全过滤链与领域专项错误保留原语义。
 
 Jank 的 limit 仅影响 Issue/事件页，默认 20/最大 100 保持；相同筛选下总览与趋势和网页逐字段一致。内存泄漏页码合法范围 1～2147483647，趋势超量桶在存储前拒绝，问题页保留完整路径及全范围分母。预算错误保持 408/422/503，不返回截断成功，验证见[查询验收](../../backend/docs/knowledge-base/backend-api-query-validation.md)。
+
+## 当前 Crash 堆栈契约
+
+Crash 详情仅返回 `stack:{format,content}`：pending/failed 为 raw_chain 原始异常链，symbolicated 为 retrace_text 完整固定结果；同时保留 crashKind/fatal、groupingKind 和实际 symbolFileId/revision/sha256/processedAt。首次成功固定，mapping 删除重传不改写旧结果。Issue 显示 temporary 与 buildId 或 resolved；旧临时指纹可能变为空列表，分页不是快照。
+
+MCP 的 Crash 大片段名称只有 `stack`，摘要不夹带堆栈正文。续读摘要绑定 format 和 content，后台由原始链变为还原文本时返回 EVIDENCE_CHANGED，须重新开始。旧片段名返回 INVALID_SECTION；旧双份详情或旧状态返回 QUERY_BACKEND_INVALID_RESPONSE，不转换或降级。19 个工具和应用授权不变。协调切换时须同时更新后端、网页、MCP 与 Worker，旧分析任务不进入当前接口。

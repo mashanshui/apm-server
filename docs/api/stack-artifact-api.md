@@ -10,7 +10,7 @@
 - 首版不保存原始 ZIP，不引入对象存储、消息队列或异步任务。
 - v1 `.rheatrace.zip`、v2 卡顿 manifest、旧媒体类型、数值 PID manifest 和旧报告响应不兼容。
 
-服务端当前固定使用 `io.github.mashanshui:rhea-trace-processor:1.0.2`。该版本已支持客户端主线程-only v3 manifest 的 UUID v4 `processId` 与 `threadScope=main`，并已完成真实设备 ZIP 的本机解析和云端 HTTP/ClickHouse 闭环。生产制品仓库、容量、持久重试和 Android 长期运行仍需单独验收。
+当前工作区固定使用 Maven Local 的 `io.github.mashanshui:rhea-trace-processor:1.0.4`，支持主线程-only v3 manifest 的 UUID v4 `processId`、`threadScope=main` 和异步采样类型 `kAsyncMainThread=24`。异步采样 extra 必须包含有效的 `asyncSamplingEnabled`、`asyncSampleIntervalNs` 和 `asyncTimestampKind=CONVERSION_ENTRY`；manifest 与 HTTP 请求响应不变。该版本尚未发布到远程制品仓库，云端服务未升级。历史 `1.0.2` 设备 ZIP 的云端闭环不覆盖异步采样；生产制品仓库、容量、持久重试和 Android 长期运行仍需单独验收。
 
 本次存档的真实验证输入为 `F:/AndroidStudioProjects/btrace/btrace-android/build/test-stack/demo-jank-2308233515248871.rheajank.zip`：11,189 字节，SHA-256 为 `1445628B2FA6D4ED055FDEDE218F950B1B44D20FFE6AE990F05869ACEB6C16FE`；manifest 为 `schemaVersion=3`、`artifactType=RHEA_JANK`、`packageName=rhea.sample.android`、`eventId=demo-jank-2308233515248871`，且 `processId` 是数值 PID。该记录只证明旧 processor 输入可解析，不证明当前 UUID v4 契约可用；processor fat JAR SHA-256 为 `e31cc2b2bf9a4015419fa8d0cd07f89978f9000a8cc8bcf3952c1933e7a568f3`。
 

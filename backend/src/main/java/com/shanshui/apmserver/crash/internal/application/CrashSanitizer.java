@@ -80,6 +80,11 @@ public class CrashSanitizer {
         return truncate(sanitized, maxLength);
     }
 
+    /** 完整还原输出只脱敏，不用截断伪造成功；输出上限仍由 R8 有界收集器负责。 */
+    public String sanitizeRetrace(String text) {
+        return sanitizeText(text, Integer.MAX_VALUE);
+    }
+
     public String hashDeviceId(String value) {
         if (value == null || value.isBlank()) {
             return value;

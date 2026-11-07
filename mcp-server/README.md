@@ -40,3 +40,9 @@ Inspector CLI 2.8.0 可用 --transport http --protocol-era modern --header "Auth
 | MCP_ALLOWED_ORIGINS | 127.0.0.1,localhost | 带 Origin 请求的来源主机白名单 |
 
 请求体最大 64 KiB，后端响应最大 8 MiB，最终工具结果最大 256 KiB。每个 HTTP 请求预检 Token，工具实际查询再次验证；不自动重试，禁用重定向。/healthz 检查固定后端的 /actuator/health，依赖不可用时返回 503。Compose 只让 MCP 接入内部 backend 网络，对外由 Nginx /mcp 代理。当前允许 HTTP 调试接入，不检查 HTTPS 代理标记；两个查询开关默认关闭，必须显式开启。HTTP 上传输的 Bearer 可被链路观察者读取，因此仅在受控环境使用；受信 HTTPS 网关仍需后续完成生产化验收。不得把 MCP 容器端口直接映射到公网。回滚时同时关闭 MCP_ENABLED 与 APM_AGENT_QUERY_ENABLED，保留 Token 列表和撤销。
+
+## 当前 Crash 堆栈契约
+
+Crash 详情仅返回 `stack:{format,content}`：pending/failed 为 raw_chain 原始异常链，symbolicated 为 retrace_text 完整固定结果；同时保留 crashKind/fatal、groupingKind 和实际 symbolFileId/revision/sha256/processedAt。首次成功固定，mapping 删除重传不改写旧结果。Issue 显示 temporary 与 buildId 或 resolved；旧临时指纹可能变为空列表，分页不是快照。
+
+MCP 的 Crash 大片段名称只有 `stack`，摘要不夹带堆栈正文。续读摘要绑定 format 和 content，后台由原始链变为还原文本时返回 EVIDENCE_CHANGED，须重新开始。旧片段名返回 INVALID_SECTION；旧双份详情或旧状态返回 QUERY_BACKEND_INVALID_RESPONSE，不转换或降级。19 个工具和应用授权不变。协调切换时须同时更新后端、网页、MCP 与 Worker，旧分析任务不进入当前接口。

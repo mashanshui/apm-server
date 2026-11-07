@@ -31,7 +31,7 @@ class JankQualityMetricsTests {
         InMemoryJankEventRepository repository = new InMemoryJankEventRepository(CrashTestSupport.storageProperties());
         SimpleMeterRegistry registry = new SimpleMeterRegistry();
         var properties = CrashTestSupport.ingestProperties();
-        var crashProcessor = new com.shanshui.apmserver.crash.internal.application.CrashEventProcessor(
+        var crashProcessor = CrashTestSupport.processor(
                 new com.shanshui.apmserver.crash.internal.application.CrashEventValidator(
                         properties, CrashTestSupport.objectMapper()),
                 new com.shanshui.apmserver.crash.internal.application.CrashSanitizer(properties),

@@ -23,9 +23,13 @@ public record CrashEventDetailResponse(
         String fingerprint,
         String fingerprintVersion,
         String symbolicationStatus,
-        String symbolicatedStackText,
+        /** 单份当前堆栈，不提供旧字段别名。 */ CrashStack stack,
         java.util.UUID symbolFileId,
         Integer symbolFileRevision,
         String symbolicationReason,
-        CrashPayload rawCrash) {
+        /** 不变 Crash 类型。 */ String crashKind,
+        /** 不变致命资格。 */ boolean fatal,
+        /** temporary 或 resolved。 */ String groupingKind,
+        /** 实际处理来源摘要。 */ String symbolFileSha256,
+        /** 实际处理时间。 */ Instant processedAt) {
 }

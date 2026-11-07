@@ -30,7 +30,7 @@ class SignalDomainMappingTests {
         var start = (AppStartEvent) repository.findByEventId(TestAppIds.id("app-a"), "start-map").orElseThrow();
         assertThat(crash.metadata().eventId()).isEqualTo("crash-map");
         assertThat(crash.processId()).isEqualTo(CrashTestSupport.PROCESS_ID);
-        assertThat(crash.payload().throwableChain()).hasSize(1);
+        assertThat(new tools.jackson.databind.ObjectMapper().readValue(crash.state().stackPayload(), com.shanshui.apmserver.crash.api.CrashPayload.class).throwableChain()).hasSize(1);
         assertThat(start.metadata().eventType()).isEqualTo("app_start");
         assertThat(start.processId()).isEqualTo(CrashTestSupport.PROCESS_ID);
     }

@@ -1,3 +1,8 @@
+// 持久化状态与归组类别仅支持当前契约。
+export type SymbolicationStatus = 'pending' | 'failed' | 'symbolicated'
+export type GroupingKind = 'temporary' | 'resolved'
+export type CrashStack = { format: 'raw_chain'; content: CrashPayload } | { format: 'retrace_text'; content: string }
+
 export type CrashStatus = 'ok' | 'no_data' | 'denominator_insufficient' | string
 
 export interface CrashStats {
@@ -34,6 +39,9 @@ export interface CrashTrendResponse {
 }
 
 export interface CrashIssueSummary {
+  /** 临时问题按构建隔离；正式问题不附加构建身份。 */
+  groupingKind: GroupingKind
+  buildId: string | null
   fingerprint: string
   fingerprintVersion: string
   exceptionType: string
@@ -67,7 +75,8 @@ export interface CrashEventSummary {
   anonymousDeviceId: string | null
   exceptionType: string
   fingerprint: string
-  symbolicationStatus: string
+  symbolicationStatus: SymbolicationStatus
+  groupingKind: GroupingKind
 }
 
 export interface CrashEventListResponse {
@@ -120,12 +129,17 @@ export interface CrashEventDetailResponse {
   exceptionType: string
   fingerprint: string
   fingerprintVersion: string
-  symbolicationStatus: string
-  symbolicatedStackText: string | null
+  symbolicationStatus: SymbolicationStatus
+  groupingKind: GroupingKind
+  /** 唯一堆栈，成功时只返回完整还原文本。 */
+  stack: CrashStack
+  crashKind: string
+  fatal: boolean
+  symbolFileSha256: string | null
+  processedAt: string | null
   symbolFileId: string | null
   symbolFileRevision: number | null
   symbolicationReason: string | null
-  rawCrash: CrashPayload | null
 }
 
 export interface CrashQueryFilters {

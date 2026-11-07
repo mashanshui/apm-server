@@ -232,10 +232,18 @@ class ManagementSchemaIntegrationTests {
         try (Connection connection = DriverManager.getConnection(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword());
              Statement statement = connection.createStatement();
              var result = statement.executeQuery("select count(*) from pg_constraint "
-                     + "where conname in ('app_symbol_file_app_build_uk', 'app_symbol_file_revision_ck', "
+                     + "where conname in ('app_symbol_file_revision_ck', "
                      + "'app_symbol_file_sha256_ck')")) {
             assertTrue(result.next());
-            assertEquals(3, result.getInt(1));
+            assertEquals(2, result.getInt(1));
+        }
+        // V15 活动唯一性由局部索引承担，删除记录保留来源而不占用新上传位置。
+        try (Connection connection = DriverManager.getConnection(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword());
+             Statement statement = connection.createStatement();
+             var result = statement.executeQuery("SELECT indexdef FROM pg_indexes WHERE schemaname='public' AND indexname='app_symbol_file_active_build_uk'")) {
+            assertTrue(result.next());
+            assertTrue(result.getString(1).contains("UNIQUE"));
+            assertTrue(result.getString(1).contains("deleted_at IS NULL"));
         }
     }
 

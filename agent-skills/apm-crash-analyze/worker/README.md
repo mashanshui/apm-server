@@ -18,7 +18,7 @@
 | submit taskId | schemaVersion=4 语义 JSON；恢复待回传不带 --result |
 | stop taskId | 关闭本任务工具，宿主停止保持 UNKNOWN |
 
-无 search/read/apply/revert，也无全仓库采集、源码总量/数量门禁、源码快照或工具补丁日志。新 claim 只 requestId；报告绑定 evidenceId/runId。snapshot_id 和旧报告 JSON 仅历史保留。
+无 search/read/apply/revert，也无全仓库采集、源码总量/数量门禁、源码快照或工具补丁日志。claim 只使用 requestId；报告绑定 evidenceId/runId。证据仅支持版本 3，片段仅为 crash-stack，显式区分 raw_chain/retrace_text；报告仅支持版本 4。成功材料使用已存文本与实际来源，不读取当前 mapping 或恢复原始副本。
 
 ## 源码和报告边界
 
@@ -36,4 +36,4 @@
 
 结果原字节先落私有状态，再回传；RESULT_PENDING 仅原字节对账，不重新读取源码、推理或编辑。领取回执未知复用 requestId。修改恢复由宿主负责，不执行 git reset/clean，stop 不回滚。localToolsStopped 表示本任务工具关闭；hostStopState=UNKNOWN 仍由管理员真实核验，不用宿主自报解锁。
 
-默认私有状态 ~/.local/state/apm-analysis，目录 700/文件 600、串行锁防止重复任务。版本 0.4.0 不升级旧活动/待回传记录；须原工具结束/停止核验后更新。旧终态按原报告历史显示，无法用新入口重跑。升级保留配置见[安装说明](../README.md#更新时保留配置)。
+默认私有状态 ~/.local/state/apm-analysis，目录 700/文件 600、串行锁防止重复任务。版本 0.5.0 只接受 HOST_DIRECT_E3_R4 本地协议，拒绝其他活动、待回传及完成记录；保留原字节，不升级、重跑或展示旧报告。协调切换前须实际核验在途宿主任务已停止。升级保留配置见[安装说明](../README.md#更新时保留配置)。

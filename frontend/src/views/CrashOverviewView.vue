@@ -82,7 +82,7 @@ function statusFootnote(): string {
       <div>
         <p class="eyebrow">APP / {{ appId }}</p>
         <h1>JVM Crash</h1>
-        <p class="subtitle">从整体趋势定位高频问题，再下钻到脱敏后的原始堆栈。</p>
+        <p class="subtitle">从整体趋势定位问题，再查看当前单份堆栈。临时问题按构建隔离，后台还原后归入正式问题。</p>
       </div>
       <div class="page-header-badges">
         <span v-if="overview" class="badge badge-success">数据源 · {{ dataSourceLabel }}</span>

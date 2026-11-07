@@ -48,7 +48,7 @@ const tools: ReadonlyArray<readonly [string, string, readonly (keyof typeof fiel
 
 /** 大详情的顶层证据字段，默认只返回摘要。 */
 const detailSections: Record<string, readonly string[]> = {
-  get_crash_event: ['rawCrash', 'symbolicatedStackText'],
+  get_crash_event: ['stack'],
   get_jank_event: ['jank', 'analysis']
 };
 
@@ -79,6 +79,9 @@ export function createProtocolHandler(client: ApmClient) {
           if (!token) throw new ApmError('QUERY_TOKEN_INVALID', 401, false);
           const args = input as Record<string, unknown>;
           const { path, query } = prepare(template, args);
+          // 不支持的片段在读取上游前拒绝，不提供旧字段别名。
+          const allowed = detailSections[name];
+          if (args.section !== undefined && allowed && !allowed.includes(String(args.section))) throw new ApmError('INVALID_SECTION', 400, false);
           const body = await client.get(path, token, query, requestInfo?.signal);
           const result = project(name, body, query, args);
           const serialized = JSON.stringify(result);
@@ -130,9 +133,20 @@ function prepare(template: string, args: Record<string, unknown>): { path: strin
 
 /** 详情按 UTF-8 字节进行可重建分片，续读绑定当前内容 SHA-256。 */
 function project(name: string, body: unknown, query: Record<string, string>, args: Record<string, unknown>) {
+  if (name === 'get_crash_event') requireCurrentCrash(body);
+  // 列表只支持当前归组与状态，不隐式接受旧后端。
+  if (name === 'list_crash_issues' || name === 'list_crash_events') {
+    const rows = isRecord(body) ? body[name === 'list_crash_issues' ? 'issues' : 'events'] : undefined;
+    if (!Array.isArray(rows) || rows.some((row) => !isRecord(row) || !['temporary','resolved'].includes(String(row.groupingKind))
+        || (name === 'list_crash_issues' && row.groupingKind === 'temporary' && typeof row.buildId !== 'string')
+        || (name === 'list_crash_events' && !['pending','failed','symbolicated'].includes(String(row.symbolicationStatus))))) {
+      throw new ApmError('QUERY_BACKEND_INVALID_RESPONSE', 503, false);
+    }
+  }
   const retrievedAt = new Date().toISOString();
   const evidence = isRecord(body) ? Object.fromEntries(
-    ['appId','eventId','fingerprint','buildId','symbolFileId','symbolFileRevision','algorithmVersion']
+    ['appId','eventId','fingerprint','fingerprintVersion','buildId','symbolFileId','symbolFileRevision',
+      'symbolFileSha256','processedAt','symbolicationStatus','groupingKind','crashKind','fatal','algorithmVersion']
       .filter((key) => key in body).map((key) => [key, body[key]])
   ) : {};
   const sections = detailSections[name];
@@ -141,6 +155,7 @@ function project(name: string, body: unknown, query: Record<string, string>, arg
   const selected = args.section;
   if (selected === undefined) {
     const summary = Object.fromEntries(Object.entries(body).filter(([key]) => !sections.includes(key)));
+    if (name === 'get_crash_event' && isRecord(body.stack)) summary.stackFormat = body.stack.format;
     if (name === 'get_jank_event' && isRecord(body.analysis)) {
       // 保留精确/估算时长与采样质量，庞大的树和字典仍按 section 续读。
       summary.analysisSummary = Object.fromEntries(
@@ -166,4 +181,23 @@ function project(name: string, body: unknown, query: Record<string, string>, arg
   return { data: { section: selected, encoding: 'base64-json-utf8', content: bytes.subarray(offset, end).toString('base64'),
     offset, totalBytes: bytes.length, contentDigest: hash }, query, evidence, retrievedAt,
     truncated: continuation !== undefined, continuation };
+}
+
+/** 只接受三态和单份堆栈；旧后端响应明确报协议错误，不能自动转换。 */
+function requireCurrentCrash(body: unknown): void {
+  // 这些字段之间的关系属于当前契约，不能把成功材料误标成原始材料。
+  const invalid = () => { throw new ApmError('QUERY_BACKEND_INVALID_RESPONSE', 503, false); };
+  if (!isRecord(body) || !isRecord(body.stack) || 'rawCrash' in body || 'symbolicatedStackText' in body
+      || !['pending','failed','symbolicated'].includes(String(body.symbolicationStatus))
+      || typeof body.crashKind !== 'string' || typeof body.fatal !== 'boolean') return invalid();
+  const stack = body.stack;
+  if (body.symbolicationStatus === 'symbolicated') {
+    if (body.groupingKind !== 'resolved' || stack.format !== 'retrace_text' || typeof stack.content !== 'string' || !stack.content.trim()
+        || typeof body.symbolFileId !== 'string' || !Number.isInteger(body.symbolFileRevision) || Number(body.symbolFileRevision) < 1
+        || typeof body.symbolFileSha256 !== 'string' || !/^[a-f0-9]{64}$/.test(body.symbolFileSha256)
+        || typeof body.processedAt !== 'string' || !Number.isFinite(Date.parse(body.processedAt))) return invalid();
+  } else if (body.groupingKind !== 'temporary' || stack.format !== 'raw_chain' || !isRecord(stack.content)
+      || !Array.isArray(stack.content.throwableChain) || !stack.content.throwableChain.length
+      || stack.content.throwableChain.some((node) => !isRecord(node) || typeof node.type !== 'string'
+        || !Array.isArray(node.frames) || !node.frames.length)) return invalid();
 }

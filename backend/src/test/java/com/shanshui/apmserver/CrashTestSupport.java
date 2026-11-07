@@ -47,6 +47,14 @@ final class CrashTestSupport {
         return properties;
     }
 
+    /** 测试接收器只注入当前公开通知边界，避免单元测试依赖管理库。 */
+    static CrashEventProcessor processor(CrashEventValidator validator, CrashSanitizer sanitizer,
+            CrashFingerprintService fingerprints, CrashWritePort repository) {
+        return new CrashEventProcessor(validator, sanitizer, fingerprints, repository, objectMapper(),
+                org.mockito.Mockito.mock(com.shanshui.apmserver.crash.api.CrashSymbolicationWork.class),
+                org.mockito.Mockito.mock(com.shanshui.apmserver.symbol.api.SymbolRegistry.class));
+    }
+
     static ObjectMapper objectMapper() {
         return new ObjectMapper();
     }
@@ -64,7 +72,7 @@ final class CrashTestSupport {
                                                      IngestConfigurationProperties properties) {
         CrashSanitizer sanitizer = new CrashSanitizer(properties);
         CrashEventValidator validator = new CrashEventValidator(properties, objectMapper());
-        CrashEventProcessor processor = new CrashEventProcessor(validator, sanitizer,
+        CrashEventProcessor processor = CrashTestSupport.processor(validator, sanitizer,
                 new CrashFingerprintService(), crashRepository);
         var jankProcessor = new JankMetricEventProcessor(
                 new JankMetricEventValidator(properties, objectMapper()), new JankSanitizer(properties),

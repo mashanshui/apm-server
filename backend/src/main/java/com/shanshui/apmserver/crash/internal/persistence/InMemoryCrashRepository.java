@@ -22,11 +22,23 @@ import java.util.concurrent.ConcurrentHashMap;
 @ConditionalOnProperty(name = "apm.storage.mode", havingValue = "memory", matchIfMissing = true)
 public class InMemoryCrashRepository implements CrashWritePort, CrashQueryPort {
 
-    private final Map<String, CrashStoredSignal> events = new ConcurrentHashMap<>();
+    /** 当前模型唯一内存存储。 */
+    private final InMemoryCrashStateStore store;
+    /** 内存可用性配置。 */
+    private final StorageProperties properties;
     private volatile boolean available;
 
-    public InMemoryCrashRepository(StorageProperties properties) {
+    /** Spring 共用当前状态存储，后台和查询读取同一份结果。 */
+    @org.springframework.beans.factory.annotation.Autowired
+    public InMemoryCrashRepository(StorageProperties properties, InMemoryCrashStateStore store) {
+        this.properties = properties;
+        this.store = store;
         this.available = properties.isInMemoryAvailable();
+    }
+
+    /** 纯单元测试构造独立数据集，不提供旧模型转换。 */
+    public InMemoryCrashRepository(StorageProperties properties) {
+        this(properties, new InMemoryCrashStateStore(properties, new tools.jackson.databind.ObjectMapper()));
     }
 
     @Override
@@ -35,7 +47,8 @@ public class InMemoryCrashRepository implements CrashWritePort, CrashQueryPort {
         int accepted = 0;
         int duplicate = 0;
         for (CrashStoredSignal event : newEvents) {
-            if (events.putIfAbsent(key(appId, event.eventId()), event) == null) {
+            if (store.accept(new com.shanshui.apmserver.crash.internal.domain.CrashFact(event.metadata(),
+                    event.crashKind(), Boolean.TRUE.equals(event.crashFatal())), event instanceof com.shanshui.apmserver.crash.internal.domain.CrashEvent crash ? crash.state() : null)) {
                 accepted++;
             } else {
                 duplicate++;
@@ -48,10 +61,12 @@ public class InMemoryCrashRepository implements CrashWritePort, CrashQueryPort {
     public List<CrashStoredSignal> findAll(UUID appId) {
         ensureAvailable();
         List<CrashStoredSignal> result = new ArrayList<>();
-        String prefix = appId + "\u0000";
-        for (Map.Entry<String, CrashStoredSignal> entry : events.entrySet()) {
-            if (entry.getKey().startsWith(prefix)) {
-                result.add(entry.getValue());
+        for (var fact : store.facts(appId)) {
+            if ("app_start".equals(fact.metadata().eventType())) {
+                result.add(new com.shanshui.apmserver.crash.internal.domain.AppStartEvent(fact.metadata()));
+            } else {
+                store.current(appId, fact.metadata().eventId()).ifPresent(state -> result.add(
+                        new com.shanshui.apmserver.crash.internal.domain.CrashEvent(fact.metadata(), fact.crashKind(), fact.fatal(), state)));
             }
         }
         result.sort(Comparator.comparing(CrashStoredSignal::occurredAt).thenComparing(CrashStoredSignal::eventId));
@@ -61,15 +76,16 @@ public class InMemoryCrashRepository implements CrashWritePort, CrashQueryPort {
     @Override
     public Optional<CrashStoredSignal> findByEventId(UUID appId, String eventId) {
         ensureAvailable();
-        return Optional.ofNullable(events.get(key(appId, eventId)));
+        return findAll(appId).stream().filter(event -> event.eventId().equals(eventId)).findFirst();
     }
 
     public void setAvailable(boolean available) {
         this.available = available;
+        this.properties.setInMemoryAvailable(available);
     }
 
     public void clear() {
-        events.clear();
+        store.clear();
     }
 
     private void ensureAvailable() {

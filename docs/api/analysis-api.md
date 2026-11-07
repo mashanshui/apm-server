@@ -1,12 +1,12 @@
 # 单事件分析 API
 
-2026-10-04 当前契约已发布到云端，任务/凭据/报告完成真实受控冒烟；HTTP 字段与权限未作额外变更，见[云端发布验收](../validation/analysis/cloud-current-code-validation.md)。
+当前证据版本 3、报告版本 4 已完成隔离验收；本任务未部署现有开发或云端。既有[云端记录](../validation/analysis/cloud-current-code-validation.md)属于旧契约证据，不能证明当前格式已上线。
 
 当前实现单事件证据、Worker 身份、领取/租约、停止/重试、结构化结果及内容到期。Python 正式任务和网页入口已实现；真实链路和受控质量评估见跨端验收。默认 `apm.agent.analysis.enabled=false`，开启后管理员可写入。网页使用既有 Session、CSRF 和应用成员授权，不接受 App Key 或查询 Token 替代登录。
 
-## 宿主直接读取协议（2026-10-04）
+## 宿主直接读取协议
 
-Python 0.4.0 与报告版本 4 配套使用。宿主直接搜索/读取当前项目，明确授权时使用自身编辑和测试工具；Python 不遍历仓库、不复制源码，不提供 read/search/apply/revert。保留配置、应用身份、冻结证据、租约、报告上限及停止审计。旧活动/待回传本地记录不能静默升级；先用旧版结束并按平台核验。历史报告原样读取。此次无需新数据库迁移。
+Python 0.5.0 与报告版本 4 配套使用。宿主直接搜索/读取当前项目，明确授权时使用自身编辑和测试工具；Python 不遍历仓库、不复制源码，不提供 read/search/apply/revert。保留配置、应用身份、冻结证据、租约、报告上限及停止审计。旧活动/待回传本地记录不能静默升级；先用旧版结束并按平台核验。当前接口不读取旧任务或报告，不转换旧本地恢复记录；旧数据原字节保留。V15 将新建任务显式标记 contract_version=3。
 
 ## 当前代码唯一模式
 
@@ -24,7 +24,7 @@ Python 0.4.0 与报告版本 4 配套使用。宿主直接搜索/读取当前项
 
 成功返回 200：任务元数据字段 `taskId/appId/eventId/fingerprint/createdBy/createdAt/state/blockReason/evidenceId/evidenceSha256/evidenceSchemaVersion/contentExpired`；不包含完整证据正文。只读取当前应用选中事件，必须为 JVM fatal Crash。同键同事件返回原任务，同键不同事件为 `409 ANALYSIS_IDEMPOTENCY_CONFLICT`。无构建登记、无 mapping 也可直接准备 READY 原始证据；准备在请求内同步进行，不调用模型。应用最多三个 BLOCKED/READY/RUNNING/CANCELLING 任务，超过为 `429 ANALYSIS_TASK_LIMIT`。
 
-新任务证据版本为 2，不保存重复源码配置。当前工作区无法证明历史 APK 源码一致；报告必须记录差异与未知项。历史版本 1～3 报告保留原 JSON，只读展示，不能重检或重试旧冻结证据来改换执行方式。
+新任务证据版本为 3，不保存重复源码配置。当前工作区无法证明历史 APK 源码一致；报告必须记录差异与未知项。只有新建时标识当前契约的任务可列出、访问和领取；旧记录保留原 JSON，但不进入当前接口，不提供只读展示或升级适配。
 
 `GET /api/v1/apps/{appId}/analysis-tasks/{taskId}`：应用成员读取单任务。`GET /api/v1/apps/{appId}/crashes/events/{eventId}/analyses?page=0&size=20`：事件下任务数组，按 createdAt/taskId 倒序；size 1～100、page 0～1000。全部接口禁止缓存。
 
@@ -33,12 +33,11 @@ Python 0.4.0 与报告版本 4 配套使用。宿主直接搜索/读取当前项
 | blockReason | 说明 |
 |---|---|
 | EVIDENCE_PREPARING | 尚在同步准备，不能执行 |
-| SYMBOL_VERSION_CHANGED | 发布时 mapping 版本或摘要已变化 |
 | EVENT_IDENTITY_CHANGED | 单事件事实与已绑定输入不一致 |
 | EVIDENCE_TOO_LARGE | 完整内容超过上限，未截断或发布部分证据 |
 | PREPARATION_FAILED | 准备异常，不回显敏感异常内容 |
 
-READY 证据保存 schemaVersion=2、独立 evidenceId、必要事件字段、mapping 版本及摘要、完整原始异常链和可用还原片段。排除 sessionId/processId/设备唯一 ID/人工核验备注；异常和帧文本处理明确标记的凭据与常见邮箱，不能识别任意自然语言秘密。正文原始 UTF-8 与 JSONB 投影都限制 1 MiB，可通过 `apm.agent.analysis.max-evidence-bytes` 调小。摘要依据原始发送字节计算。冻结后 mapping 更正不改写原证据，日常详情仍每次实时还原。
+READY 证据保存 schemaVersion=3、独立 evidenceId、必要事件字段（含 crashKind/fatal/groupingKind）、持久化状态与实际 mapping ID/revision/SHA-256/处理时间。fragments 只含一个 `id=kind=crash-stack`、`format=raw_chain|retrace_text` 的片段；content 分别为完整脱敏结构化原始链或完整固定还原文本，不同时保存两份。排除 sessionId/processId/设备唯一 ID/人工核验备注；异常和帧文本处理明确标记的凭据与常见邮箱，不能识别任意自然语言秘密。正文原始 UTF-8 与 JSONB 投影都限制 1 MiB，可通过 `apm.agent.analysis.max-evidence-bytes` 调小。摘要依据原始发送字节计算。pending、failed、symbolicated 均可冻结；任务创建与日常详情不执行 R8。冻结后后台推进或 mapping 管理操作不改写原证据，首次成功来源也不以当前活动文件替换。
 
 其他稳定错误：`400 UNSUPPORTED_ANALYSIS_EVENT`、`400 INVALID_ANALYSIS_PAGE`、`404 ANALYSIS_TASK_NOT_FOUND`。跨应用或未知对象统一返回不存在。
 
@@ -56,7 +55,7 @@ READY 证据保存 schemaVersion=2、独立 evidenceId、必要事件字段、ma
 
 以下接口均要求独立 Worker Bearer 凭据，所有响应 no-store。JSON 请求正文在解析前限制 2 MiB（包含 chunked），超限 `413 ANALYSIS_REQUEST_TOO_LARGE`；证据和结果正文各自最大 1 MiB。
 
-`POST /api/worker/v1/tasks/{taskId}/claim`：请求 `{"requestId":"22222222-2222-4222-8222-222222222222"}`。只领取指定 READY 任务。返回 `{run,leaseToken}`，Run 字段为 `runId/taskId/attempt/state/taskState/leaseGeneration/leaseExpiresAt/deadlineAt/serverNow/stopConfirmed/errorCode/localToolsStopped/hostStopState/snapshotId`。默认租约 90 秒，心跳 20 秒，固定总运行期限 10 分钟。本地身份使用 runId，证据和恢复记录不可跨分配混用。新分配 snapshotId=null，仅为历史查询保留该字段。旧冻结证据版本领取返回 `409 ANALYSIS_CONFIG_MISMATCH`。
+`POST /api/worker/v1/tasks/{taskId}/claim`：请求 `{"requestId":"22222222-2222-4222-8222-222222222222"}`。只领取指定 READY 任务。返回 `{run,leaseToken}`，Run 字段为 `runId/taskId/attempt/state/taskState/leaseGeneration/leaseExpiresAt/deadlineAt/serverNow/stopConfirmed/errorCode/localToolsStopped/hostStopState`。默认租约 90 秒，心跳 20 秒，固定总运行期限 10 分钟。本地身份使用 runId，证据和恢复记录不可跨分配混用。Run 不返回 snapshotId；旧任务不可访问或领取，旧证据不会转换为当前协议。
 
 同一凭据/requestId 重试返回原 Run 和活动租约；同 ID 换任务或复用旧快照分配为 `409 ANALYSIS_CLAIM_CONFLICT`。已结束的分配返回原终态且 leaseToken=null，不自动重新启动。同一任务、同一 Worker 凭据最多一个活动 Run；任何未确认停止的历史环境也阻止该身份领取其他任务。租约可逆值仅在活动 Run 临时保存以支持领取响应丢失重试，结束后清除，保留摘要；仅原分配身份能取得它，网页历史不包含它。
 
@@ -72,13 +71,13 @@ READY 证据保存 schemaVersion=2、独立 evidenceId、必要事件字段、ma
 
 | 字段 | 约束 |
 |---|---|
-| schemaVersion/evidenceId/runId | 新提交版本 4、当前任务证据 ID、当前分配 Run UUID（版本 1～3 只读） |
+| schemaVersion/evidenceId/runId | 新提交版本 4、当前任务证据 ID、当前分配 Run UUID（只接受版本 4） |
 | conclusion/summary | ROOT_CAUSE_CANDIDATE 或 INSUFFICIENT_EVIDENCE；摘要 1～4000 字符 |
 | candidates | 最多 5 个，title/reason/evidenceRefs，片段 ID 必须属于当前证据 |
 | sourceRefs | 最多 20 个，path/startLine/endLine/snippet/snippetSha256/metadataSource/currentCheck；安全相对路径、1 起始、最多 200 行、片段 UTF-8 最多 8192 字节；metadataSource=HOST_REPORTED，currentCheck=CURRENT_MATCH/CURRENT_DIFFERENT/UNAVAILABLE |
 | unknowns/risks/fixSuggestions/validationSuggestions | 各最多 20 条、每条 1～1000 字符；证据不足必须给出未知项，根因候选必须有候选 |
-| execution | mode=HOST_AGENT、toolVersion=0.4.0、metadataSource=HOST_REPORTED 或 UNKNOWN；host/hostVersion 最多 100 字符且可为 null；providerId/modelId 为 null。当前工具只能自报宿主名称，无法验证模型或版本；UNKNOWN 时上述来源字段均为 null |
-| usage | 当前宿主无可信计量通道，inputTokens/outputTokens/cacheReadTokens/cacheWriteTokens/cost 均为 null；历史独立执行器用量原样保留 |
+| execution | mode=HOST_AGENT、toolVersion=0.5.0、metadataSource=HOST_REPORTED 或 UNKNOWN；host/hostVersion 最多 100 字符且可为 null；providerId/modelId 为 null。当前工具只能自报宿主名称，无法验证模型或版本；UNKNOWN 时上述来源字段均为 null |
+| usage | 当前宿主无可信计量通道，inputTokens/outputTokens/cacheReadTokens/cacheWriteTokens/cost 均为 null |
 | repair | status=NOT_REQUESTED/NOT_APPLICABLE/APPLIED/PARTIAL/CONFLICT/FAILED；metadataSource=HOST_REPORTED；files 最多 20 条，含安全相对 path 与最多 1000 字符的 summary；reason 最多 2000 字符。由宿主自报，Python 不生成补丁日志或前后摘要 |
 | verification | status=PASSED/FAILED/NOT_RUN，metadataSource=HOST_REPORTED，commands 最多 10 条（command/exitCode/summary），reason 最多 2000 字符；不提供 workspaceUnchanged |
 

@@ -10,7 +10,7 @@ describe('EventTable', () => {
           appVersion: '1.0', versionCode: 1, buildId: 'build-1', channel: 'official',
           environment: 'production', osVersion: '16', deviceModel: 'Pixel',
           sessionId: 's1', anonymousDeviceId: 'd1', exceptionType: 'java.lang.Error',
-          fingerprint: 'fp-1', symbolicationStatus: 'raw_only' }],
+          fingerprint: 'fp-1', symbolicationStatus: 'pending', groupingKind: 'temporary' }],
         nextCursor: 'old-cursor', cursorInvalid: true,
       },
     })

@@ -45,6 +45,10 @@ public class SymbolAuditEntity {
     @Column(name = "changed_at", nullable = false)
     private Instant changedAt;
 
+    /** UPSERT 或 DELETE，历史来源不依赖文件继续存在。 */
+    @Column(name = "action", nullable = false, length = 16)
+    private String action;
+
     /** JPA 需要的无参构造函数。 */
     protected SymbolAuditEntity() {
     }
@@ -52,7 +56,7 @@ public class SymbolAuditEntity {
     /** 创建符号表替换审计。 */
     public SymbolAuditEntity(UUID auditId, UUID symbolId, UUID appId, String buildId,
                              Integer oldRevision, String oldSha256, int newRevision,
-                             String newSha256, UUID changedBy, Instant changedAt) {
+                             String newSha256, UUID changedBy, Instant changedAt, String action) {
         this.auditId = auditId;
         this.symbolId = symbolId;
         this.appId = appId;
@@ -63,5 +67,6 @@ public class SymbolAuditEntity {
         this.newSha256 = newSha256;
         this.changedBy = changedBy;
         this.changedAt = changedAt;
+        this.action = action;
     }
 }

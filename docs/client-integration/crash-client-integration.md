@@ -264,7 +264,9 @@ crashFreeSessionRate = 1 - crashedSessions / startedSessions
 4. 如果未来出现 `errors[].retryable=true`，只保留对应索引的事件。
 5. `accepted + rejected + duplicate` 应等于本批事件数；`errors` 条数可能大于 `rejected`，因为一条事件可能有多个错误。
 
-网络超时、连接断开或没有收到响应时，无法判断服务端是否已经写入，必须保留整批并使用原始 `eventId` 重试。服务端会把已写入的重试识别为 `duplicate`，不会再次放大 Crash 统计。
+accepted 只表示当前事实和初始 pending 原始链均已持久化，不表示还原完成；即使 mapping 已存在，也由后台独立处理。pending/failed 参与按构建隔离的临时问题排行，成功后按原日期转入正式问题，不增加事件总量、会话或设备数。v2 上传字段不增加，不提供混淆声明或重复 mapping 元数据。
+
+网络超时、连接断开或没有收到响应时，必须保留整批及原始 eventId、构建、发生时间和载荷重试。服务端补齐缺失的一侧后确认 duplicate，不重置已成功结果，不放大统计。mapping 生效和首次成功固定规则见[符号表接入说明](symbol-mapping.md)。新模型切换后须产生新的 app_start 会话，旧数据集中的会话不接入新统计分母。
 
 ### 7.3 批次级错误
 

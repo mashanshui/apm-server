@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAppStore } from '../stores/apps'
 import { useSessionStore } from '../stores/session'
@@ -19,6 +19,27 @@ const memoryLeaksActive = computed(() => route.name === 'memory-leaks')
 const jankIssuesActive = computed(() => ['jank-issues', 'jank-issue-events', 'jank-event-detail'].includes(String(route.name ?? '')))
 const settingsActive = computed(() => route.name === 'app-settings')
 const symbolsActive = computed(() => route.name === 'app-symbols')
+
+/** 卡顿分析分组的展开状态，允许在当前页面手动收起。 */
+const jankExpanded = ref(false)
+/** 内存分析分组的展开状态，两个分组可以独立展开。 */
+const memoryExpanded = ref(false)
+
+/** 进入子页面或详情时展开所属分组，不干扰另一分组的手动状态。 */
+function expandActiveGroup() {
+  if (jankMetricsActive.value || jankIssuesActive.value) jankExpanded.value = true
+  if (memoryMetricsActive.value || memoryLeaksActive.value) memoryExpanded.value = true
+}
+
+watch(() => route.name, expandActiveGroup, { immediate: true })
+
+/** 切换分析分组的展开状态，保留当前页面及查询上下文。 */
+function toggleAnalysisGroup(group: 'jank' | 'memory') {
+  /** 当前操作的分组状态。 */
+  const expanded = group === 'jank' ? jankExpanded : memoryExpanded
+  expanded.value = !expanded.value
+  console.debug('[AppLayout] 分析导航分组切换', { group, expanded: expanded.value })
+}
 
 onMounted(() => {
   if (session.isAuthenticated && apps.apps.length === 0) {
@@ -81,38 +102,54 @@ async function logout() {
             <span class="nav-icon">⌁</span>
             <span>JVM Crash</span>
           </RouterLink>
-          <RouterLink
-            class="nav-link"
-            :class="{ 'router-link-active': jankMetricsActive }"
-            :to="{ name: 'jank-metrics', params: { appId: props.appId } }"
+          <button
+            type="button"
+            class="nav-link nav-group-toggle"
+            :class="{ 'nav-group-active': jankMetricsActive || jankIssuesActive }"
+            :aria-expanded="jankExpanded"
+            aria-controls="jank-navigation"
+            @click="toggleAnalysisGroup('jank')"
           >
-            <span class="nav-icon">⌁</span>
-            <span>卡顿指标分析</span>
-          </RouterLink>
-          <RouterLink
-            class="nav-link"
-            :class="{ 'router-link-active': memoryMetricsActive }"
-            :to="{ name: 'memory-metrics', params: { appId: props.appId } }"
+            <span class="nav-icon" aria-hidden="true">≋</span>
+            <span>卡顿分析</span>
+            <span class="nav-group-chevron" :class="{ 'is-expanded': jankExpanded }" aria-hidden="true">›</span>
+          </button>
+          <div id="jank-navigation" v-show="jankExpanded" class="nav-submenu">
+            <RouterLink
+              class="nav-link"
+              :class="{ 'router-link-active': jankMetricsActive }"
+              :to="{ name: 'jank-metrics', params: { appId: props.appId } }"
+            >卡顿指标分析</RouterLink>
+            <RouterLink
+              class="nav-link"
+              :class="{ 'router-link-active': jankIssuesActive }"
+              :to="{ name: 'jank-issues', params: { appId: props.appId } }"
+            >卡顿问题分析</RouterLink>
+          </div>
+          <button
+            type="button"
+            class="nav-link nav-group-toggle"
+            :class="{ 'nav-group-active': memoryMetricsActive || memoryLeaksActive }"
+            :aria-expanded="memoryExpanded"
+            aria-controls="memory-navigation"
+            @click="toggleAnalysisGroup('memory')"
           >
-            <span class="nav-icon">▥</span>
-            <span>内存指标分析</span>
-          </RouterLink>
-          <RouterLink
-            class="nav-link"
-            :class="{ 'router-link-active': memoryLeaksActive }"
-            :to="{ name: 'memory-leaks', params: { appId: props.appId } }"
-          >
-            <span class="nav-icon">⌁</span>
-            <span>内存泄漏问题</span>
-          </RouterLink>
-          <RouterLink
-            class="nav-link"
-            :class="{ 'router-link-active': jankIssuesActive }"
-            :to="{ name: 'jank-issues', params: { appId: props.appId } }"
-          >
-            <span class="nav-icon">≋</span>
-            <span>卡顿问题分析</span>
-          </RouterLink>
+            <span class="nav-icon" aria-hidden="true">▥</span>
+            <span>内存分析</span>
+            <span class="nav-group-chevron" :class="{ 'is-expanded': memoryExpanded }" aria-hidden="true">›</span>
+          </button>
+          <div id="memory-navigation" v-show="memoryExpanded" class="nav-submenu">
+            <RouterLink
+              class="nav-link"
+              :class="{ 'router-link-active': memoryMetricsActive }"
+              :to="{ name: 'memory-metrics', params: { appId: props.appId } }"
+            >内存指标分析</RouterLink>
+            <RouterLink
+              class="nav-link"
+              :class="{ 'router-link-active': memoryLeaksActive }"
+              :to="{ name: 'memory-leaks', params: { appId: props.appId } }"
+            >内存泄漏问题</RouterLink>
+          </div>
           <RouterLink
             class="nav-link"
             :class="{ 'router-link-active': settingsActive }"

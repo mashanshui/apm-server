@@ -9,7 +9,7 @@ from apm_agent_worker import host
 from apm_agent_worker.platform import WorkerError
 from apm_agent_worker.state import RunState
 from test_source import workspace
-from test_analysis import model_result
+from test_analysis import model_result, EVIDENCE
 
 # 合成协议标识，不关联真实用户或设备。
 TASK = '11111111-1111-4111-8111-111111111111'
@@ -19,8 +19,7 @@ class Platform:
     """有界假平台返回真实协议形状，记录控制面副作用。"""
     def __init__(self):
         # 正式字段之外带登记版本，防止源码绑定比较遗漏实际协议。
-        self.evidence_data = {"evidenceId": TASK, "schemaVersion": 2,
-                              "event": {"eventId": "event", "appId": "app"}, "fragments": [{"id": "raw-crash"}]}
+        self.evidence_data = json.loads(json.dumps(EVIDENCE))  # 每项测试使用完整当前证据副本。
         self.raw = json.dumps(self.evidence_data).encode()
         self.calls = []
         self.cancelled = False
@@ -37,7 +36,7 @@ class Platform:
 
     def inspect(self, task):
         """准备只取得绑定元信息。"""
-        return {"task": {"state": "READY", "evidenceSha256": hashlib.sha256(self.raw).hexdigest(), "evidenceId": TASK, "eventId": "event", "appId": "app"}}
+        return {"task": {"state": "READY", "evidenceSchemaVersion": 3, "evidenceSha256": hashlib.sha256(self.raw).hexdigest(), "evidenceId": TASK, "eventId": "event", "appId": "app"}}
 
     def claim(self, task, request):
         """稳定领取不生成不同运行。"""

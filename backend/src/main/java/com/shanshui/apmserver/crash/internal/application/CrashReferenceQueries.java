@@ -122,7 +122,7 @@ public final class CrashReferenceQueries {
         return new CrashEventSummary(event.eventId(), event.occurredAt(), event.appVersion(), event.versionCode(),
                 event.buildId(), event.channel(), event.environment(), event.osVersion(), event.deviceModel(),
                 event.sessionId(), event.anonymousDeviceId(), event.crashExceptionType(), event.crashFingerprint(),
-                event.symbolicationStatus());
+                event.symbolicationStatus(), event.groupingKind());
     }
 
     private static CrashIssueSummary issue(String fingerprint, List<CrashStoredSignal> events) {
@@ -137,7 +137,8 @@ public final class CrashReferenceQueries {
             if (event.anonymousDeviceId() != null) devices.add(event.anonymousDeviceId());
         }
         return new CrashIssueSummary(fingerprint, first.fingerprintVersion(), first.crashExceptionType(),
-                ids.size(), sessions.size(), devices.size(), first.occurredAt(), last.occurredAt());
+                ids.size(), sessions.size(), devices.size(), first.occurredAt(), last.occurredAt(), first.groupingKind(),
+                "temporary".equals(first.groupingKind()) ? first.buildId() : null);
     }
 
     private static int indexAfterIssue(List<CrashIssueSummary> values, CrashQueryFilter filter) {

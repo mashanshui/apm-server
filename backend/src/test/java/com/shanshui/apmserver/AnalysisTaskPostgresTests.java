@@ -109,9 +109,9 @@ class AnalysisTaskPostgresTests {
         userId = principal.getUserId();
         owner = UsernamePasswordAuthenticationToken.authenticated(principal, null, principal.getAuthorities());
         appId = apps.create(userId, new AppCreateRequest("com.example.task.p" + UUID.randomUUID().toString().replace("-", ""))).appId();
-        when(crashes.rawEvent(eq(appId), anyString())).thenAnswer(call -> detail(call.getArgument(1), "token=sample-key user@example.com", "jvm", true));
+        when(crashes.event(eq(appId), anyString())).thenAnswer(call -> detail(call.getArgument(1), "token=sample-key user@example.com", "jvm", true));
         when(crashes.analysisSnapshot(eq(appId), anyString())).thenAnswer(call -> new CrashAnalysisSnapshot(
-                detail(call.getArgument(1), "token=sample-key user@example.com", "jvm", true), null));
+                detail(call.getArgument(1), "token=sample-key user@example.com", "jvm", true)));
     }
 
     /** 未登记、无 mapping 同样直接创建；幂等只查询选中事件。 */
@@ -124,13 +124,13 @@ class AnalysisTaskPostgresTests {
         assertEquals(ready.taskId(), tasks.create(appId, "event-one", key, owner).taskId());
         assertEquals("ANALYSIS_IDEMPOTENCY_CONFLICT", assertThrows(QueryValidationException.class,
                 () -> tasks.create(appId, "event-two", key, owner)).getCode());
-        verify(crashes, times(1)).rawEvent(appId, "event-one");
+        verify(crashes, times(1)).event(appId, "event-one");
         verify(crashes, times(1)).analysisSnapshot(appId, "event-one");
         verifyNoMoreInteractions(crashes);
         assertThrows(QueryValidationException.class, () -> tasks.recheck(appId, ready.taskId(), owner));
         // 新证据仅保留原始 buildId 事实，不存在源码登记绑定。
         var evidence = mapper.readTree(jdbc.queryForObject("SELECT evidence_text FROM crash_analysis_task WHERE task_id=?", String.class, ready.taskId()));
-        assertEquals(2, evidence.path("schemaVersion").asInt());
+        assertEquals(3, evidence.path("schemaVersion").asInt());
         assertFalse(evidence.has("source"));
         assertEquals("probe-build", evidence.path("event").path("buildId").asText());
         assertEquals("mapping_missing", evidence.path("mapping").path("reason").asText());
@@ -163,15 +163,15 @@ class AnalysisTaskPostgresTests {
         var blocked = tasks.create(appId, "failure", key, owner);
         assertEquals("PREPARATION_FAILED", blocked.blockReason());
         assertEquals("BLOCKED", tasks.create(appId, "failure", key, owner).state());
-        doReturn(new CrashAnalysisSnapshot(detail("failure", "test", "jvm", true), null)).when(crashes).analysisSnapshot(appId, "failure");
+        doReturn(new CrashAnalysisSnapshot(detail("failure", "test", "jvm", true))).when(crashes).analysisSnapshot(appId, "failure");
         assertEquals("READY", tasks.recheck(appId, blocked.taskId(), owner).state());
     }
 
     /** 创建只支持 JVM fatal；非法原始类型在数据库插入前拒绝。 */
     @Test
     void rejectsOtherCrashKindsAndNonfatalEvents() {
-        when(crashes.rawEvent(appId, "native")).thenReturn(detail("native", "test", "native", true));
-        when(crashes.rawEvent(appId, "nonfatal")).thenReturn(detail("nonfatal", "test", "jvm", false));
+        when(crashes.event(appId, "native")).thenReturn(detail("native", "test", "native", true));
+        when(crashes.event(appId, "nonfatal")).thenReturn(detail("nonfatal", "test", "jvm", false));
         for (String event : List.of("native", "nonfatal")) {
             assertEquals("UNSUPPORTED_ANALYSIS_EVENT", assertThrows(QueryValidationException.class,
                     () -> tasks.create(appId, event, UUID.randomUUID(), owner)).getCode());
@@ -182,7 +182,7 @@ class AnalysisTaskPostgresTests {
     /** 原文超限不截断，保留明确阻断原因。 */
     @Test
     void blocksOversizedEvidenceAndPreparationFailures() {
-        when(crashes.analysisSnapshot(appId, "large")).thenReturn(new CrashAnalysisSnapshot(detail("large", "x".repeat(1048576), "jvm", true), null));
+        when(crashes.analysisSnapshot(appId, "large")).thenReturn(new CrashAnalysisSnapshot(detail("large", "x".repeat(1048576), "jvm", true)));
         assertEquals("EVIDENCE_TOO_LARGE", tasks.create(appId, "large", UUID.randomUUID(), owner).blockReason());
         when(crashes.analysisSnapshot(appId, "failure")).thenThrow(new IllegalStateException("sensitive-provider-error"));
         assertEquals("PREPARATION_FAILED", tasks.create(appId, "failure", UUID.randomUUID(), owner).blockReason());
@@ -191,7 +191,7 @@ class AnalysisTaskPostgresTests {
     /** 单事件身份漂移拒绝发布，不能把其他事件当成当前证据。 */
     @Test
     void rejectsPublicationWhenEventIdentityChanges() {
-        when(crashes.analysisSnapshot(appId, "event-one")).thenReturn(new CrashAnalysisSnapshot(detail("another-event", "test", "jvm", true), null));
+        when(crashes.analysisSnapshot(appId, "event-one")).thenReturn(new CrashAnalysisSnapshot(detail("another-event", "test", "jvm", true)));
         assertEquals("EVENT_IDENTITY_CHANGED", tasks.create(appId, "event-one", UUID.randomUUID(), owner).blockReason());
     }
 
@@ -200,7 +200,7 @@ class AnalysisTaskPostgresTests {
     void preventsLatePublicationAfterCancellation() {
         when(crashes.analysisSnapshot(appId, "event-one")).thenAnswer(call -> {
             jdbc.update("UPDATE crash_analysis_task SET state='CANCELLED',block_reason=NULL,preparation_generation=preparation_generation+1 WHERE app_id=?", appId);
-            return new CrashAnalysisSnapshot(detail("event-one", "test", "jvm", true), null);
+            return new CrashAnalysisSnapshot(detail("event-one", "test", "jvm", true));
         });
         // 本测试验证 SQL 条件；网页取消入口将在生命周期阶段覆盖。
         var cancelled = tasks.create(appId, "event-one", UUID.randomUUID(), owner);
@@ -208,22 +208,22 @@ class AnalysisTaskPostgresTests {
         assertNull(cancelled.evidenceId());
     }
 
-    /** 还原后 mapping 被替换，旧文本与摘要不能发布为 READY。 */
+    /** 已发布来源与当前 mapping 分离，替换后仍可冻结固定旧结果。 */
     @Test
-    void checksActualSymbolRevisionBeforePublishingAndPreservesFrozenVersion() {
+    void freezesActualStoredSourceAfterMappingReplacement() {
         // 真实 mapping 元数据，正文读取由本测试的 Crash 边界模拟。
         UUID symbolId = UUID.randomUUID();
         symbols.saveAndFlush(new SymbolFileEntity(symbolId, appId, "probe-build", 1, symbolId + ".map",
                 "mapping.txt", 12, "7".repeat(64), userId, Instant.now(), Instant.now()));
-        when(crashes.analysisSnapshot(appId, "stable")).thenReturn(new CrashAnalysisSnapshot(symbolDetail("stable", symbolId), "7".repeat(64)));
+        when(crashes.analysisSnapshot(appId, "stable")).thenReturn(new CrashAnalysisSnapshot(symbolDetail("stable", symbolId)));
         // 成功冻结后更换 mapping 不改写原材料。
         var ready = tasks.create(appId, "stable", UUID.randomUUID(), owner);
         assertEquals("READY", ready.state());
         when(crashes.analysisSnapshot(appId, "changed")).thenAnswer(call -> {
             jdbc.update("UPDATE app_symbol_file SET revision=2,sha256=? WHERE symbol_id=?", "8".repeat(64), symbolId);
-            return new CrashAnalysisSnapshot(symbolDetail("changed", symbolId), "7".repeat(64));
+            return new CrashAnalysisSnapshot(symbolDetail("changed", symbolId));
         });
-        assertEquals("SYMBOL_VERSION_CHANGED", tasks.create(appId, "changed", UUID.randomUUID(), owner).blockReason());
+        assertEquals("READY", tasks.create(appId, "changed", UUID.randomUUID(), owner).state());
         assertEquals(ready.evidenceSha256(), tasks.get(appId, ready.taskId(), owner).evidenceSha256());
         assertTrue(jdbc.queryForObject("SELECT evidence_text FROM crash_analysis_task WHERE task_id=?", String.class, ready.taskId()).contains("7".repeat(64)));
     }
@@ -233,7 +233,7 @@ class AnalysisTaskPostgresTests {
     void serializesDuplicateCreationAndUsesBoundedEventIndex() throws Exception {
         // 屏障使两次原始读取后同时进入数据库插入。
         var barrier = new java.util.concurrent.CyclicBarrier(2);
-        when(crashes.rawEvent(appId, "event-one")).thenAnswer(call -> {
+        when(crashes.event(appId, "event-one")).thenAnswer(call -> {
             barrier.await(5, java.util.concurrent.TimeUnit.SECONDS);
             return detail("event-one", "test", "jvm", true);
         });
@@ -256,12 +256,13 @@ class AnalysisTaskPostgresTests {
 
     /** 同次还原的合成详情完整附带当前符号身份。 */
     private CrashEventDetailResponse symbolDetail(String event, UUID symbolId) {
-        // 复用原始单事件事实，替换公开的还原字段。
+        // 来源固定于事件，不要求当前注册表仍保留该文件。
         var raw = detail(event, "test", "jvm", true);
         return new CrashEventDetailResponse(raw.appId(), raw.eventId(), raw.packageName(), raw.occurredAt(), raw.receivedAt(),
                 raw.sessionId(), raw.processId(), raw.anonymousDeviceId(), raw.appVersion(), raw.versionCode(), raw.buildId(),
                 raw.channel(), raw.environment(), raw.osVersion(), raw.deviceModel(), raw.networkType(), raw.exceptionType(),
-                raw.fingerprint(), raw.fingerprintVersion(), "symbolicated", "Example.crash(Example.kt:2)", symbolId, 1, null, raw.rawCrash());
+                raw.fingerprint(), raw.fingerprintVersion(), "symbolicated", new com.shanshui.apmserver.crash.api.CrashStack("retrace_text", "Example.crash(Example.kt:2)"),
+                symbolId, 1, null, "jvm", true, "resolved", "7".repeat(64), raw.occurredAt());
     }
 
     /** 完整值只在创建返回；到期、撤销、Session、查询 Token 都不能冒充 Worker。 */
@@ -327,7 +328,7 @@ class AnalysisTaskPostgresTests {
             // 同 ID 不得变更任务输入。
             assertEquals("ANALYSIS_CLAIM_CONFLICT", assertThrows(QueryValidationException.class,
                     () -> runs.claim(identity, UUID.randomUUID(), request)).getCode());
-            assertNull(allocated.run().snapshotId());
+            assertFalse(mapper.valueToTree(allocated.run()).has("snapshotId"));
             // 冻结字节与任务摘要在有效分配下保持一致。
             var lease = new AnalysisRunService.Lease(allocated.run().leaseGeneration(), allocated.leaseToken());
             assertEquals(task.evidenceSha256(), AnalysisEvidence.digest(runs.evidence(identity, allocated.run().runId(), lease)));
@@ -428,7 +429,7 @@ class AnalysisTaskPostgresTests {
         var identity = credentials.authenticate(credentials.create(appId, "worker", owner).credential());
         var claimed = runs.claim(identity, task.taskId(), UUID.randomUUID());
         var lease = new AnalysisRunService.Lease(claimed.run().leaseGeneration(), claimed.leaseToken());
-        String json = result(task, task.evidenceId(), "Example.kt", "raw-crash", "test summary");
+        String json = result(task, task.evidenceId(), "Example.kt", "crash-stack", "test summary");
         var completion = new AnalysisRunService.Completion(lease, json, AnalysisEvidence.digest(json), false, true);
         assertEquals("SUCCEEDED", runs.complete(identity, claimed.run().runId(), completion).state());
         // 完成后租约已过期仍可确认原结果，不重新运行模型。
@@ -437,7 +438,7 @@ class AnalysisTaskPostgresTests {
         assertFalse(runs.status(identity, claimed.run().runId()).stopConfirmed());
         assertTrue(runs.status(identity, claimed.run().runId()).localToolsStopped());
         assertEquals("UNKNOWN", runs.status(identity, claimed.run().runId()).hostStopState());
-        String different = result(task, task.evidenceId(), "Example.kt", "raw-crash", "different summary");
+        String different = result(task, task.evidenceId(), "Example.kt", "crash-stack", "different summary");
         assertEquals("ANALYSIS_RESULT_CONFLICT", assertThrows(QueryValidationException.class,
                 () -> runs.complete(identity, claimed.run().runId(), new AnalysisRunService.Completion(lease, different, AnalysisEvidence.digest(different), false, true))).getCode());
         assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM crash_analysis_run WHERE app_id=?", Integer.class, appId));
@@ -452,8 +453,8 @@ class AnalysisTaskPostgresTests {
         var identity = credentials.authenticate(credentials.create(appId, "worker", owner).credential());
         var claimed = runs.claim(identity, task.taskId(), UUID.randomUUID());
         var lease = new AnalysisRunService.Lease(claimed.run().leaseGeneration(), claimed.leaseToken());
-        for (String invalid : List.of(result(task, UUID.randomUUID(), "Example.kt", "raw-crash", "test"),
-                result(task, task.evidenceId(), "../Example.kt", "raw-crash", "test"),
+        for (String invalid : List.of(result(task, UUID.randomUUID(), "Example.kt", "crash-stack", "test"),
+                result(task, task.evidenceId(), "../Example.kt", "crash-stack", "test"),
                 result(task, task.evidenceId(), "Example.kt", "other-fragment", "test"))) {
             assertEquals("ANALYSIS_REFERENCE_INVALID", assertThrows(QueryValidationException.class,
                     () -> runs.complete(identity, claimed.run().runId(), new AnalysisRunService.Completion(lease, invalid, AnalysisEvidence.digest(invalid), false, true))).getCode());
@@ -463,7 +464,7 @@ class AnalysisTaskPostgresTests {
         // 业务结论为证据不足，与执行成功分开。
         String insufficient = mapper.writeValueAsString(new AnalysisResult(4, task.evidenceId(), claimed.run().runId(), "INSUFFICIENT_EVIDENCE",
                 "缺少实际触发条件", List.of(), List.of(), List.of("没有用户操作上下文"), List.of(), List.of(), List.of("人工复现"),
-                new AnalysisResult.Execution(null, null, "HOST_AGENT", null, null, "0.4.0", "UNKNOWN"), new AnalysisResult.Usage(null, null, null, null, null),
+                new AnalysisResult.Execution(null, null, "HOST_AGENT", null, null, "0.5.0", "UNKNOWN"), new AnalysisResult.Usage(null, null, null, null, null),
                 new AnalysisResult.Repair("NOT_REQUESTED", List.of(), "仅分析", "HOST_REPORTED"),
                 new AnalysisResult.Verification("NOT_RUN", "HOST_REPORTED", List.of(), "未执行测试")));
         assertEquals("SUCCEEDED", runs.complete(identity, claimed.run().runId(), new AnalysisRunService.Completion(lease, insufficient, AnalysisEvidence.digest(insufficient), false, true)).state());
@@ -477,7 +478,7 @@ class AnalysisTaskPostgresTests {
         var identity = credentials.authenticate(credentials.create(appId, "worker", owner).credential());
         var claimed = runs.claim(identity, task.taskId(), UUID.randomUUID());
         var lease = new AnalysisRunService.Lease(claimed.run().leaseGeneration(), claimed.leaseToken());
-        String json = result(task, task.evidenceId(), "Example.kt", "raw-crash", "test");
+        String json = result(task, task.evidenceId(), "Example.kt", "crash-stack", "test");
         var completion = new AnalysisRunService.Completion(lease, json, AnalysisEvidence.digest(json), false, true);
         tasks.cancel(appId, task.taskId(), owner);
         assertEquals("ANALYSIS_STOP_REQUIRED", assertThrows(QueryValidationException.class,
@@ -500,7 +501,7 @@ class AnalysisTaskPostgresTests {
                 List.of(new AnalysisResult.Candidate("test", "明确抛出异常", List.of(fragment))),
                 List.of(new AnalysisResult.SourceReference(path, 2, 2, "throw IllegalStateException()", AnalysisEvidence.digest("throw IllegalStateException()"), "HOST_REPORTED", "CURRENT_MATCH")),
                 List.of("仅合成测试"), List.of(), List.of("人工检查"), List.of("复现验证"),
-                new AnalysisResult.Execution(null, null, "HOST_AGENT", null, null, "0.4.0", "UNKNOWN"), new AnalysisResult.Usage(null, null, null, null, null),
+                new AnalysisResult.Execution(null, null, "HOST_AGENT", null, null, "0.5.0", "UNKNOWN"), new AnalysisResult.Usage(null, null, null, null, null),
                 new AnalysisResult.Repair("NOT_REQUESTED", List.of(), "仅分析", "HOST_REPORTED"),
                 new AnalysisResult.Verification("NOT_RUN", "HOST_REPORTED", List.of(), "未执行测试")));
     }
@@ -513,7 +514,7 @@ class AnalysisTaskPostgresTests {
         var identity = credentials.authenticate(credentials.create(appId, "worker", owner).credential());
         var claimed = runs.claim(identity, task.taskId(), UUID.randomUUID());
         var lease = new AnalysisRunService.Lease(claimed.run().leaseGeneration(), claimed.leaseToken());
-        String json = result(task, task.evidenceId(), "Example.kt", "raw-crash", "test");
+        String json = result(task, task.evidenceId(), "Example.kt", "crash-stack", "test");
         runs.complete(identity, claimed.run().runId(), new AnalysisRunService.Completion(lease, json, AnalysisEvidence.digest(json), false, true));
         runs.confirmStopped(appId, claimed.run().runId(), owner, "受控测试确认宿主本次分析已结束");
         jdbc.update("UPDATE crash_analysis_task SET terminal_at=clock_timestamp()-INTERVAL '31 days' WHERE task_id=?", task.taskId());
@@ -582,7 +583,7 @@ class AnalysisTaskPostgresTests {
         // 响应只在当前方法内存使用，不写入日志或测试快照。
         var claimed = mapper.readValue(response, AnalysisRunService.Claimed.class);
         var lease = new AnalysisRunService.Lease(claimed.run().leaseGeneration(), claimed.leaseToken());
-        String json = result(httpTask, httpTask.evidenceId(), "Example.kt", "raw-crash", "http test");
+        String json = result(httpTask, httpTask.evidenceId(), "Example.kt", "crash-stack", "http test");
         mvc.perform(post("/api/worker/v1/tasks/runs/{runId}/complete", claimed.run().runId())
                         .header("Authorization", "Bearer " + credential.credential()).contentType(MediaType.APPLICATION_JSON)
                         .content(mapper.writeValueAsString(new AnalysisRunService.Completion(lease, json, AnalysisEvidence.digest(json), false, true))))
@@ -660,9 +661,9 @@ class AnalysisTaskPostgresTests {
         return new CrashEventDetailResponse(appId, eventId, "com.example.test", Instant.parse("2026-10-01T00:00:00Z"),
                 Instant.parse("2026-10-01T00:00:01Z"), "private-session", "private-process", "private-device", "1", 1,
                 "probe-build", "test", "debug", "13", "synthetic", "wifi", "java.lang.IllegalStateException", "fingerprint", "1",
-                "raw_only", null, null, null, "mapping_missing", new CrashPayload(kind, fatal,
+                "pending", new com.shanshui.apmserver.crash.api.CrashStack("raw_chain", new CrashPayload(kind, fatal,
                 List.of(new ThrowableNode("java.lang.IllegalStateException", message,
-                        List.of(new StackFrame("Example", "crash", "Example.kt", 2, true))))));
+                        List.of(new StackFrame("Example", "crash", "Example.kt", 2, true)))))), null, null, "mapping_missing", kind, fatal, "temporary", null, null);
     }
 
     /** 每次创建都使用一个新的稳定输入键。 */
@@ -682,7 +683,7 @@ class AnalysisTaskPostgresTests {
         var identity = credentials.authenticate(credentials.create(appId, "host", owner).credential());
         var claimed = runs.claim(identity, task.taskId(), UUID.randomUUID());
         var lease = new AnalysisRunService.Lease(claimed.run().leaseGeneration(), claimed.leaseToken());
-        String json = result(task, task.evidenceId(), "Example.kt", "raw-crash", "host result");
+        String json = result(task, task.evidenceId(), "Example.kt", "crash-stack", "host result");
         assertThrows(QueryValidationException.class, () -> runs.complete(identity, claimed.run().runId(),
                 new AnalysisRunService.Completion(lease, json, AnalysisEvidence.digest(json), true, true)));
         assertThrows(QueryValidationException.class, () -> runs.complete(identity, claimed.run().runId(),
@@ -716,7 +717,7 @@ class AnalysisTaskPostgresTests {
     void rejectsImplicitExecutorReplacementForFrozenTask() {
         var task = tasks.create(appId, "legacy", UUID.randomUUID(), owner);
         // 仅模拟旧冻结正文；原始字节、JSONB 和摘要始终一致。
-        String oldEvidence = jdbc.queryForObject("SELECT evidence_text FROM crash_analysis_task WHERE task_id=?", String.class, task.taskId()).replace("\"schemaVersion\":2", "\"schemaVersion\":1");
+        String oldEvidence = jdbc.queryForObject("SELECT evidence_text FROM crash_analysis_task WHERE task_id=?", String.class, task.taskId()).replace("\"schemaVersion\":3", "\"schemaVersion\":1");
         jdbc.update("UPDATE crash_analysis_task SET evidence=?::jsonb,evidence_text=?,evidence_sha256=? WHERE task_id=?", oldEvidence, oldEvidence, AnalysisEvidence.digest(oldEvidence), task.taskId());
         var identity = credentials.authenticate(credentials.create(appId, "host", owner).credential());
         assertEquals("ANALYSIS_CONFIG_MISMATCH", assertThrows(QueryValidationException.class,
@@ -729,7 +730,7 @@ class AnalysisTaskPostgresTests {
         var identity = credentials.authenticate(credentials.create(appId, "current", owner).credential()); // 受信应用身份。
         var claimed = runs.claim(identity, task.taskId(), UUID.randomUUID()); // 当前服务端分配。
         var lease = new AnalysisRunService.Lease(claimed.run().leaseGeneration(), claimed.leaseToken()); // 原分配租约。
-        String valid = result(task, task.evidenceId(), "Example.kt", "raw-crash", "当前源码分析"); // 受控报告。
+        String valid = result(task, task.evidenceId(), "Example.kt", "crash-stack", "当前源码分析"); // 受控报告。
         String crossRun = valid.replace(claimed.run().runId().toString(), UUID.randomUUID().toString()); // 其他 Run。
         assertEquals("ANALYSIS_REFERENCE_INVALID", assertThrows(QueryValidationException.class,
                 () -> runs.complete(identity, claimed.run().runId(), new AnalysisRunService.Completion(lease,crossRun,AnalysisEvidence.digest(crossRun),false,true))).getCode());
@@ -752,19 +753,24 @@ class AnalysisTaskPostgresTests {
                 () -> runs.complete(identity,claimed.run().runId(),new AnalysisRunService.Completion(lease,oldField,AnalysisEvidence.digest(oldField),false,true))).getCode());
     }
 
-    /** 旧报告保留任意原版本字段，历史读取不使用新记录类丢掉旧来源。 */
+    /** 非当前契约任务不可读取/领取，旧原文不升级、不清空；当前任务也拒绝旧报告。 */
     @Test
-    void readsLegacyReportJsonWithoutRewritingIt() {
-        var task = tasks.create(appId,"legacy-history",UUID.randomUUID(),owner); // 独立测试事件。
-        var identity = credentials.authenticate(credentials.create(appId,"history",owner).credential()); // 独立身份。
-        var claimed = runs.claim(identity,task.taskId(),UUID.randomUUID()); // 当前分配用于构造旧终态。
-        var lease = new AnalysisRunService.Lease(claimed.run().leaseGeneration(),claimed.leaseToken()); // 原租约。
+    void hidesOldTasksAndRejectsOldReportsWithoutRewritingBytes() {
+        var task = tasks.create(appId,"legacy-history",UUID.randomUUID(),owner);
+        var identity = credentials.authenticate(credentials.create(appId,"history",owner).credential());
+        var claimed = runs.claim(identity,task.taskId(),UUID.randomUUID());
+        var lease = new AnalysisRunService.Lease(claimed.run().leaseGeneration(),claimed.leaseToken());
         stopAndConfirm(identity,claimed.run().runId(),lease,"CANCELLED");
-        String legacy = "{\"schemaVersion\":1,\"commitSha\":\""+"a".repeat(40)+"\",\"execution\":{\"opencodeVersion\":\"historical\"}}"; // 历史原字节。
+        String legacy = "{\"schemaVersion\":1,\"historical\":true}";
         jdbc.update("UPDATE crash_analysis_run SET result=?::jsonb,result_text=?,result_sha256=? WHERE run_id=?",legacy,legacy,AnalysisEvidence.digest(legacy),claimed.run().runId());
-        var history = runs.history(appId,task.taskId(),owner,0,20).getFirst().result(); // 新历史只读 JSON。
-        assertEquals("a".repeat(40),history.path("commitSha").asText());
-        assertEquals("historical",history.path("execution").path("opencodeVersion").asText());
+        assertEquals("ANALYSIS_CONFIG_MISMATCH", assertThrows(QueryValidationException.class,
+                () -> runs.history(appId,task.taskId(),owner,0,20)).getCode());
+        jdbc.update("UPDATE crash_analysis_task SET contract_version=NULL WHERE task_id=?",task.taskId());
+        assertEquals("ANALYSIS_TASK_NOT_FOUND", assertThrows(QueryValidationException.class,
+                () -> tasks.get(appId,task.taskId(),owner)).getCode());
+        assertTrue(tasks.list(appId,"legacy-history",owner,0,20).isEmpty());
+        assertThrows(QueryValidationException.class, () -> runs.claim(identity,task.taskId(),UUID.randomUUID()));
+        assertThrows(QueryValidationException.class, () -> runs.history(appId,task.taskId(),owner,0,20));
         assertEquals(legacy,jdbc.queryForObject("SELECT result_text FROM crash_analysis_run WHERE run_id=?",String.class,claimed.run().runId()));
     }
 

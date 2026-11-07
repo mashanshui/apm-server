@@ -3,6 +3,7 @@ package com.shanshui.apmserver.crash.internal.application;
 import com.shanshui.apmserver.crash.api.CrashPayload;
 import com.shanshui.apmserver.telemetry.api.StackFrame;
 import com.shanshui.apmserver.crash.api.ThrowableNode;
+import com.shanshui.apmserver.symbol.api.RetraceFingerprintInput;
 import org.springframework.stereotype.Service;
 
 import java.nio.charset.StandardCharsets;
@@ -58,6 +59,35 @@ public class CrashFingerprintService {
 
     public String version() {
         return VERSION;
+    }
+
+    /** 临时指纹显式绑定构建，混淆名称巧合相同也不能跨构建归组。 */
+    public String temporary(java.util.UUID appId, String packageName, String buildId, CrashPayload crash) {
+        return sha256("tmp-v1|" + appId + "|" + buildId + "|" + fingerprint(appId, packageName, crash));
+    }
+
+    /** 正式指纹只使用还原后的身份；包含一个候选组时保留该组全部候选。 */
+    public String resolved(java.util.UUID appId, String packageName, RetraceFingerprintInput input) {
+        // 应用关键调用按原顺序选取最多八组，组内已稳定排序。
+        List<List<String>> application = input.frameGroups().stream()
+                .filter(group -> group.stream().anyMatch(frame -> frame.startsWith(packageName + ".")))
+                .limit(MAX_FRAMES).toList();
+        // 无可靠应用帧时使用版本化的完整候选/帧回退，不能随意选择第一条。
+        List<List<String>> selected = application.isEmpty() ? input.frameGroups() : application;
+        StringBuilder identity = new StringBuilder("resolved-v1");
+        appendIdentity(identity, appId.toString());
+        input.exceptions().forEach(header -> appendIdentity(identity, normalize(header)));
+        appendIdentity(identity, application.isEmpty() ? "all-candidates-v1" : "application-frames-v1");
+        for (List<String> group : selected) {
+            appendIdentity(identity, "frame-group");
+            group.forEach(frame -> appendIdentity(identity, frame));
+        }
+        return sha256(identity.toString());
+    }
+
+    /** 长度前缀避免消息、候选或类名中的分隔符造成身份碰撞。 */
+    private void appendIdentity(StringBuilder target, String value) {
+        target.append('|').append(value.length()).append(':').append(value);
     }
 
     private String normalize(String value) {

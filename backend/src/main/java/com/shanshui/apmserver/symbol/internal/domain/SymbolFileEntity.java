@@ -49,6 +49,13 @@ public class SymbolFileEntity {
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
 
+    /** 软删除时间；历史身份与审计保持存在。 */
+    @Column(name = "deleted_at")
+    private Instant deletedAt;
+
+    /** 是否已退出活动集合。 */
+    public Instant getDeletedAt() { return deletedAt; }
+
     /** JPA 需要的无参构造函数。 */
     protected SymbolFileEntity() {
     }

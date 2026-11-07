@@ -57,8 +57,7 @@ public class AnalysisRunService {
             /** 数据库时钟。 */ Instant serverNow, /** 是否已确认整个环境停止。 */ boolean stopConfirmed,
             /** 失败稳定码，可空。 */ String errorCode,
             /** 本次任务材料工具是否关闭。 */ boolean localToolsStopped,
-            /** 宿主停止状态，不能由模型自报确认。 */ String hostStopState,
-            /** 历史源码快照 ID，新宿主直接读取 Run 为空。 */ UUID snapshotId) {}
+            /** 宿主停止状态，不能由模型自报确认。 */ String hostStopState) {}
 
     /** 仅向原分配 Worker 返回活动租约秘密，元数据查询不会包含它。 */
     public record Claimed(/** 分配状态。 */ RunView run, /** 活动 Run 的随机租约 Token。 */ String leaseToken) {}
@@ -78,17 +77,17 @@ public class AnalysisRunService {
         if (!existing.isEmpty()) {
             // 原分配与请求输入必须一致，即使已经结束也不分配新尝试。
             RunView run = view(identity, existing.getFirst());
-            if (!run.taskId().equals(taskId) || run.snapshotId() != null) throw conflict("ANALYSIS_CLAIM_CONFLICT", "领取请求已用于其他任务");
+            if (!run.taskId().equals(taskId)) throw conflict("ANALYSIS_CLAIM_CONFLICT", "领取请求已用于其他任务");
             expire(run);
             return claimed(identity, run.runId());
         }
         // 按凭据应用锁定任务，未知与跨应用统一拒绝。
-        List<String> states = jdbc.queryForList("SELECT state FROM crash_analysis_task WHERE app_id=? AND task_id=? FOR UPDATE", String.class, identity.appId(), taskId);
+        List<String> states = jdbc.queryForList("SELECT state FROM crash_analysis_task WHERE contract_version=3 AND app_id=? AND task_id=? FOR UPDATE", String.class, identity.appId(), taskId);
         if (states.isEmpty()) throw notFound();
         if (!"READY".equals(states.getFirst())) throw conflict("ANALYSIS_NOT_READY", "任务当前不可领取");
         // 旧冻结任务不能偷偷更换分析策略。
-        Integer schema = jdbc.queryForObject("SELECT (evidence->>'schemaVersion')::integer FROM crash_analysis_task WHERE app_id=? AND task_id=?", Integer.class, identity.appId(), taskId);
-        if (!Integer.valueOf(2).equals(schema)) throw conflict("ANALYSIS_CONFIG_MISMATCH", "请创建宿主分析新任务，不能改写旧冻结输入");
+        Integer schema = jdbc.queryForObject("SELECT (evidence->>'schemaVersion')::integer FROM crash_analysis_task WHERE contract_version=3 AND app_id=? AND task_id=?", Integer.class, identity.appId(), taskId);
+        if (!Integer.valueOf(3).equals(schema)) throw conflict("ANALYSIS_CONFIG_MISMATCH", "不支持当前证据格式");
         // 同一执行凭据同时最多一个运行环境，未停止的历史也禁止新分配。
         Boolean active = jdbc.queryForObject("SELECT EXISTS(SELECT 1 FROM crash_analysis_run WHERE credential_id=? AND (state='RUNNING' OR stop_confirmed=false))", Boolean.class, identity.credentialId());
         if (Boolean.TRUE.equals(active)) throw conflict("WORKER_BUSY", "Worker 仍有未确认停止的执行环境");
@@ -146,7 +145,7 @@ public class AnalysisRunService {
             if (!"RUNNING".equals(run.state())) return new ContentAttempt(run, null);
             validateLease(identity, run, lease);
             if (!enabled || !"RUNNING".equals(run.taskState())) throw conflict("ANALYSIS_STOP_REQUIRED", "当前执行需停止");
-            return new ContentAttempt(run, jdbc.queryForObject("SELECT evidence_text FROM crash_analysis_task WHERE app_id=? AND task_id=? AND current_run_id=?", String.class, identity.appId(), run.taskId(), runId));
+            return new ContentAttempt(run, jdbc.queryForObject("SELECT evidence_text FROM crash_analysis_task WHERE contract_version=3 AND app_id=? AND task_id=? AND current_run_id=?", String.class, identity.appId(), run.taskId(), runId));
         });
         if (result.content() == null) throw conflict("ANALYSIS_LEASE_INVALID", "租约已失效");
         return result.content();
@@ -222,11 +221,11 @@ public class AnalysisRunService {
         // 结果绑定本次 Run，不将历史快照解释为直接读取模式。
         UUID taskId = run.taskId();
         // 本任务的固定证据作为唯一引用来源。
-        String evidence = jdbc.queryForObject("SELECT evidence_text FROM crash_analysis_task WHERE app_id=? AND task_id=?", String.class, appId, taskId);
+        String evidence = jdbc.queryForObject("SELECT evidence_text FROM crash_analysis_task WHERE contract_version=3 AND app_id=? AND task_id=?", String.class, appId, taskId);
         // 证据是本服务生成且已经通过大小约束的 JSON。
         var frozen = mapper.readTree(evidence);
         if (!frozen.path("evidenceId").asText().equals(result.evidenceId().toString())
-                || !result.runId().equals(run.runId()) || run.snapshotId() != null || frozen.path("schemaVersion").asInt()!=2) throw conflict("ANALYSIS_REFERENCE_INVALID", "结果引用不属于当前任务");
+                || !result.runId().equals(run.runId()) || frozen.path("schemaVersion").asInt()!=3) throw conflict("ANALYSIS_REFERENCE_INVALID", "结果引用不属于当前任务");
         // 固定片段集合不会接收跨任务 ID。
         Set<String> fragments = new java.util.HashSet<>();
         frozen.path("fragments").forEach(fragment -> fragments.add(fragment.path("id").asText()));
@@ -345,12 +344,12 @@ public class AnalysisRunService {
         // 人工记录不可空，不能用模型结论替代宿主本次分析和本地材料的实际核验。
         String normalized = basis == null ? "" : basis.strip();
         if (normalized.isEmpty() || normalized.length() > 2000) throw new QueryValidationException("INVALID_STOP_BASIS", "停止核验依据需为 1 到 2000 字符", 400);
-        List<UUID> tasks = jdbc.queryForList("SELECT task_id FROM crash_analysis_run WHERE app_id=? AND run_id=? FOR UPDATE", UUID.class, appId, runId);
+        List<UUID> tasks = jdbc.queryForList("SELECT task_id FROM crash_analysis_run r WHERE app_id=? AND run_id=? AND EXISTS (SELECT 1 FROM crash_analysis_task t WHERE t.task_id=r.task_id AND t.contract_version=3) FOR UPDATE", UUID.class, appId, runId);
         if (tasks.isEmpty()) throw notFound();
         // 已确认的停止审计保持原事实，管理员重复核验不混改来源。
         if (Boolean.TRUE.equals(jdbc.queryForObject("SELECT stop_confirmed FROM crash_analysis_run WHERE app_id=? AND run_id=?", Boolean.class, appId, runId))) return;
         // 有效运行必须先发出取消意图，不能将仍在执行的环境标为停止。
-        Integer active = jdbc.queryForObject("SELECT count(*) FROM crash_analysis_run r JOIN crash_analysis_task t ON t.current_run_id=r.run_id WHERE r.app_id=? AND r.run_id=? AND r.state='RUNNING' AND t.state<>'CANCELLING' AND r.lease_expires_at>clock_timestamp() AND r.deadline_at>clock_timestamp()", Integer.class, appId, runId);
+        Integer active = jdbc.queryForObject("SELECT count(*) FROM crash_analysis_run r JOIN crash_analysis_task t ON t.current_run_id=r.run_id WHERE t.contract_version=3 AND r.app_id=? AND r.run_id=? AND r.state='RUNNING' AND t.state<>'CANCELLING' AND r.lease_expires_at>clock_timestamp() AND r.deadline_at>clock_timestamp()", Integer.class, appId, runId);
         if (active > 0) throw conflict("ANALYSIS_STATE_CONFLICT", "请先取消活动任务并核验环境停止");
         jdbc.update("UPDATE crash_analysis_run SET local_tools_stopped=true,host_stop_state=CASE WHEN host_stop_state='NOT_APPLICABLE' THEN host_stop_state ELSE 'CONFIRMED' END,stop_confirmed=true,stopped_at=COALESCE(stopped_at,clock_timestamp()),stopped_by=COALESCE(stopped_by,?),stop_basis=COALESCE(stop_basis,?),state=CASE WHEN state='RUNNING' THEN 'CANCELLED' ELSE state END,finished_at=COALESCE(finished_at,clock_timestamp()),lease_token=NULL WHERE app_id=? AND run_id=?", access.requireUserId(authentication), normalized, appId, runId);
         jdbc.update("UPDATE crash_analysis_task SET state='CANCELLED',terminal_at=clock_timestamp() WHERE app_id=? AND task_id=? AND current_run_id=? AND state IN ('RUNNING','CANCELLING')", appId, tasks.getFirst(), runId);
@@ -364,11 +363,19 @@ public class AnalysisRunService {
     public List<RunDetail> history(UUID appId, UUID taskId, Authentication authentication, int page, int size) {
         access.requireView(appId, authentication);
         if (page<0 || page>1000 || size<1 || size>100) throw new QueryValidationException("INVALID_ANALYSIS_PAGE", "分页参数无效", 400);
-        if (jdbc.queryForObject("SELECT count(*) FROM crash_analysis_task WHERE app_id=? AND task_id=?", Integer.class, appId, taskId)!=1) throw notFound();
-        return jdbc.query("SELECT r.*,t.state AS task_state,t.content_expired,clock_timestamp() AS server_now FROM crash_analysis_run r JOIN crash_analysis_task t ON t.task_id=r.task_id AND t.app_id=r.app_id WHERE r.app_id=? AND r.task_id=? ORDER BY r.attempt DESC LIMIT ? OFFSET ?",
+        if (jdbc.queryForObject("SELECT count(*) FROM crash_analysis_task WHERE contract_version=3 AND app_id=? AND task_id=?", Integer.class, appId, taskId)!=1) throw notFound();
+        return jdbc.query("SELECT r.*,t.state AS task_state,t.content_expired,clock_timestamp() AS server_now FROM crash_analysis_run r JOIN crash_analysis_task t ON t.task_id=r.task_id AND t.app_id=r.app_id WHERE t.contract_version=3 AND r.app_id=? AND r.task_id=? ORDER BY r.attempt DESC LIMIT ? OFFSET ?",
                 (row, number) -> new RunDetail(new RunView(row.getObject("run_id", UUID.class), row.getObject("task_id", UUID.class), row.getInt("attempt"), row.getString("state"), row.getString("task_state"), row.getLong("lease_generation"),
-                        row.getTimestamp("lease_expires_at").toInstant(), row.getTimestamp("deadline_at").toInstant(), row.getTimestamp("server_now").toInstant(), row.getBoolean("stop_confirmed"), row.getString("error_code"), row.getBoolean("local_tools_stopped"), row.getString("host_stop_state"), row.getObject("snapshot_id", UUID.class)),
-                        row.getString("result_text")==null ? null : mapper.readTree(row.getString("result_text")), row.getBoolean("content_expired")), appId, taskId, size, (long)page*size);
+                        row.getTimestamp("lease_expires_at").toInstant(), row.getTimestamp("deadline_at").toInstant(), row.getTimestamp("server_now").toInstant(), row.getBoolean("stop_confirmed"), row.getString("error_code"), row.getBoolean("local_tools_stopped"), row.getString("host_stop_state")),
+                        currentReport(row.getString("result_text")), row.getBoolean("content_expired")), appId, taskId, size, (long)page*size);
+    }
+
+    /** 当前接口只解析报告 4，不能将旧 JSON 原样展示为当前报告。 */
+    private tools.jackson.databind.JsonNode currentReport(String text) {
+        if (text == null) return null;
+        var report = mapper.readTree(text);
+        if (report.path("schemaVersion").asInt() != 4) throw conflict("ANALYSIS_CONFIG_MISMATCH", "不支持当前报告格式");
+        return report;
     }
 
     /** 原始分配身份校验允许租约失效，仅用于停止或已完成结果的幂等确认。 */
@@ -391,9 +398,9 @@ public class AnalysisRunService {
 
     /** 非敏感当前 Run 及所属任务投影。 */
     private RunView view(WorkerCredentialService.Identity identity, UUID runId) {
-        List<RunView> rows = jdbc.query("SELECT r.*,t.state AS task_state,clock_timestamp() AS server_now FROM crash_analysis_run r JOIN crash_analysis_task t ON t.task_id=r.task_id AND t.app_id=r.app_id WHERE r.app_id=? AND r.run_id=? AND r.credential_id=?",
+        List<RunView> rows = jdbc.query("SELECT r.*,t.state AS task_state,clock_timestamp() AS server_now FROM crash_analysis_run r JOIN crash_analysis_task t ON t.task_id=r.task_id AND t.app_id=r.app_id WHERE t.contract_version=3 AND r.app_id=? AND r.run_id=? AND r.credential_id=?",
                 (row, number) -> new RunView(row.getObject("run_id", UUID.class), row.getObject("task_id", UUID.class), row.getInt("attempt"), row.getString("state"), row.getString("task_state"), row.getLong("lease_generation"),
-                        row.getTimestamp("lease_expires_at").toInstant(), row.getTimestamp("deadline_at").toInstant(), row.getTimestamp("server_now").toInstant(), row.getBoolean("stop_confirmed"), row.getString("error_code"), row.getBoolean("local_tools_stopped"), row.getString("host_stop_state"), row.getObject("snapshot_id", UUID.class)), identity.appId(), runId, identity.credentialId());
+                        row.getTimestamp("lease_expires_at").toInstant(), row.getTimestamp("deadline_at").toInstant(), row.getTimestamp("server_now").toInstant(), row.getBoolean("stop_confirmed"), row.getString("error_code"), row.getBoolean("local_tools_stopped"), row.getString("host_stop_state")), identity.appId(), runId, identity.credentialId());
         if (rows.isEmpty()) throw notFound();
         return rows.getFirst();
     }
@@ -418,7 +425,7 @@ public class AnalysisRunService {
         if (lease == null || lease.token() == null || lease.token().length() != 43 || run.leaseGeneration() != lease.generation()
                 || !"RUNNING".equals(run.state()) || !run.leaseExpiresAt().isAfter(run.serverNow())) throw conflict("ANALYSIS_LEASE_INVALID", "租约已失效");
         // 摘要在当前凭据所属 Run 内比较，不接受其他历史 Run。
-        Integer current = jdbc.queryForObject("SELECT count(*) FROM crash_analysis_run r JOIN crash_analysis_task t ON t.current_run_id=r.run_id WHERE r.app_id=? AND r.run_id=? AND r.credential_id=? AND r.lease_sha256=?",
+        Integer current = jdbc.queryForObject("SELECT count(*) FROM crash_analysis_run r JOIN crash_analysis_task t ON t.current_run_id=r.run_id WHERE t.contract_version=3 AND r.app_id=? AND r.run_id=? AND r.credential_id=? AND r.lease_sha256=?",
                 Integer.class, identity.appId(), run.runId(), identity.credentialId(), AnalysisEvidence.digest(lease.token()));
         if (current != 1) throw conflict("ANALYSIS_LEASE_INVALID", "租约已失效");
     }

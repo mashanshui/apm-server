@@ -38,7 +38,7 @@ const emit = defineEmits<{
                 {{ issue.fingerprint }}
               </button>
             </td>
-            <td>{{ issue.exceptionType || '未知异常' }}</td>
+            <td><span v-if="issue.groupingKind === 'temporary'" class="badge badge-warning">临时 · {{ issue.buildId }}</span> {{ issue.exceptionType || '未知异常' }}</td>
             <td>{{ formatNumber(issue.eventCount) }}</td>
             <td>{{ formatNumber(issue.crashedSessionCount) }}</td>
             <td>{{ formatNumber(issue.affectedDeviceCount) }}</td>

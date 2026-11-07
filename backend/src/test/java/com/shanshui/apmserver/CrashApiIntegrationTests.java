@@ -111,8 +111,8 @@ class CrashApiIntegrationTests extends AppIngestApiTestSupport {
                 .andExpect(MockMvcResultMatchers.header().string("Pragma", "no-cache"))
                 .andExpect(jsonPath("$.sessionId").value("query-session"))
                 .andExpect(jsonPath("$.processId").value("11111111-1111-4111-8111-111111111111"))
-                .andExpect(jsonPath("$.symbolicationStatus").value("raw_only"))
-                .andExpect(jsonPath("$.symbolicationReason").value("mapping_missing"));
+                .andExpect(jsonPath("$.symbolicationStatus").value("pending"))
+                .andExpect(jsonPath("$.symbolicationReason").value("awaiting_processing"));
 
         mockMvc.perform(MockMvcRequestBuilders.get("/api/v1/apps/" + java.util.UUID.randomUUID() + "/crashes/overview")
                         .session(session)

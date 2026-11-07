@@ -22,11 +22,6 @@ import com.shanshui.apmserver.crash.internal.domain.CrashStoredSignal;
 import com.shanshui.apmserver.crash.internal.port.CrashQueryPort;
 import com.shanshui.apmserver.crash.internal.domain.CrashQueryCommand;
 import org.springframework.stereotype.Service;
-import org.springframework.beans.factory.annotation.Autowired;
-import com.shanshui.apmserver.symbol.api.SymbolFileLease;
-import com.shanshui.apmserver.symbol.api.SymbolRegistry;
-import com.shanshui.apmserver.symbol.api.SymbolStoreUnavailableException;
-import com.shanshui.apmserver.symbol.api.SymbolicationResult;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -49,28 +44,13 @@ public class CrashQueryService implements CrashQueries {
     private final QueryProperties properties;
     private final StorageProperties storageProperties;
     private final CrashMetrics metrics;
-    /** 当前应用 mapping 注册表。 */
-    private final SymbolRegistry symbolRegistry;
-
-    @Autowired
-    public CrashQueryService(CrashQueryPort repository,
-                             QueryProperties properties,
-                             StorageProperties storageProperties,
-                             CrashMetrics metrics,
-                             SymbolRegistry symbolRegistry) {
+    /** 只读取已发布状态，详情请求不持有任何符号文件租约。 */
+    public CrashQueryService(CrashQueryPort repository, QueryProperties properties,
+                             StorageProperties storageProperties, CrashMetrics metrics) {
         this.repository = repository;
         this.properties = properties;
         this.storageProperties = storageProperties;
         this.metrics = metrics;
-        this.symbolRegistry = symbolRegistry;
-    }
-
-    /** 保留纯查询单元测试的旧构造入口，未装配符号注册表时只返回原始详情。 */
-    public CrashQueryService(CrashQueryPort repository,
-                             QueryProperties properties,
-                             StorageProperties storageProperties,
-                             CrashMetrics metrics) {
-        this(repository, properties, storageProperties, metrics, null);
     }
 
     public CrashOverviewResponse overview(java.util.UUID appId, String from, String to, CrashQueryCommand params) {
@@ -136,81 +116,27 @@ public class CrashQueryService implements CrashQueries {
                 page.items(), page.nextCursor(), dataSource());
     }
 
+    /** 按事件身份读取单份已发布材料，不执行 R8。 */
     public CrashEventDetailResponse event(java.util.UUID appId, String eventId) {
-        return analysisSnapshot(appId, eventId).detail();
-    }
-
-    /** 准备任务时不启动还原，先让分析域绑定构建版本。 */
-    @Override
-    public CrashEventDetailResponse rawEvent(java.util.UUID appId, String eventId) {
-        // 仍由 Crash 自己的端口按应用与事件过滤，不向调用方暴露存储实现。
-        CrashStoredSignal event = repository.findByEventId(appId, eventId).filter(CrashStoredSignal::isCrash)
+        // 事实与状态在存储侧关联，孤立状态和旧表事件不会形成详情。
+        var event = repository.findByEventId(appId, eventId).filter(CrashStoredSignal::isCrash)
+                .map(com.shanshui.apmserver.crash.internal.domain.CrashEvent.class::cast)
                 .orElseThrow(() -> new QueryValidationException("EVENT_NOT_FOUND", "Crash 事件不存在", 404));
-        return rawOnlyDetail(event);
+        // 从同一状态行取得所有当前字段，不能组合不同版本的堆栈和指纹。
+        var state = event.state();
+        Object content = "retrace_text".equals(state.stackFormat()) ? state.stackPayload()
+                : new tools.jackson.databind.ObjectMapper().readValue(state.stackPayload(), com.shanshui.apmserver.crash.api.CrashPayload.class);
+        return new CrashEventDetailResponse(event.appId(), event.eventId(), event.packageName(), event.occurredAt(), event.receivedAt(),
+                event.sessionId(), event.processId(), event.anonymousDeviceId(), event.appVersion(), event.versionCode(), event.buildId(),
+                event.channel(), event.environment(), event.osVersion(), event.deviceModel(), event.networkType(), state.exceptionType(),
+                state.fingerprint(), state.fingerprintVersion(), state.status(), new com.shanshui.apmserver.crash.api.CrashStack(state.stackFormat(), content),
+                state.symbolId(), state.symbolRevision(), state.reason(), event.crashKind(), event.fatal(), state.groupingKind(), state.symbolSha256(), state.processedAt());
     }
 
-    /** 只读取指定事件，并从同一个 mapping 租约取得还原文本与摘要。 */
+    /** 分析证据只冻结当前查询结果，不重新查找当前 mapping。 */
     @Override
     public CrashAnalysisSnapshot analysisSnapshot(java.util.UUID appId, String eventId) {
-        CrashStoredSignal event = repository.findByEventId(appId, eventId)
-                .filter(CrashStoredSignal::isCrash)
-                .orElseThrow(() -> new QueryValidationException("EVENT_NOT_FOUND", "Crash 事件不存在", 404));
-        SymbolFileLease lease = null;
-        SymbolicationResult result = SymbolicationResult.missing();
-        try {
-            try {
-                if (symbolRegistry == null) {
-                    return new CrashAnalysisSnapshot(rawOnlyDetail(event), null);
-                }
-                if (event.buildId() == null || event.buildId().isBlank()) {
-                    return new CrashAnalysisSnapshot(rawOnlyDetail(event), null);
-                }
-                var acquired = symbolRegistry.acquire(appId, event.buildId());
-                if (acquired.isPresent()) {
-                    lease = acquired.get();
-                    result = symbolRegistry.retrace(lease, CrashStackTraceFormatter.lines(event.crash()));
-                }
-            } catch (SymbolStoreUnavailableException ex) {
-                result = SymbolicationResult.failed("mapping_unavailable");
-            } catch (RuntimeException ex) {
-                result = SymbolicationResult.failed("retrace_failed");
-            }
-            return new CrashAnalysisSnapshot(new CrashEventDetailResponse(
-                    event.appId(), event.eventId(), event.packageName(), event.occurredAt(), event.receivedAt(),
-                    event.sessionId(), event.processId(), event.anonymousDeviceId(), event.appVersion(), event.versionCode(),
-                    event.buildId(), event.channel(), event.environment(), event.osVersion(), event.deviceModel(),
-                    event.networkType(), event.crashExceptionType(), event.crashFingerprint(),
-                    event.fingerprintVersion(), status(result), result.text(),
-                    lease == null ? null : lease.symbolId(), lease == null ? null : lease.revision(),
-                    result.reason(), event.crash()), lease == null ? null : lease.sha256());
-        } finally {
-            if (lease != null) {
-                try {
-                    lease.close();
-                } catch (java.io.IOException ignored) {
-                    // 文件读取租约只维护进程内计数，释放失败不改变详情响应。
-                }
-            }
-        }
-    }
-
-    /** 构造未启用符号注册表时的原始详情响应。 */
-    private CrashEventDetailResponse rawOnlyDetail(CrashStoredSignal event) {
-        return new CrashEventDetailResponse(
-                event.appId(), event.eventId(), event.packageName(), event.occurredAt(), event.receivedAt(),
-                event.sessionId(), event.processId(), event.anonymousDeviceId(), event.appVersion(), event.versionCode(),
-                event.buildId(), event.channel(), event.environment(), event.osVersion(), event.deviceModel(),
-                event.networkType(), event.crashExceptionType(), event.crashFingerprint(), event.fingerprintVersion(),
-                "raw_only", null, null, null, "mapping_missing", event.crash());
-    }
-
-    /** 将公共符号状态转换为 HTTP 契约使用的小写值。 */
-    private String status(SymbolicationResult result) {
-        return switch (result.status()) {
-            case SYMBOLICATED -> "symbolicated";
-            case RAW_ONLY -> "raw_only";
-            case FAILED -> "failed";
-        };
+        return new CrashAnalysisSnapshot(event(appId, eventId));
     }
 
     public CrashQueryFilter filter(java.util.UUID appId, String fromText, String toText, CrashQueryCommand params) {

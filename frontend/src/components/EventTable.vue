@@ -17,7 +17,7 @@ const emit = defineEmits<{
 
 <template>
   <div v-if="loading" class="loading-state"><p>正在加载 Crash 事件…</p></div>
-  <div v-else-if="events.length === 0" class="empty-state"><p>当前问题没有事件</p></div>
+  <div v-else-if="events.length === 0" class="empty-state"><p>当前问题没有事件；临时问题可能已在后台还原后归入正式问题，请返回总览刷新。</p></div>
   <template v-else>
     <div class="table-wrap">
       <table class="data-table">
@@ -43,8 +43,8 @@ const emit = defineEmits<{
             <td>{{ event.deviceModel }} / Android {{ event.osVersion }}</td>
             <td>{{ event.exceptionType || '未知异常' }}</td>
             <td>
-              <span class="badge" :class="event.symbolicationStatus === 'raw_only' ? 'badge-warning' : 'badge-success'">
-                {{ event.symbolicationStatus || '未知' }}
+              <span class="badge" :class="event.symbolicationStatus === 'symbolicated' ? 'badge-success' : 'badge-warning'">
+                {{ { pending: '待处理', failed: '还原失败', symbolicated: '已还原' }[event.symbolicationStatus] }}
               </span>
             </td>
           </tr>

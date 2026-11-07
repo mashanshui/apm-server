@@ -21,7 +21,7 @@ class CrashValidationServiceTests {
         var properties = CrashTestSupport.ingestProperties();
         var repository = new com.shanshui.apmserver.crash.internal.persistence.InMemoryCrashRepository(
                 CrashTestSupport.storageProperties());
-        var processor = new CrashEventProcessor(new CrashEventValidator(properties, CrashTestSupport.objectMapper()),
+        var processor = CrashTestSupport.processor(new CrashEventValidator(properties, CrashTestSupport.objectMapper()),
                 new CrashSanitizer(properties), new CrashFingerprintService(), repository);
         EventEnvelope event = CrashTestSupport.event("bad-1", "crash", "session-1", "device-1", "3.2.0",
                 CrashTestSupport.nowMillis(), CrashTestSupport.crash("java.lang.RuntimeException", "boom", 1, "A"));
@@ -44,7 +44,7 @@ class CrashValidationServiceTests {
         properties.setMaxMessageLength(8);
         var repository = new com.shanshui.apmserver.crash.internal.persistence.InMemoryCrashRepository(
                 CrashTestSupport.storageProperties());
-        var processor = new CrashEventProcessor(new CrashEventValidator(properties, CrashTestSupport.objectMapper()),
+        var processor = CrashTestSupport.processor(new CrashEventValidator(properties, CrashTestSupport.objectMapper()),
                 new CrashSanitizer(properties), new CrashFingerprintService(), repository);
         EventEnvelope event = CrashTestSupport.event("bad-2", "crash", "session-1", "device-1", "3.2.0",
                 CrashTestSupport.nowMillis(), CrashTestSupport.crash("java.lang.RuntimeException", "too-long-message", 1, "A"));

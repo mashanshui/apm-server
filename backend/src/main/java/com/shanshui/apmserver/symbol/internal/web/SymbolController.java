@@ -10,6 +10,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -31,12 +32,16 @@ public class SymbolController {
     private final AppAccessControl accessControl;
     /** 符号表管理服务。 */
     private final SymbolManagementService managementService;
+    /** 后台只读进度公开边界。 */
+    private final com.shanshui.apmserver.crash.api.CrashSymbolicationWork work;
 
     /** 注入控制器依赖。 */
     public SymbolController(AppAccessControl accessControl,
-                            SymbolManagementService managementService) {
+                            SymbolManagementService managementService,
+                            com.shanshui.apmserver.crash.api.CrashSymbolicationWork work) {
         this.accessControl = accessControl;
         this.managementService = managementService;
+        this.work = work;
     }
 
     /** 查询当前应用的符号表元数据。 */
@@ -86,6 +91,23 @@ public class SymbolController {
         UUID userId = accessControl.requireUserId(authentication);
         SymbolFileMetadata metadata = managementService.replace(appId, symbolId, userId, revision, file);
         return noStore(metadata);
+    }
+
+    /** revision 条件删除，授权与 CSRF 沿用统一网页安全链路。 */
+    @DeleteMapping("/{symbolId}")
+    public ResponseEntity<Void> delete(@PathVariable UUID appId, @PathVariable UUID symbolId,
+            @RequestParam int expectedRevision, Authentication authentication) {
+        accessControl.requireEdit(appId, authentication);
+        managementService.delete(appId, symbolId, accessControl.requireUserId(authentication), expectedRevision);
+        return ResponseEntity.noContent().cacheControl(CacheControl.noStore().cachePrivate()).build();
+    }
+
+    /** 活动符号表的构建进度，普通应用成员同样可查看。 */
+    @GetMapping("/{symbolId}/crash-symbolication")
+    public ResponseEntity<com.shanshui.apmserver.crash.api.CrashSymbolicationWork.Progress> progress(
+            @PathVariable UUID appId, @PathVariable UUID symbolId, Authentication authentication) {
+        accessControl.requireView(appId, authentication);
+        return noStore(managementService.progress(appId, symbolId, work));
     }
 
     /** 为符号表元数据和冲突响应统一禁止缓存。 */

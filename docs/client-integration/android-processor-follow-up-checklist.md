@@ -1,6 +1,6 @@
 # Android/processor 后续改造清单
 
-本清单对应 apm-server 的应用身份协议收敛。本轮只修改 apm-server；Android SDK、Android 示例应用和 `rhea-trace-processor` 工程不在当前工作区内，不在本轮直接改动。服务端已固定 `io.github.mashanshui:rhea-trace-processor:1.0.2`，客户端设备 ZIP 的 UUID v4、`threadScope=main` 兼容性和云端落库已完成验收；本清单剩余内容是 Android producer 生命周期、客户端持久队列、生产制品仓库、真机长期运行和容量治理，不应把本次固定 ZIP 验收扩大为完整 SDK 交付。
+本清单对应 apm-server 的应用身份协议收敛。本轮只修改 apm-server；Android SDK、Android 示例应用和 `rhea-trace-processor` 工程不在当前工作区内，不在本轮直接改动。当前工作区固定使用本地 Maven 的 `io.github.mashanshui:rhea-trace-processor:1.0.4` 支持异步采样类型 `24`，该版本尚未发布远程制品，云端服务未升级；历史 `1.0.2` 的 UUID v4、`threadScope=main` 设备 ZIP 云端验收不覆盖异步采样；本清单剩余内容是 Android producer 生命周期、客户端持久队列、生产制品仓库、真机长期运行和容量治理，不应把本次固定 ZIP 验收扩大为完整 SDK 交付。
 
 ## 1. 公共事件与 App Key
 
@@ -21,7 +21,7 @@
 
 ## 3. processor 制品与服务端门禁
 
-- [ ] 将支持 manifest v3 UUID v4 `processId` 的真实 `rhea-trace-processor:1.0.2` 制品发布到生产使用的受控 Maven 仓库；本地 Maven Local 和云端测试已验证，生产制品治理仍待完成。
+- [ ] 将支持 manifest v3 UUID v4 `processId` 和异步采样类型 `24` 的 `rhea-trace-processor:1.0.4` 发布到生产使用的受控 Maven 仓库，并单独完成云端验收；当前只使用本地 Maven 制品。
 - [x] 在服务端记录已确认的 Maven 坐标、版本、开发机仓库位置和 SHA-256 校验值，并登记对应真实 v3 fixture；生产仓库位置仍待 Android/发布流程确认。
 - [x] 将 apm-server 的 processor 依赖升级到已确认的 v3 版本；服务端不通过兼容代码伪造结果。
 - [x] 使用包含 UUID v4 `processId` 的真实 v3 fixture 运行 processor 集成测试，确认报告 schema、包名、主线程证据和解析结果；客户端设备 ZIP 已通过 `rhea-trace-processor:1.0.2` 验证。

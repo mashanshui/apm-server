@@ -61,7 +61,7 @@ class RheaStackAnalyzerIntegrationTests {
     }
 
     @Test
-    void rejectsLegacyV2RheaJankArtifactWithProcessorV102() throws Exception {
+    void rejectsLegacyV2RheaJankArtifact() throws Exception {
         byte[] artifact = Base64.getMimeDecoder().decode(readFixture("/fixtures/rhea-jank-artifact.b64"));
         assertThrows(IOException.class, () -> new StackAnalyzer().parseWithMappingResolver(
                 new ByteArrayInputStream(artifact), metadata -> null));
@@ -104,14 +104,33 @@ class RheaStackAnalyzerIntegrationTests {
         assertFalse(mainThread.path("callTree").isEmpty());
     }
 
-    /** 固定经源码、发布元数据及解析回归验证的 1.0.2 制品，后续替换须重新验证。 */
+    /** 验证类型 24 按异步来源间隔估算，且不虚构线程统计。 */
+    @Test
+    void parsesAsyncMainThreadSamplesWithTheirOwnInterval() throws Exception {
+        // 夹具仅包含三个合成异步点，不包含真实设备或应用数据。
+        byte[] artifact = Base64.getMimeDecoder().decode(readFixture("/fixtures/rhea-jank-async-artifact.b64"));
+        // 使用实际依赖解析器，覆盖旧版本拒绝类型 24 的回归。
+        JsonNode report = new ObjectMapper().readTree(
+                new StackAnalyzer().parse(new ByteArrayInputStream(artifact)));
+        assertEquals(3, report.path("recordCount").asInt());
+        assertEquals(50_000_000L, report.path("estimationPolicy").path("asyncNominalIntervalNs").asLong());
+        assertEquals(150_000_000L, report.path("threads").get(0).path("estimatedCoveredDurationNs").asLong());
+        // 每个点最多覆盖一个 50ms 周期，CPU/分配统计明确不可用。
+        for (JsonNode segment : report.path("threads").get(0).path("segments")) {
+            assertEquals("kAsyncMainThread", segment.path("eventType").asText());
+            assertFalse(segment.path("threadStatsAvailable").asBoolean());
+            assertEquals(50_000_000L, segment.path("estimatedDurationNs").asLong());
+        }
+    }
+
+    /** 固定经源码、发布元数据及解析回归验证的本地 1.0.4 制品，后续替换须重新验证。 */
     @Test
     void usesVerifiedProcessorFatJarAndPublicResolverApi() throws Exception {
         // 检查实际加载位置，避免只校验 Maven Local 中未被运行时使用的文件。
         Path jar = Path.of(com.bytedance.rheatrace.stack.StackParser.class.getProtectionDomain()
                 .getCodeSource().getLocation().toURI());
         assertTrue(Files.isRegularFile(jar));
-        assertEquals("0c1ac6952ab92526bec24355523048b5e10b14a6ec8a85c9c03070cc67ddb64f",
+        assertEquals("c6601c0df2592612747e4e36fe24dc628533abb7f6a6cbb1fae70ab36f8e01c9",
                 hex(MessageDigest.getInstance("SHA-256").digest(Files.readAllBytes(jar))));
         assertNotNull(com.bytedance.rheatrace.stack.StackParser.class.getMethod(
                 "parseWithMappingResolver", InputStream.class,

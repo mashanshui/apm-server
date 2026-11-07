@@ -82,5 +82,5 @@ compose=(docker compose --env-file "$env_file" -f "$repo_root/compose.cloud.yaml
 "${compose[@]}" config --quiet
 "${compose[@]}" up -d --build --wait --wait-timeout 600
 web_port="$(awk -F= '$1 == "WEB_PORT" {print $2}' "$env_file" | tail -n 1)"
-echo "服务已就绪：http://127.0.0.1:${web_port:-8088}/login"
+echo "服务已就绪：http://127.0.0.1:${web_port:-8080}/login"
 echo '停止服务：./scripts/stop-dev.sh'

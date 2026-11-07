@@ -3,6 +3,7 @@ import { mount } from '@vue/test-utils'
 import IssueTable from './IssueTable.vue'
 
 const issue = {
+  groupingKind: 'temporary' as const, buildId: 'build-1',
   fingerprint: 'fp-001',
   fingerprintVersion: 'v1',
   exceptionType: 'java.lang.IllegalStateException',

@@ -8,7 +8,7 @@ export interface AnalysisTask {
   /** 数据库创建时间。 */ createdAt: string
   /** 生命周期状态。 */ state: 'BLOCKED' | 'READY' | 'RUNNING' | 'CANCELLING' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED'
   /** 前提或准备失败原因。 */ blockReason: string | null
-  /** 旧证据仅供查看，不开放旧执行入口。 */ evidenceSchemaVersion: number | null
+  /** 当前证据版本；未准备完成时为空。 */ evidenceSchemaVersion: 3 | null
   /** 固定证据 ID。 */ evidenceId: string | null
   /** 完整字节摘要。 */ evidenceSha256: string | null
   /** 终态内容已过期。 */ contentExpired: boolean
@@ -16,11 +16,9 @@ export interface AnalysisTask {
 
 /** 可信 Worker 回传的结构化分析，所有文本按普通文本展示。 */
 export interface AnalysisResult {
-  /** 固定版本。 */ schemaVersion: number
+  /** 固定版本。 */ schemaVersion: 4
   /** 当前证据。 */ evidenceId: string
-  /** 版本 4 的当前服务端分配。 */ runId?: string
-  /** 版本 3 历史源码快照。 */ snapshotId?: string
-  /** 旧报告原始提交，仅供历史展示。 */ commitSha?: string
+  /** 当前服务端分配。 */ runId: string
   /** 证据不足仍可正常完成。 */ conclusion: 'ROOT_CAUSE_CANDIDATE' | 'INSUFFICIENT_EVIDENCE'
   /** 人可读摘要。 */ summary: string
   /** 根因候选。 */ candidates: { title: string; reason: string; evidenceRefs: string[] }[]
@@ -29,9 +27,9 @@ export interface AnalysisResult {
   /** 推断风险。 */ risks: string[]
   /** 未执行修复建议。 */ fixSuggestions: string[]
   /** 未执行验证建议。 */ validationSuggestions: string[]
-  /** 宿主自报来源或旧历史执行器，无法核验的值为空。 */ execution: { providerId?: string | null; modelId?: string | null; opencodeVersion?: string | null; executionMode?: string; mode?: string; host?: string | null; hostVersion?: string | null; toolVersion?: string | null; metadataSource?: string }
-  /** 版本 4 修改由宿主报告，版本 3 保留历史工具日志事实。 */ repair?: { status: 'NOT_REQUESTED' | 'NOT_APPLICABLE' | 'APPLIED' | 'PARTIAL' | 'CONFLICT' | 'FAILED'; files: { path: string; beforeSha256?: string | null; afterSha256?: string; summary?: string }[]; reason: string; metadataSource?: 'HOST_REPORTED' }
-  /** 宿主自报命令；workspaceUnchanged 仅为版本 3 历史字段。 */ verification?: { status: 'PASSED' | 'FAILED' | 'NOT_RUN'; metadataSource: 'HOST_REPORTED'; commands: { command: string; exitCode: number; summary: string }[]; reason: string; workspaceUnchanged?: boolean }
+  /** 宿主自报来源，无法核验的值为空。 */ execution: { providerId?: string | null; modelId?: string | null; mode?: 'HOST_AGENT'; host?: string | null; hostVersion?: string | null; toolVersion?: string | null; metadataSource?: string }
+  /** 修改由宿主报告。 */ repair?: { status: 'NOT_REQUESTED' | 'NOT_APPLICABLE' | 'APPLIED' | 'PARTIAL' | 'CONFLICT' | 'FAILED'; files: { path: string; summary?: string }[]; reason: string; metadataSource?: 'HOST_REPORTED' }
+  /** 宿主自报命令，不证明验证后代码仍未变化。 */ verification?: { status: 'PASSED' | 'FAILED' | 'NOT_RUN'; metadataSource: 'HOST_REPORTED'; commands: { command: string; exitCode: number; summary: string }[]; reason: string }
   /** 缺失计数和费用保持未知。 */ usage: { inputTokens: number | null; outputTokens: number | null; cacheReadTokens: number | null; cacheWriteTokens: number | null; cost: null }
 }
 

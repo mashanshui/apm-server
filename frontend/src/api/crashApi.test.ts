@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { buildQueryParams, crashApi } from './crashApi'
+import { buildQueryParams, crashApi, requireCurrentCrash } from './crashApi'
 
 afterEach(() => {
   vi.restoreAllMocks()
@@ -77,4 +77,13 @@ describe('crashApi', () => {
       message: 'Crash 事件不存在',
     })
   })
+  /** 不转换旧详情或无实际来源的成功结果。 */
+  it.each([
+    {rawCrash:{},symbolicationStatus:'raw_only'},
+    {symbolicationStatus:'symbolicated',groupingKind:'resolved',crashKind:'jvm',fatal:true,stack:{format:'retrace_text',content:'a'}},
+    {symbolicationStatus:'pending',groupingKind:'temporary',crashKind:'jvm',fatal:true,stack:{format:'retrace_text',content:'a'}},
+  ])('rejects unsupported detail contracts', value => {
+    expect(()=>requireCurrentCrash(value as never)).toThrow('协议错误')
+  })
+
 })

@@ -1,33 +1,38 @@
 # Crash 查询下推与容量基线
 
-## 当前实现
+## 当前查询路径与预算
 
-Crash 概览、趋势、Issue 和事件摘要分别通过查询端口执行。ClickHouse 先按应用、`[from,to)`、事件类型和允许的维度筛选，再按 `eventId` 选择最新接收的逻辑事件；概览和趋势使用精确去重，Issue 在数据库聚合排序，事件页仅返回摘要列。只有单事件详情关联异常链表。Issue 游标保存事件数、最后出现时间和指纹；事件游标保存发生时间和事件 ID。游标包含版本、首次绝对时间窗及应用和筛选摘要；旧游标或跨查询复用返回 `INVALID_CURSOR`。分页不是数据快照，新增或迟到事件可改变排行。
+Crash/app_start 只查 `apm_crash_fact FINAL`，按应用、发生时间 `[from,to)` 与白名单维度过滤；状态侧从 `apm_crash_state FINAL` 取最新版本再应用指纹筛选。概览、趋势、Issue 和事件摘要仅投影轻量列，不引用 stack_payload。启动分母来自同一当前事实数据集，指纹筛选不丢启动分母。Issue 在数据库聚合、排序及 limit+1 分页；事件页按发生时间倒序/eventId 升序续读。分页不是快照，后台归组或迟到事件会改变排行，旧临时指纹可能为空。
 
-概览、趋势、Issue 和事件摘要查询的默认超时为 2 秒，请求可指定 1～5000 毫秒；最多扫描 500 万行/512 MiB、数据库内存 256 MiB、HTTP 响应 8 MiB。ClickHouse 超时或资源限制使用 `throw`，HTTP 等待与响应字节另有上限；失败返回明确错误，不把部分统计当成功。配置见 `apm.query.*`；请求可以把默认超时延长到服务端最大值，但不能修改扫描、内存和响应字节预算。单事件详情仍走普通 `execute`，不应用这组 `QueryBudget`。数据库检查有粒度，取消请求后不承诺数据库严格实时停止。
+单事件详情先定位不可变事实，再按精确应用/构建/发生时间/eventId 的 PREWHERE 读最新单份状态。后台候选限定应用、构建、最近 30 天及当前可处理状态，先选最多 100 个身份再读取这些堆栈。排序前缀为应用/构建/发生时间，eventId 有 bloom filter；候选没有全量载荷扫描后 Java 筛选。
 
-## 2026-09-28 合成基线
+上述查询默认超时 2 秒、最多 500 万读取行/512 MiB 读取/256 MiB 数据库内存/8 MiB 响应。客户端只可在服务端范围内调整超时，不能扩大其他预算。资源/超时明确失败，不返回截断或部分成功；大载荷后台批次有限减半，单条仍超限则退避。数据库检查存在粒度，取消请求不保证 SQL 立即停止。
 
-在 macOS aarch64 主机（48 GiB 内存）、Docker Desktop 虚拟机（约 7.75 GiB 内存、15 个可见 CPU）、ClickHouse `26.7.3.19`、Java `21.0.11` 上使用 `CrashQueryPerformanceBaselineTests`。每个规模生成独立应用，一小时内 10% Crash、90% `app_start`，事件 ID 唯一；每组执行 5 次概览查询，分别以并发 1 和 2 调用。Java 时间为端到端调用耗时，P95 在 5 个样本下等于最大值，不代表稳定生产尾延迟。JVM 峰值是测试进程各堆内存池峰值之和，约 92.3 MiB，不是单次查询的增量。
+## 新模型后台候选基线
 
-| 事件数 | 并发 | p50 / p95 | 结果 | ClickHouse `read_rows` / `read_bytes` | 结果传输字节 |
-|---:|---:|---:|---|---:|---:|
-| 1 万 | 1 | 6 / 17 ms | 5 次成功 | 50,000 / 4,257,800 | 3,400 |
-| 1 万 | 2 | 6 / 6 ms | 5 次成功 | 累计 100,000 / 8,515,600 | 累计 6,800 |
-| 10 万 | 1 | 26 / 28 ms | 5 次成功 | 500,000 / 43,569,370 | 3,400 |
-| 10 万 | 2 | 28 / 30 ms | 5 次成功 | 累计 1,000,000 / 87,138,740 | 累计 6,800 |
-| 100 万 | 1 | 32 / 41 ms | 5 次均明确 `QUERY_RESOURCE_LIMIT` | 3,645,908 / 325,256,158 | 0 |
-| 100 万 | 2 | 41 / 43 ms | 5 次均明确 `QUERY_RESOURCE_LIMIT` | 累计 7,308,200 / 651,978,914 | 0 |
+2026-11-05 在 macOS arm64、Java 21.0.11、Docker Desktop（15 个可见 CPU、约 7.75 GiB 内存）上使用独立 Testcontainers ClickHouse 26.7.3.19。生成 100 万当前事实及 pending 状态，分布在十个构建和十天内，每条完整链约 2 KiB，初始待处理比例 100%。一个构建、30 天候选查询只返回 100 条。
 
-并发 2 一行的查询日志计数是同一应用此前并发 1 的 5 次与本组 5 次累计，故对应扫描和传输也是 10 次累计，不能作为单次数据。100 万全窗口在 256 MiB 数据库内存预算下拒绝；它证明失败边界明确，不构成百万行全窗口容量通过。
+| 查询 | 耗时 | read_rows | read_bytes | memory_usage | 返回 |
+|---|---:|---:|---:|---:|---:|
+| 后台候选单次 | 45 ms | 342,172 | 20,530,735 | 40,735,336 | 100 条 / 332,591 bytes |
+| 并行时后台候选五次 | 33～57 ms | 每次 342,172 | 每次 20,530,735 | 最大 49,146,592 | 每次 100 条 |
+| 并行时前台一天概览五次 | 34～40 ms | 每次 551,011 | 每次 27,037,215 | 最大 62,223,913 | 每次 1 行 / 680 bytes |
+| 一天趋势 | 31 ms | 551,011 | 27,037,215 | 58,081,418 | 25 桶 |
+| 一天事件页 | 46 ms | 551,011 | 39,066,203 | 68,315,063 | limit+1 = 51 行 |
+| 一天 Issue 页 | 48 ms | 551,011 | 37,455,784 | 62,837,611 | 1 个问题 |
 
-将窗口缩为同一小时的首秒后，1 万/10 万/100 万集的精确 Crash 数分别为 3/28/278；查询日志 `read_rows` 分别为 10,000/8,192/18,865，`result_bytes` 均为 680。1 万集仍读取全部行，是小表索引粒度效应；较大两组没有将全量事件传回 Java。真实 ClickHouse 固定集测试同时与内存参考口径对照重复物理行、跨桶会话、指纹筛选、分母不足、空值和分页；`system.query_log` 确认列表不关联堆栈表，结果行数仅为当前页。
+前台一天窗口与后台候选并行五轮，全部通过默认预算。查询计划的摘要投影不含 stack_payload；后台读取字节少于 64 MiB，低于单构建约 200 MiB 完整堆栈量。读取行预算设为 1 时返回 QUERY_RESOURCE_LIMIT，未增加预算。日志只取真实 SELECT 的 QueryFinish，排除 EXPLAIN 和测量 SQL。
 
-复跑命令（从 `backend/`，macOS 上以 Android Studio JBR 启动 Gradle，实际测试工具链为 Java 21）：
+从仓库根目录复跑：
 
-```sh
-RUN_CRASH_BENCHMARK=true JAVA_HOME='/Applications/Android Studio.app/Contents/jbr/Contents/Home' \
-  bash ./gradlew test --tests 'com.shanshui.apmserver.CrashQueryPerformanceBaselineTests' --no-daemon
+```bash
+RUN_CRASH_BENCHMARK=true JAVA_HOME="$(/usr/libexec/java_home -v 21)" \
+  GRADLE_USER_HOME="$PWD/.gradle-local" bash backend/gradlew -p backend test \
+  --tests '*BackgroundCrashQueryPerformanceTests' --no-daemon
 ```
 
-运行结果在 `build/test-results/test/TEST-com.shanshui.apmserver.CrashQueryPerformanceBaselineTests.xml` 的 `CRASH_BENCH` 行。该测试默认跳过，不向正式业务表写入；其容器和合成数据在测试结束后销毁。固定集与资源错误集成测试在常规 `test` 中运行。此基线没有生产硬件、真实租户混合负载、网络代理及长时间运行证据。
+实际 SQL、EXPLAIN indexes=1 及 query_log 输出到被忽略的 `backend/build/query-evidence/background-crash.txt`。用例默认条件跳过，显式执行时使用临时服务和合成数据，测试后销毁。旧 raw/detail 模型的基准类已移除，旧数据不作为新容量结论。当前数字不证明百万全窗口、真实租户混合分布、长期合并、R8 生产吞吐或 SLA。
+
+## HTTP 积压与上传验证
+
+真实后台、PostgreSQL、ClickHouse、受控文件卷和 HTTP 的混合验收与恢复边界见[隔离验收](../../../docs/validation/background-crash/README.md)。上传只校验文件并在管理事务登记构建工作，不在请求内遍历或还原历史。后台每进程最多一个构建、一批 100；未确认发布默认至多 100 条/16 MiB，单份编码载荷最多 2 MiB。慢 R8、事务登记失败、租约过期、通知丢失及首次成功幂等由数据库/故障注入测试验证，不能由上传快响应单独推断全部事件正确。

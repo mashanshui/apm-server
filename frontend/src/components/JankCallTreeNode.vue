@@ -5,7 +5,8 @@ import { callTreeLabel, formatNanoseconds } from '../utils/jankEvidence'
 
 defineOptions({ name: 'JankCallTreeNode' })
 const props = defineProps<{ node: Node; depth: number }>()
-const expanded = ref(props.depth < 2)
+// 所有层级默认展开，便于直接查看完整采样调用链；仍允许手动折叠。
+const expanded = ref(true)
 const hasChildren = computed(() => props.node.children.length > 0)
 </script>
 

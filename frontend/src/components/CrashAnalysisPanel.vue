@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import { analysisApi } from '../api/analysisApi'
+import { analysisApi, requireCurrentTasks, requireCurrentRuns } from '../api/analysisApi'
 import { ApiError, errorMessage, isAbortError } from '../api/http'
 import type { AnalysisRunDetail, AnalysisTask } from '../types/analysis'
 
@@ -52,7 +52,7 @@ const verificationStates: Record<string, string> = { PASSED: '宿主验证通过
 const states: Record<string, string> = { BLOCKED: '证据准备未完成', READY: '等待本地手动执行', RUNNING: '分析中', CANCELLING: '等待停止确认', SUCCEEDED: '报告已保存', FAILED: '执行失败', CANCELLED: '已取消' }
 /** 前提与稳定执行错误的说明。 */
 const reasons: Record<string, string> = {
-  EVIDENCE_PREPARING: '正在准备单事件证据', SYMBOL_VERSION_CHANGED: '准备期间 mapping 变化，请重新检查',
+  EVIDENCE_PREPARING: '正在准备单事件证据',
   EVIDENCE_TOO_LARGE: '完整证据超过上限，未截断或调用模型', PREPARATION_FAILED: '证据准备失败，请检查后重新检查',
   EVENT_IDENTITY_CHANGED: '事件输入发生变化，请管理员核对', LEASE_EXPIRED: '租约到期，环境停止仍须确认',
   TIME_LIMIT: '达到运行时间上限', CONFIG_MISMATCH: '任务执行策略不匹配', SOURCE_MISSING: '本地项目或源码材料不可用',
@@ -91,7 +91,7 @@ async function load(targetPage: number) {
   try {
     const result = await analysisApi.list(props.appId, props.eventId, targetPage, controller.signal)
     if (current !== generation || sequence !== listSequence) return
-    tasks.value = result; page.value = targetPage
+    tasks.value = requireCurrentTasks(result); page.value = targetPage
     if (!result.some(task => task.taskId === selectedId.value)) { selectedId.value = result[0]?.taskId ?? null; runPage.value = 0 }
     await loadRuns(runPage.value)
   } catch (failure) {
@@ -114,7 +114,7 @@ async function loadRuns(targetPage: number) {
   try {
     const result = await analysisApi.runs(props.appId, id, targetPage, controller.signal)
     if (current !== generation || sequence !== runSequence || id !== selectedId.value) return
-    runs.value = result; runPage.value = targetPage
+    runs.value = requireCurrentRuns(result); runPage.value = targetPage
   } catch (failure) {
     if (current === generation && sequence === runSequence && !isAbortError(failure)) error.value = errorMessage(failure)
   } finally { controllers.delete(controller); if (current === generation && sequence === runSequence) runsLoading.value = false }
@@ -188,13 +188,13 @@ onBeforeUnmount(() => { window.removeEventListener('apm:auth-expired', expired);
     <div class="analysis-actions"><button class="button" :disabled="loading || writing" @click="load(page)">刷新历史</button><button class="button" :disabled="page === 0 || loading" @click="load(page - 1)">上一页</button><span>任务第 {{ page + 1 }} 页</span><button class="button" :disabled="tasks.length < 20 || page >= 1000 || loading" @click="load(page + 1)">下一页</button></div>
     <div class="analysis-task-list"><button v-for="task in tasks" :key="task.taskId" class="button" :class="{ 'button-primary': task.taskId === selectedId }" @click="select(task.taskId)">{{ states[task.state] }} · {{ new Date(task.createdAt).toLocaleString('zh-CN') }}</button></div>
     <template v-if="selected">
-      <dl class="meta-grid analysis-meta"><div class="meta-item"><dt>状态</dt><dd>{{ states[selected.state] }}</dd></div><div class="meta-item"><dt>分析任务</dt><dd><code>{{ selected.taskId }}</code></dd></div><div class="meta-item"><dt>源码来源</dt><dd>{{ selected.evidenceSchemaVersion === 1 ? '历史固定提交，仅供查看' : '宿主当前工作区' }}</dd></div><div class="meta-item"><dt>模型</dt><dd>{{ selected.evidenceSchemaVersion === 1 ? '按历史报告展示' : '沿用宿主设置，实际标识可能未知' }}</dd></div></dl>
+      <dl class="meta-grid analysis-meta"><div class="meta-item"><dt>状态</dt><dd>{{ states[selected.state] }}</dd></div><div class="meta-item"><dt>分析任务</dt><dd><code>{{ selected.taskId }}</code></dd></div><div class="meta-item"><dt>源码来源</dt><dd>宿主当前工作区</dd></div><div class="meta-item"><dt>模型</dt><dd>沿用宿主设置，实际标识可能未知</dd></div></dl>
       <p v-if="selected.blockReason" class="notice">{{ reasons[selected.blockReason] ?? selected.blockReason }}</p>
       <p v-if="selected.contentExpired" class="notice">分析内容已过期，保留任务及摘要。</p>
-      <template v-if="selected.state === 'READY' && selected.evidenceSchemaVersion === 2"><p>在当前项目中使用已安装 Skill、已配置平台地址和 Worker 凭据的宿主输入：</p><h4>仅分析</h4><pre class="analysis-code">{{ command }}</pre><h4>明确请求本地修复</h4><pre class="analysis-code">{{ repairCommand }}</pre><p class="muted">无需登记 APK 提交或仓库映射。当前代码无法证明历史版本根因；宿主自行读取当前代码，明确修复时自行修改和验证；Python 管理证据、租约和回传。修改与测试是宿主报告，源码片段仅在提交时核对当前位置。</p></template><p v-else-if="selected.evidenceSchemaVersion === 1" class="notice">旧任务仅供历史查看，请创建当前代码任务。</p>
+      <template v-if="selected.state === 'READY' && selected.evidenceSchemaVersion === 3"><p>在当前项目中使用已安装 Skill、已配置平台地址和 Worker 凭据的宿主输入：</p><h4>仅分析</h4><pre class="analysis-code">{{ command }}</pre><h4>明确请求本地修复</h4><pre class="analysis-code">{{ repairCommand }}</pre><p class="muted">无需登记 APK 提交或仓库映射。当前代码无法证明历史版本根因；宿主自行读取当前代码，明确修复时自行修改和验证；Python 管理证据、租约和回传。修改与测试是宿主报告，源码片段仅在提交时核对当前位置。</p></template>
       <div class="analysis-actions">
         <button v-if="canCreate && selected.state === 'BLOCKED' && !selected.evidenceId" class="button" :disabled="writing" @click="action('recheck')">重新检查前提</button>
-        <button v-if="canCreate && ['FAILED', 'CANCELLED'].includes(selected.state) && selected.evidenceSchemaVersion === 2 && selected.evidenceId && !selected.contentExpired" class="button" :disabled="writing || runsLoading || runs.some(item => !item.run.stopConfirmed)" @click="action('retry')">显式重试</button>
+        <button v-if="canCreate && ['FAILED', 'CANCELLED'].includes(selected.state) && selected.evidenceSchemaVersion === 3 && selected.evidenceId && !selected.contentExpired" class="button" :disabled="writing || runsLoading || runs.some(item => !item.run.stopConfirmed)" @click="action('retry')">显式重试</button>
         <button v-if="['BLOCKED', 'READY', 'RUNNING', 'CANCELLING'].includes(selected.state) && canCreate && (canManage || selected.createdBy === userId)" class="button" :disabled="writing" @click="action('cancel')">取消任务</button>
       </div>
       <article v-for="item in runs" :key="item.run.runId" class="analysis-run">
@@ -206,12 +206,11 @@ onBeforeUnmount(() => { window.removeEventListener('apm:auth-expired', expired);
         <p v-if="item.contentExpired" class="notice">此结果内容已过期。</p>
         <template v-else-if="item.result">
           <h3>{{ item.result.conclusion === 'INSUFFICIENT_EVIDENCE' ? '证据不足' : '根因候选' }}</h3><p class="analysis-text">{{ item.result.summary }}</p>
-          <p v-if="item.result.execution.mode === 'HOST_AGENT'">宿主 {{ item.result.execution.host ?? '未知' }}（{{ item.result.execution.metadataSource === 'HOST_REPORTED' ? '自报信息' : '来源未知' }}） · 模型 {{ item.result.execution.modelId ?? '未知' }} · Python {{ item.result.execution.toolVersion }}</p><p v-else>历史模型 {{ item.result.execution.providerId }} / {{ item.result.execution.modelId }} · OpenCode {{ item.result.execution.opencodeVersion }}</p>
+          <p>宿主 {{ item.result.execution.host ?? '未知' }}（{{ item.result.execution.metadataSource === 'HOST_REPORTED' ? '自报信息' : '来源未知' }}） · 模型 {{ item.result.execution.modelId ?? '未知' }} · Python {{ item.result.execution.toolVersion }}</p>
           <p>输入 {{ item.result.usage.inputTokens ?? '未知' }} · 输出 {{ item.result.usage.outputTokens ?? '未知' }} · 缓存读取 {{ item.result.usage.cacheReadTokens ?? '未知' }} · 费用未知</p>
           <template v-if="item.result.schemaVersion === 4"><p>宿主直接分析 · Run <code>{{ item.result.runId }}</code> · 当前代码与历史 APK 可能不一致</p><section v-if="item.result.repair" class="analysis-outcome"><h4>本地修改：{{ repairStates[item.result.repair.status] }}</h4><p>来源：宿主报告，Python 不执行或独立验证修改。</p><p>{{ item.result.repair.reason }}</p><ul v-if="item.result.repair.files.length"><li v-for="file in item.result.repair.files" :key="file.path"><code>{{ file.path }}</code><p>{{ file.summary }}</p></li></ul></section><section v-if="item.result.verification" class="analysis-outcome"><h4>验证：{{ verificationStates[item.result.verification.status] }}</h4><p>来源：宿主报告；未独立核验测试或验证后工作区一致性。</p><p>{{ item.result.verification.reason }}</p><div v-for="(check, index) in item.result.verification.commands" :key="index"><pre class="analysis-code">{{ check.command }}</pre><p>退出码 {{ check.exitCode }}</p><p class="analysis-text">{{ check.summary }}</p></div></section><p class="muted">报告保存成功、代码修改完成和验证通过分别判断。</p></template>
-          <template v-else-if="item.result.schemaVersion === 3"><p>历史分析快照 <code>{{ item.result.snapshotId }}</code> · 当前代码与历史 APK 可能不一致</p><section v-if="item.result.repair" class="analysis-outcome"><h4>本地修改：{{ repairStates[item.result.repair.status] }}</h4><p>{{ item.result.repair.reason }}</p><ul v-if="item.result.repair.files.length"><li v-for="file in item.result.repair.files" :key="file.path"><code>{{ file.path }}</code> · {{ file.beforeSha256 ? '修改' : '新建' }}<small class="analysis-text">写后摘要 {{ file.afterSha256 }}</small></li></ul></section><section v-if="item.result.verification" class="analysis-outcome"><h4>验证：{{ verificationStates[item.result.verification.status] }}</h4><p>来源：宿主报告 · 材料一致性：{{ item.result.verification.workspaceUnchanged ? '相关文件未变化' : '相关文件已变化，不能证明当前工作区通过' }}</p><p>{{ item.result.verification.reason }}</p><div v-for="(check, index) in item.result.verification.commands" :key="index"><pre class="analysis-code">{{ check.command }}</pre><p>退出码 {{ check.exitCode }}</p><p class="analysis-text">{{ check.summary }}</p></div></section><p class="muted">报告保存成功、代码修改完成和验证通过是独立事实。</p></template><p v-else>历史源码提交 <code>{{ item.result.commitSha }}</code>，旧模式仅供查看。</p>
           <div v-for="(candidate, index) in item.result.candidates" :key="index"><h4>{{ candidate.title }}</h4><p class="analysis-text">{{ candidate.reason }}</p><small>证据：{{ candidate.evidenceRefs.join('、') }}</small></div>
-          <div v-for="(source, index) in item.result.sourceRefs" :key="index"><h4>{{ source.path }}:{{ source.startLine }}–{{ source.endLine }}</h4><p class="muted">{{ item.result.schemaVersion === 4 ? '片段来源：宿主报告；不证明宿主此前实际读取' : item.result.schemaVersion === 3 ? '历史引用来自修改前的当前代码快照' : '历史引用来自原固定提交' }}，明确凭据值已脱敏，行号保留。</p><p v-if="item.result.schemaVersion === 4">提交时当前位置核对：{{ source.currentCheck === 'CURRENT_MATCH' ? '与当前代码相符' : source.currentCheck === 'CURRENT_DIFFERENT' ? '与当前代码不同（可能已修改）' : '无法核验' }}</p><pre class="analysis-code">{{ source.snippet }}</pre><small>片段 SHA-256 {{ source.snippetSha256 }}</small></div>
+          <div v-for="(source, index) in item.result.sourceRefs" :key="index"><h4>{{ source.path }}:{{ source.startLine }}–{{ source.endLine }}</h4><p class="muted">片段来源：宿主报告；不证明宿主此前实际读取，明确凭据值已脱敏，行号保留。</p><p v-if="item.result.schemaVersion === 4">提交时当前位置核对：{{ source.currentCheck === 'CURRENT_MATCH' ? '与当前代码相符' : source.currentCheck === 'CURRENT_DIFFERENT' ? '与当前代码不同（可能已修改）' : '无法核验' }}</p><pre class="analysis-code">{{ source.snippet }}</pre><small>片段 SHA-256 {{ source.snippetSha256 }}</small></div>
           <template v-for="(entries, label) in { '未知项': item.result.unknowns, '风险': item.result.risks, '修复建议（未执行）': item.result.fixSuggestions, '验证建议（未执行）': item.result.validationSuggestions }" :key="label"><h4 v-if="entries.length">{{ label }}</h4><ul v-if="entries.length"><li v-for="(entry, index) in entries" :key="index" class="analysis-text">{{ entry }}</li></ul></template>
         </template>
       </article>

@@ -5,10 +5,10 @@ import { analysisApi } from '../api/analysisApi'
 import { ApiError } from '../api/http'
 import type { AnalysisRunDetail, AnalysisTask } from '../types/analysis'
 
-vi.mock('../api/analysisApi', () => ({ analysisApi: { list: vi.fn(), runs: vi.fn(), create: vi.fn(), action: vi.fn(), confirmStopped: vi.fn() } }))
+vi.mock('../api/analysisApi', async importOriginal => ({ ...await importOriginal<typeof import('../api/analysisApi')>(), analysisApi: { list: vi.fn(), runs: vi.fn(), create: vi.fn(), action: vi.fn(), confirmStopped: vi.fn() } }))
 /** 无敏感任务元数据。 */
 const task: AnalysisTask = { taskId: '11111111-1111-4111-8111-111111111111', appId: 'app-a', eventId: 'event-a', fingerprint: 'fingerprint',
-  createdBy: 'user-a', createdAt: '2026-10-01T00:00:00Z', state: 'READY', blockReason: null, evidenceSchemaVersion: 2,
+  createdBy: 'user-a', createdAt: '2026-10-01T00:00:00Z', state: 'READY', blockReason: null, evidenceSchemaVersion: 3,
   evidenceId: 'evidence', evidenceSha256: 'a'.repeat(64), contentExpired: false }
 /** 模拟 API 类型与服务端契约保持一致。 */
 const api = vi.mocked(analysisApi)
@@ -99,10 +99,10 @@ describe('CrashAnalysisPanel', () => {
     /** 所有恶意文本只是普通字符串，不能交给 v-html。 */
     api.list.mockResolvedValue([{ ...task, state: 'SUCCEEDED' }])
     const run: AnalysisRunDetail = { run: { runId: 'run', taskId: task.taskId, attempt: 1, state: 'SUCCEEDED', taskState: 'SUCCEEDED', stopConfirmed: true, errorCode: null },
-      contentExpired: false, result: { schemaVersion: 1, evidenceId: 'evidence', commitSha: 'a'.repeat(40), conclusion: 'INSUFFICIENT_EVIDENCE',
+      contentExpired: false, result: { schemaVersion: 4, evidenceId: 'evidence', runId: 'run', conclusion: 'INSUFFICIENT_EVIDENCE',
         summary: '<script>attack()</script>', candidates: [], sourceRefs: [{ path: 'Example.kt', startLine: 1, endLine: 1, snippet: '<img src=x onerror=attack()>', snippetSha256: 'a'.repeat(64) }],
         unknowns: ['缺少触发条件'], risks: [], fixSuggestions: [], validationSuggestions: ['建议复现'],
-        execution: { providerId: 'deepseek', modelId: 'deepseek-flash', opencodeVersion: '1.18.34' },
+        execution: { mode: 'HOST_AGENT', modelId: null },
         usage: { inputTokens: 0, outputTokens: null, cacheReadTokens: null, cacheWriteTokens: null, cost: null } } }
     api.runs.mockResolvedValue([run])
     const wrapper = panel(false)
@@ -145,7 +145,7 @@ describe('CrashAnalysisPanel', () => {
   it('shows completed report separately from unknown host stop', async () => {
     /** 工具关闭是局部事实，不替代宿主停止；成功报告仍可查看。 */
     api.list.mockResolvedValue([{ ...task, state: 'SUCCEEDED' }])
-    api.runs.mockResolvedValue([{ run: { runId: 'host', taskId: task.taskId, attempt: 1, state: 'SUCCEEDED', taskState: 'SUCCEEDED', stopConfirmed: false, localToolsStopped: true, hostStopState: 'UNKNOWN', errorCode: null }, contentExpired: false, result: { schemaVersion: 2, evidenceId: 'evidence', commitSha: 'a'.repeat(40), conclusion: 'INSUFFICIENT_EVIDENCE', summary: '缺少输入', candidates: [], sourceRefs: [], unknowns: ['输入未知'], risks: [], fixSuggestions: [], validationSuggestions: [], execution: { mode: 'HOST_AGENT', host: 'Codex', modelId: null, metadataSource: 'HOST_REPORTED', toolVersion: '0.2.0' }, usage: { inputTokens: null, outputTokens: null, cacheReadTokens: null, cacheWriteTokens: null, cost: null } } }])
+    api.runs.mockResolvedValue([{ run: { runId: 'host', taskId: task.taskId, attempt: 1, state: 'SUCCEEDED', taskState: 'SUCCEEDED', stopConfirmed: false, localToolsStopped: true, hostStopState: 'UNKNOWN', errorCode: null }, contentExpired: false, result: { schemaVersion: 4, evidenceId: 'evidence', runId: 'host', conclusion: 'INSUFFICIENT_EVIDENCE', summary: '缺少输入', candidates: [], sourceRefs: [], unknowns: ['输入未知'], risks: [], fixSuggestions: [], validationSuggestions: [], execution: { mode: 'HOST_AGENT', host: 'Codex', modelId: null, metadataSource: 'HOST_REPORTED', toolVersion: '0.2.0' }, usage: { inputTokens: null, outputTokens: null, cacheReadTokens: null, cacheWriteTokens: null, cost: null } } }])
     const wrapper = panel()
     await flushPromises()
     expect(wrapper.text()).toContain('缺少输入')
@@ -173,13 +173,13 @@ describe('CrashAnalysisPanel', () => {
   it('shows applied code separately from failed host validation and safely escapes commands', async () => {
     api.list.mockResolvedValue([{ ...task, state: 'SUCCEEDED' }]) // 报告已保存。
     api.runs.mockResolvedValue([{ run: { runId: 'current', taskId: task.taskId, attempt: 1, state: 'SUCCEEDED', taskState: 'SUCCEEDED', stopConfirmed: false, hostStopState: 'UNKNOWN', errorCode: null }, contentExpired: false,
-      result: { schemaVersion: 3, evidenceId: 'evidence', snapshotId: 'snapshot-current', conclusion: 'ROOT_CAUSE_CANDIDATE', summary: '当前代码候选', candidates: [], sourceRefs: [], unknowns: ['历史版本未知'], risks: [], fixSuggestions: [], validationSuggestions: [], execution: { mode: 'HOST_AGENT', host: 'Codex', modelId: null, metadataSource: 'HOST_REPORTED', toolVersion: '0.3.0' }, usage: { inputTokens: null, outputTokens: null, cacheReadTokens: null, cacheWriteTokens: null, cost: null }, repair: { status: 'APPLIED', files: [{ path: 'Example.kt', beforeSha256: 'a'.repeat(64), afterSha256: 'b'.repeat(64) }], reason: '有限修改' }, verification: { status: 'FAILED', metadataSource: 'HOST_REPORTED', commands: [{ command: '<img src=x onerror=attack()>', exitCode: 1, summary: '<script>attack()</script>' }], reason: '测试失败', workspaceUnchanged: true } } }])
+      result: { schemaVersion: 4, evidenceId: 'evidence', runId: 'run-current', conclusion: 'ROOT_CAUSE_CANDIDATE', summary: '当前代码候选', candidates: [], sourceRefs: [], unknowns: ['历史版本未知'], risks: [], fixSuggestions: [], validationSuggestions: [], execution: { mode: 'HOST_AGENT', host: 'Codex', modelId: null, metadataSource: 'HOST_REPORTED', toolVersion: '0.3.0' }, usage: { inputTokens: null, outputTokens: null, cacheReadTokens: null, cacheWriteTokens: null, cost: null }, repair: { status: 'APPLIED', files: [{ path: 'Example.kt', summary: '边界判断' }], reason: '有限修改' }, verification: { status: 'FAILED', metadataSource: 'HOST_REPORTED', commands: [{ command: '<img src=x onerror=attack()>', exitCode: 1, summary: '<script>attack()</script>' }], reason: '测试失败' } } }])
     const wrapper = panel()
     await flushPromises()
     expect(wrapper.text()).toContain('本地修改：已修改代码')
     expect(wrapper.text()).toContain('验证：验证失败')
     expect(wrapper.text()).toContain('来源：宿主报告')
-    expect(wrapper.text()).toContain('snapshot-current')
+    expect(wrapper.text()).toContain('run-current')
     expect(wrapper.text()).toContain('历史版本未知')
     expect(wrapper.find('script').exists()).toBe(false)
     expect(wrapper.find('img').exists()).toBe(false)
@@ -188,11 +188,11 @@ describe('CrashAnalysisPanel', () => {
   })
 
   it('keeps old frozen tasks read only and offers no execution retry', async () => {
-    api.list.mockResolvedValue([{ ...task, state: 'CANCELLED', evidenceSchemaVersion: 1 }]) // 旧终态。
+    api.list.mockResolvedValue([{ ...task, state: 'CANCELLED', evidenceSchemaVersion: 1 as never }]) // 旧终态。
     const wrapper = panel()
     await flushPromises()
-    expect(wrapper.text()).toContain('旧任务仅供历史查看')
-    expect(wrapper.text()).toContain('历史固定提交，仅供查看')
+    expect(wrapper.text()).toContain('协议错误：分析任务证据版本不受支持')
+    expect(wrapper.text()).not.toContain('历史固定提交')
     expect(wrapper.text()).not.toContain('宿主当前工作区')
     expect(wrapper.text()).not.toContain('显式重试')
     expect(wrapper.text()).not.toContain(`分析并修复任务 ${task.taskId}`)
@@ -205,7 +205,7 @@ describe('CrashAnalysisPanel', () => {
     api.runs.mockResolvedValue([{ run: { runId: 'direct-run', taskId: task.taskId, attempt: 1, state: 'SUCCEEDED', taskState: 'SUCCEEDED', stopConfirmed: false, errorCode: null, localToolsStopped: true, hostStopState: 'UNKNOWN' }, contentExpired: false,
       result: { schemaVersion: 4, evidenceId: 'evidence', runId: 'direct-run', conclusion: 'ROOT_CAUSE_CANDIDATE', summary: '当前代码', candidates: [],
         sourceRefs: [{ path: 'Example.kt', startLine: 1, endLine: 1, snippet: '<script>bad()</script>', snippetSha256: 'a'.repeat(64), metadataSource: 'HOST_REPORTED', currentCheck: 'CURRENT_DIFFERENT' }],
-        unknowns: [], risks: [], fixSuggestions: [], validationSuggestions: [], execution: { mode: 'HOST_AGENT', toolVersion: '0.4.0', host: 'Codex', metadataSource: 'HOST_REPORTED' },
+        unknowns: [], risks: [], fixSuggestions: [], validationSuggestions: [], execution: { mode: 'HOST_AGENT', toolVersion: '0.5.0', host: 'Codex', metadataSource: 'HOST_REPORTED' },
         repair: { status: 'APPLIED', metadataSource: 'HOST_REPORTED', files: [{ path: 'Example.kt', summary: '边界判断' }], reason: '' },
         verification: { status: 'NOT_RUN', metadataSource: 'HOST_REPORTED', commands: [], reason: '缺少 Android 环境' },
         usage: { inputTokens: null, outputTokens: null, cacheReadTokens: null, cacheWriteTokens: null, cost: null } } }])
@@ -218,6 +218,17 @@ describe('CrashAnalysisPanel', () => {
     expect(wrapper.text()).not.toContain('分析快照')
     expect(wrapper.find('script').exists()).toBe(false)
     expect(wrapper.findAll('button').some(button => button.text().includes('重试') && !button.attributes('disabled'))).toBe(false)
+    wrapper.unmount()
+  })
+
+  it.each([1, 2, 3])('rejects unsupported report version %s', async version => {
+    api.list.mockResolvedValue([{ ...task, state: 'SUCCEEDED' }])
+    api.runs.mockResolvedValue([{ run: { runId: 'run', taskId: task.taskId, attempt: 1, state: 'SUCCEEDED', taskState: 'SUCCEEDED', stopConfirmed: true, errorCode: null }, contentExpired: false,
+      result: { schemaVersion: version, evidenceId: 'evidence', summary: '旧内容不展示' } as never }])
+    const wrapper = panel()
+    await flushPromises()
+    expect(wrapper.text()).toContain('协议错误：分析报告版本不受支持')
+    expect(wrapper.text()).not.toContain('旧内容不展示')
     wrapper.unmount()
   })
 

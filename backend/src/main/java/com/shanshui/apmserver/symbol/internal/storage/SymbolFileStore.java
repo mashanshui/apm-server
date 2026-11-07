@@ -140,6 +140,11 @@ public class SymbolFileStore {
 
     /** 回收数据库不再引用且没有读取者的内部文件。 */
     public void collectOrphans(Set<String> referencedKeys) {
+        collectOrphans(referencedKeys::contains);
+    }
+
+    /** 对每个文件单独确认活动引用，不收集整个应用或历史记录。 */
+    public void collectOrphans(java.util.function.Predicate<String> referenced) {
         try {
             if (!Files.exists(root)) {
                 return;
@@ -148,7 +153,7 @@ public class SymbolFileStore {
                 stream.filter(Files::isRegularFile)
                         .filter(path -> path.getFileName().toString().endsWith(SYMBOL_SUFFIX))
                         .map(path -> path.getFileName().toString())
-                        .filter(key -> !referencedKeys.contains(key))
+                        .filter(key -> !referenced.test(key))
                         .filter(key -> leases.getOrDefault(key, new AtomicInteger()).get() == 0)
                         .forEach(this::deleteOrphanQuietly);
             }

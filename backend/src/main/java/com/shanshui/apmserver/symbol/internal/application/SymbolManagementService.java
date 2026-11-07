@@ -73,16 +73,22 @@ public class SymbolManagementService {
             throw new SymbolValidationException("INVALID_LIMIT", "符号表分页大小超出范围", 400);
         }
         try {
-            List<SymbolFileEntity> all = fileRepository.findAllByAppIdOrderByUpdatedAtDescSymbolIdDesc(appId);
-            if (!normalizedBuildId.isEmpty()) {
-                all = all.stream().filter(entity -> normalizedBuildId.equals(entity.getBuildId())).toList();
+            // 游标只定位当前应用/筛选中的活动记录，失效游标不静默回第一页。
+            SymbolFileEntity after = null;
+            if (cursor != null && !cursor.isBlank()) {
+                UUID id;
+                try { id = UUID.fromString(cursor); }
+                catch (IllegalArgumentException invalid) { throw new SymbolValidationException("INVALID_CURSOR", "符号表游标无效", 400); }
+                after = findById(appId, id);
+                if (!normalizedBuildId.isEmpty() && !normalizedBuildId.equals(after.getBuildId())) throw new SymbolValidationException("INVALID_CURSOR", "符号表游标不属于当前筛选", 400);
             }
-            int start = cursorIndex(all, cursor);
-            List<SymbolFileEntity> page = all.subList(Math.min(start, all.size()),
-                    Math.min(all.size(), start + pageSize));
-            String nextCursor = page.size() == pageSize && !page.isEmpty()
-                    ? page.get(page.size() - 1).getSymbolId().toString() : null;
-            return new SymbolFilePage(appId, page.stream().map(SymbolFileEntity::metadata).toList(), nextCursor);
+            List<SymbolFileEntity> rows = fileRepository.activePage(appId, normalizedBuildId, after == null,
+                    after == null ? java.time.Instant.EPOCH : after.getUpdatedAt(), after == null ? new UUID(0, 0) : after.getSymbolId(),
+                    org.springframework.data.domain.PageRequest.of(0, pageSize + 1));
+            boolean more = rows.size() > pageSize;
+            List<SymbolFileEntity> page = more ? rows.subList(0, pageSize) : rows;
+            return new SymbolFilePage(appId, page.stream().map(SymbolFileEntity::metadata).toList(),
+                    more ? page.getLast().getSymbolId().toString() : null);
         } catch (DataAccessException ex) {
             throw new SymbolStoreUnavailableException(ex);
         }
@@ -98,7 +104,7 @@ public class SymbolManagementService {
             if (current != null) {
                 if (current.getSha256().equals(staged.sha256())) {
                     fileStore.discard(staged);
-                    return new UploadResult(current.metadata(), false);
+                    return new UploadResult(recordWriter.reaffirm(appId, current.getSymbolId(), current.getRevision()), false);
                 }
                 throw new SymbolConflictException(current.metadata());
             }
@@ -111,14 +117,14 @@ public class SymbolManagementService {
                 fileStore.retire(storageKey);
                 SymbolFileEntity concurrent = findCurrent(appId, normalizedBuildId);
                 if (concurrent != null && concurrent.getSha256().equals(staged.sha256())) {
-                    return new UploadResult(concurrent.metadata(), false);
+                    return new UploadResult(recordWriter.reaffirm(appId, concurrent.getSymbolId(), concurrent.getRevision()), false);
                 }
                 if (concurrent != null) {
                     throw new SymbolConflictException(concurrent.metadata());
                 }
                 throw new SymbolStoreUnavailableException(ex);
             }
-        } catch (SymbolConflictException | SymbolStoreUnavailableException ex) {
+        } catch (SymbolConflictException | SymbolVersionConflictException | SymbolValidationException ex) {
             if (storageKey != null) {
                 fileStore.retire(storageKey);
             } else {
@@ -126,11 +132,10 @@ public class SymbolManagementService {
             }
             throw ex;
         } catch (RuntimeException ex) {
-            if (storageKey != null) {
-                fileStore.retire(storageKey);
-            } else {
-                fileStore.discard(staged);
-            }
+            // 提交确认未知时，已发布文件可能已被数据库引用，不能按异常推断回滚并删除。
+            // 未发布暂存仍可直接清理；已发布文件保留，后续启动按确认后的活动引用清理孤立文件。
+            if (storageKey == null) fileStore.discard(staged);
+            if (ex instanceof SymbolStoreUnavailableException unavailable) throw unavailable;
             throw new SymbolStoreUnavailableException(ex);
         }
     }
@@ -150,14 +155,14 @@ public class SymbolManagementService {
             }
             if (current.getSha256().equals(staged.sha256())) {
                 fileStore.discard(staged);
-                return current.metadata();
+                return recordWriter.reaffirm(appId, current.getSymbolId(), expectedRevision);
             }
             storageKey = fileStore.publish(staged);
             SymbolRecordWriter.Replacement replaced = recordWriter.replace(appId, symbolId, userId,
                     expectedRevision, fileName(file), staged, storageKey);
             fileStore.retire(replaced.oldStorageKey());
             return replaced.metadata();
-        } catch (SymbolVersionConflictException | SymbolValidationException | SymbolStoreUnavailableException ex) {
+        } catch (SymbolVersionConflictException | SymbolValidationException ex) {
             if (storageKey != null) {
                 fileStore.retire(storageKey);
             } else {
@@ -165,32 +170,39 @@ public class SymbolManagementService {
             }
             throw ex;
         } catch (RuntimeException ex) {
-            if (storageKey != null) {
-                fileStore.retire(storageKey);
-            } else {
-                fileStore.discard(staged);
-            }
+            // 提交确认未知时，已发布文件可能已被数据库引用，不能按异常推断回滚并删除。
+            // 未发布暂存仍可直接清理；已发布文件保留，后续启动按确认后的活动引用清理孤立文件。
+            if (storageKey == null) fileStore.discard(staged);
+            if (ex instanceof SymbolStoreUnavailableException unavailable) throw unavailable;
             throw new SymbolStoreUnavailableException(ex);
         }
     }
 
-    /** 按应用和构建标识取得当前实体，供统一注册表使用。 */
-    public SymbolFileEntity current(UUID appId, String buildId) {
-        String normalizedBuildId = validateBuildId(buildId);
-        try {
-            return fileRepository.findByAppIdAndBuildId(appId, normalizedBuildId).orElse(null);
-        } catch (DataAccessException ex) {
-            throw new SymbolStoreUnavailableException(ex);
-        }
+    /** 活动行读锁覆盖文件租约登记，删除和替换不能让新读取者取得退休文件。 */
+    @org.springframework.transaction.annotation.Transactional
+    public java.util.Optional<com.shanshui.apmserver.symbol.api.SymbolFileLease> acquire(UUID appId, String buildId) {
+        return fileRepository.lockActiveBuild(appId, validateBuildId(buildId)).map(fileStore::open);
     }
 
-    /** 启动时删除数据库未引用的受控 mapping 文件。 */
+    /** 先提交软删除，再按已有读取租约退休文件。 */
+    public void delete(UUID appId, UUID symbolId, UUID userId, int expectedRevision) {
+        if (expectedRevision < 1) throw new SymbolValidationException("INVALID_REVISION", "expectedRevision 必须为正数", 400);
+        try { fileStore.retire(recordWriter.delete(appId, symbolId, userId, expectedRevision)); }
+        catch (DataAccessException failure) { throw new SymbolStoreUnavailableException(failure); }
+    }
+
+    /** 进度仅查询当前符号表及对应构建任务，删除身份不再提供轮询。 */
+    public com.shanshui.apmserver.crash.api.CrashSymbolicationWork.Progress progress(UUID appId, UUID symbolId,
+            com.shanshui.apmserver.crash.api.CrashSymbolicationWork work) {
+        SymbolFileEntity current = findById(appId, symbolId);
+        return work.progress(appId, current.getBuildId());
+    }
+
+    /** 逐文件有界检查当前引用，不加载所有历史元数据；数据库不可用时保留文件。 */
     public void cleanupOrphans() {
-        try {
-            fileStore.collectOrphans(fileRepository.findAll(Sort.by("storageKey")).stream()
-                    .map(SymbolFileEntity::getStorageKey).collect(java.util.stream.Collectors.toSet()));
-        } catch (DataAccessException | SymbolStoreUnavailableException ex) {
-            // 数据库或文件卷不可用时禁止启动清理，避免误删当前版本文件。
+        try { fileStore.collectOrphans(fileRepository::existsByStorageKeyAndDeletedAtIsNull); }
+        catch (DataAccessException | SymbolStoreUnavailableException unavailable) {
+            // 引用关系不可确认时禁止删除任何未核验文件。
         }
     }
 
@@ -225,7 +237,7 @@ public class SymbolManagementService {
     private SymbolFileEntity findById(UUID appId, UUID symbolId) {
         try {
             SymbolFileEntity entity = fileRepository.findById(symbolId)
-                    .filter(value -> value.getAppId().equals(appId))
+                    .filter(value -> value.getAppId().equals(appId) && value.getDeletedAt() == null)
                     .orElseThrow(() -> new SymbolValidationException("SYMBOL_NOT_FOUND", "符号表不存在", 404));
             return entity;
         } catch (DataAccessException ex) {
@@ -236,7 +248,7 @@ public class SymbolManagementService {
     /** 查询应用构建当前记录，数据库异常统一映射为存储不可用。 */
     private SymbolFileEntity findCurrent(UUID appId, String buildId) {
         try {
-            return fileRepository.findByAppIdAndBuildId(appId, buildId).orElse(null);
+            return fileRepository.findByAppIdAndBuildIdAndDeletedAtIsNull(appId, buildId).orElse(null);
         } catch (DataAccessException ex) {
             throw new SymbolStoreUnavailableException(ex);
         }
@@ -266,19 +278,6 @@ public class SymbolManagementService {
             return "mapping.txt";
         }
         return value.length() > 255 ? value.substring(0, 255) : value;
-    }
-
-    /** 计算游标对应的起始下标。 */
-    private int cursorIndex(List<SymbolFileEntity> values, String cursor) {
-        if (cursor == null || cursor.isBlank()) {
-            return 0;
-        }
-        for (int index = 0; index < values.size(); index++) {
-            if (cursor.equals(values.get(index).getSymbolId().toString())) {
-                return index + 1;
-            }
-        }
-        return 0;
     }
 
     /** 上传结果，区分首次创建和相同内容幂等。 */

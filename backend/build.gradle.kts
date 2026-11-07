@@ -48,10 +48,11 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-session-jdbc")
     implementation("org.springframework.boot:spring-boot-starter-flyway")
     implementation("org.flywaydb:flyway-database-postgresql")
-    // 官方 R8 Retrace API，用于校验和按请求还原 Android mapping。
+    // 官方 R8 Retrace API，用于校验和后台还原 Android mapping。
     // 固定官方 R8 Retrace 版本，服务端通过 Java API 校验和还原 mapping。
     implementation("com.android.tools:r8:8.9.35")
-    implementation("io.github.mashanshui:rhea-trace-processor:1.0.2") {
+    // 本地 Maven 制品支持类型 24 的主线程异步采样，需与客户端 Rhea 1.0.4 配套。
+    implementation("io.github.mashanshui:rhea-trace-processor:1.0.4") {
         isTransitive = false
     }
     runtimeOnly("org.postgresql:postgresql")

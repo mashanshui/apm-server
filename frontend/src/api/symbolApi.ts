@@ -1,8 +1,16 @@
-import type { SymbolFileMetadata, SymbolFilePage } from '../types/symbol'
+import type { SymbolFileMetadata, SymbolFilePage, SymbolicationProgress } from '../types/symbol'
 import { pathSegment, requestJson } from './http'
 
 /** 符号表网页管理 API。 */
 export const symbolApi = {
+  /** 仅查询本构建的管理记录，不扫描 Crash。 */
+  progress(appId: string, symbolId: string, signal?: AbortSignal) {
+    return requestJson<SymbolicationProgress>(`/api/v1/apps/${pathSegment(appId)}/symbols/${pathSegment(symbolId)}/crash-symbolication`, { signal })
+  },
+  /** 删除时锁定用户确认的 revision。 */
+  remove(appId: string, symbolId: string, expectedRevision: number, signal?: AbortSignal) {
+    return requestJson<void>(`/api/v1/apps/${pathSegment(appId)}/symbols/${pathSegment(symbolId)}?expectedRevision=${expectedRevision}`, { method: 'DELETE', signal })
+  },
   /** 查询当前应用的 mapping 元数据。 */
   list(appId: string, options: { buildId?: string; cursor?: string; limit?: number } = {}, signal?: AbortSignal) {
     const params = new URLSearchParams()

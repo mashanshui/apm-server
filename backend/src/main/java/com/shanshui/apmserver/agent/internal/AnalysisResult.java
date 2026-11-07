@@ -5,7 +5,7 @@ import jakarta.validation.constraints.*;
 import java.util.List;
 import java.util.UUID;
 
-/** 当前工作区报告；版本 4 新写入，旧报告 JSON 仅作历史读取。 */
+/** 当前工作区报告，仅支持版本 4。 */
 public record AnalysisResult(
         /** 当前唯一写入版本。 */ @Min(4) @Max(4) int schemaVersion,
         /** 固定事件证据。 */ @NotNull UUID evidenceId,
@@ -42,7 +42,7 @@ public record AnalysisResult(
             /** 当前固定模式。 */ @NotBlank @Pattern(regexp="HOST_AGENT") String mode,
             /** 宿主自报名称。 */ @Size(max=100) String host,
             /** 宿主自报版本。 */ @Size(max=100) String hostVersion,
-            /** 当前 Python 工具版本。 */ @NotBlank @Pattern(regexp="0\\.4\\.0") String toolVersion,
+            /** 当前 Python 工具版本。 */ @NotBlank @Pattern(regexp="0\\.5\\.0") String toolVersion,
             /** 来源属性。 */ @NotBlank @Pattern(regexp="HOST_REPORTED|UNKNOWN") String metadataSource) {}
 
     /** 当前无可信用量和费用通道，不能把未知填写为零。 */

@@ -41,9 +41,9 @@ test('19 tools keep per-request identity and fixed backend routes', async () => 
 
 /** 详情片段绑定当前原文摘要，内容改变会显式失败。 */
 test('detail sections can be reconstructed and stale continuation fails', async () => {
-  let content = { frames: Array.from({ length: 1000 }, (_, index) => ({ id: index, text: `frame-${index}` })) };
+  let content = { kind: 'jvm', fatal: true, throwableChain: [{ type: 'Exception', frames: Array.from({ length: 1000 }, (_, index) => ({ className: 'Example', methodName: `frame-${index}` })) }] };
   const backend = new ApmClient('http://backend.test', async () =>
-    new Response(JSON.stringify({ appId: 'app-a', eventId: 'event-1', rawCrash: content, symbolicatedStackText: null })));
+    new Response(JSON.stringify({ appId: 'app-a', eventId: 'event-1', crashKind: 'jvm', fatal: true, symbolicationStatus: 'pending', groupingKind: 'temporary', stack: { format: 'raw_chain', content } })));
   const handler = createProtocolHandler(backend);
   const transport = new StreamableHTTPClientTransport(new URL('http://test.local/mcp'), {
     fetch: (url, init) => handler.fetch(new Request(url, init), {
@@ -54,12 +54,12 @@ test('detail sections can be reconstructed and stale continuation fails', async 
   try {
     await client.connect(transport);
     const first = await client.callTool({ name: 'get_crash_event',
-      arguments: { eventId: 'event-1', section: 'rawCrash', chunkBytes: 100 } });
+      arguments: { eventId: 'event-1', section: 'stack', chunkBytes: 100 } });
     const firstData = (first.structuredContent as { data: { content: string; contentDigest: string } }).data;
     assert.equal(Buffer.from(firstData.content, 'base64').length, 100);
-    content = { frames: [{ id: 1, text: 'changed' }] };
+    content = { kind: 'jvm', fatal: true, throwableChain: [{ type: 'Exception', frames: [{ className: 'Changed', methodName: 'changed' }] }] };
     const stale = await client.callTool({ name: 'get_crash_event', arguments: {
-      eventId: 'event-1', section: 'rawCrash', offset: 100, contentDigest: firstData.contentDigest
+      eventId: 'event-1', section: 'stack', offset: 100, contentDigest: firstData.contentDigest
     } });
     assert.equal(stale.isError, true);
     assert.match(JSON.stringify(stale.content), /EVIDENCE_CHANGED/);
@@ -106,12 +106,14 @@ test('all tools map to existing GET routes and preserve domain evidence', async 
     const path = new URL(url instanceof Request ? url.url : String(url)).pathname;
     seen.push(path);
     const detail = path.includes('/janks/events/');
+    const crash = path.includes('/crashes/events/');
     return new Response(JSON.stringify(detail
       ? { appId: 'app-a', eventId: 'e1', algorithmVersion: 'jank-v1', jank: { samples: [] },
         analysis: { exactMessageDurationNs: 0, estimatedDurationNs: null,
           expectedSampleCount: 2, parsedSampleCount: 1, missingSampleCount: 1,
           stackDictionary: { '1': [{ className: 'A' }] } } }
-      : { appId: 'app-a', status: 'no_data', value: 0, denominator: null }));
+      : crash ? { appId: 'app-a', eventId: 'e1', crashKind: 'jvm', fatal: true, symbolicationStatus: 'pending', groupingKind: 'temporary', stack: { format: 'raw_chain', content: { kind: 'jvm', fatal: true, throwableChain: [{ type: 'Exception', frames: [{ className: 'A', methodName: 'run' }] }] } }, value: 0, denominator: null }
+      : { appId: 'app-a', issues: [], events: [], status: 'no_data', value: 0, denominator: null }));
   });
   const handler = createProtocolHandler(backend);
   const transport = new StreamableHTTPClientTransport(new URL('http://test.local/mcp'), {
@@ -161,7 +163,7 @@ test('all tools map to existing GET routes and preserve domain evidence', async 
 test('oversized result fails explicitly', async () => {
   const backend = new ApmClient('http://backend.test', async () =>
     new Response(JSON.stringify({ issues: Array.from({ length: 100 }, (_, index) => ({
-      fingerprint: String(index), message: 'X'.repeat(2_000)
+      fingerprint: String(index), groupingKind: 'resolved', buildId: null, message: 'X'.repeat(2_000)
     })) })));
   const handler = createProtocolHandler(backend);
   const transport = new StreamableHTTPClientTransport(new URL('http://test.local/mcp'), {

@@ -14,6 +14,7 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 
 /** 验证官方 R8 Retrace 对真实 release mapping 和非法文件的处理。 */
 class R8RetraceEngineTests {
@@ -75,6 +76,53 @@ class R8RetraceEngineTests {
         assertEquals(SymbolicationResult.Status.FAILED, result.status());
         assertEquals("output_limit", result.reason());
         assertTrue(result.text() == null || result.text().isEmpty());
+    }
+
+    /** 合成 mapping 无需外部样本即可验证完整原因链、内联和无行号候选。 */
+    @Test
+    void retainsCompleteChainInlineAndAllCandidates() throws Exception {
+        // 同一混淆方法包含内联和不同位置候选。
+        Path mapping = Files.writeString(temporaryDirectory.resolve("complete.mapping"), """
+                com.example.Main -> a:
+                    1:1:void inner():10:10 -> b
+                    1:1:void outer():20:20 -> b
+                    2:2:void alternative():30:30 -> b
+                com.example.Reason -> c:
+                    void cause() -> d
+                com.example.Candidates -> e:
+                    void first(int) -> f
+                    void second(java.lang.String) -> f
+                """);
+        R8RetraceEngine engine = new R8RetraceEngine();
+        SymbolicationResult inline = engine.retrace(mapping, List.of("java.lang.RuntimeException: test",
+                "\tat a.b(SourceFile:1)", "Caused by: java.lang.IllegalStateException: reason", "\tat c.d(Unknown Source)"), 1048576);
+        assertEquals(SymbolicationResult.Status.SYMBOLICATED, inline.status());
+        assertTrue(inline.text().contains("Main.inner"));
+        assertTrue(inline.text().contains("Main.outer"));
+        assertTrue(inline.text().contains("Caused by: java.lang.IllegalStateException: reason"));
+        assertTrue(inline.text().contains("Reason.cause"));
+        assertEquals(2, inline.fingerprintInput().exceptions().size());
+        SymbolicationResult candidates = engine.retrace(mapping, List.of("\tat e.f(Unknown Source)"), 1048576);
+        assertEquals(SymbolicationResult.Status.SYMBOLICATED, candidates.status());
+        assertTrue(candidates.text().contains("Candidates.first"), candidates.text());
+        assertTrue(candidates.text().contains("Candidates.second"));
+        assertEquals(2, candidates.fingerprintInput().frameGroups().getFirst().size());
+        // 输出未变化仍表示受限处理完成，不直接作为失败。
+        SymbolicationResult unchanged = engine.retrace(mapping, List.of("java.lang.RuntimeException", "\tat java.util.List.get(List.java:1)"), 1048576);
+        assertEquals(SymbolicationResult.Status.SYMBOLICATED, unchanged.status());
+        assertTrue(unchanged.text().contains("java.util.List.get"));
+    }
+
+    /** 脱敏完整输出不截断候选或尾部原因链。 */
+    @Test
+    void redactsCompleteRetraceWithoutTruncatingItsTail() {
+        // 长文本尾部用于核验没有沿用接收消息的截断上限。
+        String text = "java.lang.RuntimeException: contact test@example.invalid\n" + "\tat com.example.Main.run(Main.java:1)\n".repeat(200)
+                + "Caused by: java.lang.IllegalStateException: /Users/synthetic/private";
+        String safe = new com.shanshui.apmserver.crash.internal.application.CrashSanitizer(CrashTestSupport.ingestProperties()).sanitizeRetrace(text);
+        assertFalse(safe.contains("test@example.invalid"));
+        assertFalse(safe.contains("/Users/synthetic"));
+        assertTrue(safe.endsWith("Caused by: java.lang.IllegalStateException: [path]"));
     }
 
     /** mapping 文件不可读时还原只能返回降级结果，不能暴露底层路径。 */

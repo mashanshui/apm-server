@@ -71,7 +71,7 @@ Grafana 在容器中运行，`Server/Host` 必须填 `apm-clickhouse`，不能�
 
 ```sql
 SELECT count() AS event_count
-FROM apm.apm_event_raw;
+FROM apm.apm_crash_fact FINAL;
 ```
 
 没有上报数据时返回 `0` 是正常的；这只能证明连接和表权限正常。
@@ -140,3 +140,5 @@ docker volume rm apm-grafana-data
 - [Grafana Labs ClickHouse 数据源文档](https://grafana.com/docs/plugins/grafana-clickhouse-datasource/latest/configure/)
 - [Altinity ClickHouse 数据源插件](https://grafana.com/grafana/plugins/vertamedia-clickhouse-datasource/)
 - [Docker Compose 安装文档](https://docs.docker.com/compose/install/)
+
+当前 Crash Dashboard JSON 使用新事实和最新状态，原始链/还原文本不参与统计，按发生时间左闭右开过滤且带查询预算；不再读旧 Crash 表。仓库 SQL 已在隔离真实 ClickHouse 执行，Grafana 插件安装、浏览器与生产授权仍需独立验收。

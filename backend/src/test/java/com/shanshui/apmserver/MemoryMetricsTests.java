@@ -185,7 +185,7 @@ class MemoryMetricsTests {
                                              InMemoryMemoryMetricsRepository memoryRepository) {
         var storage = CrashTestSupport.storageProperties();
         var crashRepository = new InMemoryCrashRepository(storage);
-        var crashProcessor = new CrashEventProcessor(new CrashEventValidator(properties, new ObjectMapper()),
+        var crashProcessor = CrashTestSupport.processor(new CrashEventValidator(properties, new ObjectMapper()),
                 new CrashSanitizer(properties), new CrashFingerprintService(), crashRepository);
         var jankRepository = new InMemoryJankEventRepository(storage);
         var jankProcessor = new JankMetricEventProcessor(new JankMetricEventValidator(properties, new ObjectMapper()),

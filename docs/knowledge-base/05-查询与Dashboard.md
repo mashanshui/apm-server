@@ -101,7 +101,7 @@ device_model, network_type, event_type, interval
 
 - 使用专用 ClickHouse 只读账户，仅授权指定库表的 `SELECT`。
 - ClickHouse 不暴露公网，Grafana 通过内网访问。
-- 目标架构默认查询聚合表；当前 Dashboard JSON 直接查询 `apm_event_raw FINAL`。后端 Crash 查询已在 ClickHouse 内完成过滤、统计和分页，卡顿与内存各自保留其领域查询实现。
+- 目标架构默认查询聚合表；当前 Dashboard JSON 查询新 Crash 事实/最新状态轻量投影，并设置扫描/内存/时间及结果预算。后端 Crash 查询已在 ClickHouse 内完成过滤、统计和分页，卡顿与内存各自保留其领域查询实现。
 - 设置查询超时和最大返回行数。
 - Dashboard JSON 进入 Git 管理。
 - 多租户场景不能仅靠隐藏 `app_id` 变量隔离数据，应使用数据源隔离、行级策略或后端查询代理。
@@ -126,7 +126,7 @@ Grafana 适合趋势、排行、筛选、临时分析和告警；Vue 更适合�
 
 ## JVM Crash 查询与 Dashboard 实现
 
-已增加以下查询语义：Crash 总览、小时或天趋势、问题排行、按指纹的事件列表和单事件详情。查询支持版本、渠道、环境、Android 版本、设备型号和指纹筛选，并限制时间范围、limit、游标和超时。比例使用 `app_start` 会话分母；分母为空时返回 `null` 和 `denominator_insufficient` 状态；没有任何事件时状态为 `no_data`。Crash 事件详情还会按当前 `appId + buildId` mapping 在请求内 Retrace，结果只存在响应中，不写回事件或缓存；列表、上传和替换契约见[符号表管理 API](../api/symbol-api.md)。
+已增加以下查询语义：Crash 总览、小时或天趋势、问题排行、按指纹的事件列表和单事件详情。查询支持版本、渠道、环境、Android 版本、设备型号和指纹筛选，并限制时间范围、limit、游标和超时。比例使用 `app_start` 会话分母；分母为空时返回 `null` 和 `denominator_insufficient` 状态；没有任何事件时状态为 `no_data`。Crash 接收先保存 pending/raw_chain 与事实，后台以固定文件租约处理；详情仅只读当前单份 stack，不调用 R8。首次成功以 retrace_text、resolved-v1 及实际 ID/revision/SHA-256/时间固定，管理操作不重算。临时 tmp-v1 按构建隔离，正式问题可跨版本合并；归组回填到原发生日期，总数/会话/设备/当前启动分母不增加。旧临时指纹可能为空，返回总览刷新，分页不提供快照。上传/替换/删除和进度契约见[符号表管理 API](../api/symbol-api.md)。
 
 Grafana JSON 位于 `backend/src/main/resources/grafana/dashboards/jvm-crash.json`，包含总览卡片、趋势、问题排行、版本对比、状态说明和下钻链接，当前数据源类型为 `vertamedia-clickhouse-datasource`。Dashboard 验收应覆盖固定数据集中的正常、无数据、分母不足和堆栈下钻状态；这些验收不等同于多租户生产权限或大规模性能验收。
 

@@ -84,7 +84,7 @@ function backToOverview() {
       <div class="panel-header">
         <div>
           <h2>事件列表</h2>
-          <p>按发生时间倒序展示，进入事件可查看原始堆栈</p>
+          <p>按发生时间倒序展示，进入事件可查看当前单份堆栈。后台归组变化后，旧临时指纹可能为空；分页不提供快照。</p>
         </div>
         <span v-if="events.length" class="badge">{{ events.length }} 个事件</span>
       </div>

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { reactive } from 'vue'
 import { createPinia, setActivePinia } from 'pinia'
@@ -18,6 +18,8 @@ vi.mock('vue-router', () => ({
 vi.mock('../api/symbolApi', () => ({
   symbolApi: {
     list: vi.fn(),
+    progress: vi.fn(),
+    remove: vi.fn(),
     upload: vi.fn(),
     replace: vi.fn(),
   },
@@ -63,6 +65,7 @@ function createFile(content: string, filename: string) {
 }
 
 describe('SymbolFilesView', () => {
+  afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks() })
   beforeEach(() => {
     setActivePinia(createPinia())
     const apps = useAppStore()
@@ -77,6 +80,8 @@ describe('SymbolFilesView', () => {
     routeState.query = {}
     vi.resetAllMocks()
     mockedSymbolApi.list.mockResolvedValue({ appId: 'app-1', items: [currentSymbol], nextCursor: null })
+    mockedSymbolApi.progress.mockResolvedValue({state: 'idle', succeededCount: 0, failedCount: 0, updatedAt: null, errorCategory: null})
+    mockedSymbolApi.remove.mockResolvedValue(undefined)
     mockedSymbolApi.upload.mockResolvedValue(currentSymbol)
     mockedSymbolApi.replace.mockResolvedValue({ ...currentSymbol, revision: 3 })
   })
@@ -300,4 +305,66 @@ describe('SymbolFilesView', () => {
     await flushPromises()
     expect(wrapper.text()).not.toContain('mapping 上传成功')
   })
+  /** 删除必须明确确认 revision；版本冲突不假装成功。 */
+  it('confirms revision deletion and refreshes after a conflict', async () => {
+    const wrapper = mount(SymbolFilesView, { global: { stubs: { AppLayout: { template: '<div><slot /></div>' }, RouterLink: true } } })
+    await flushPromises()
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    const button = () => wrapper.findAll('button').find(item => item.text() === '删除')!
+    await button().trigger('click')
+    expect(mockedSymbolApi.remove).not.toHaveBeenCalled()
+    confirm.mockReturnValue(true)
+    mockedSymbolApi.remove.mockRejectedValueOnce(new ApiError({status:409, code:'SYMBOL_VERSION_CONFLICT',message:'冲突'}))
+    await button().trigger('click'); await flushPromises()
+    expect(mockedSymbolApi.remove).toHaveBeenCalledWith('app-1', 'symbol-1', 2, expect.any(AbortSignal))
+    expect(wrapper.text()).toContain('版本已变化')
+    mockedSymbolApi.list.mockResolvedValue({ appId:'app-1', items:[], nextCursor:null })
+    await button().trigger('click'); await flushPromises()
+    expect(wrapper.text()).toContain('mapping 已删除并保留审计')
+    wrapper.unmount()
+  })
+
+  /** 只读角色无删除按钮，单构建轮询有上限并可离页取消。 */
+  it('bounds polling and cancels progress on unmount', async () => {
+    vi.useFakeTimers()
+    useAppStore().apps[0].role = 'VIEWER'
+    mockedSymbolApi.progress.mockResolvedValue({state:'running',succeededCount:2,failedCount:1,updatedAt:null,errorCategory:null})
+    const wrapper = mount(SymbolFilesView, { global: { stubs: { AppLayout: { template: '<div><slot /></div>' }, RouterLink:true } } })
+    await flushPromises()
+    expect(wrapper.findAll('button').some(item=>item.text()==='删除')).toBe(false)
+    await wrapper.findAll('button').find(item=>item.text()==='查看进度')!.trigger('click'); await flushPromises()
+    await vi.advanceTimersByTimeAsync(310000); await flushPromises()
+    expect(mockedSymbolApi.progress).toHaveBeenCalledTimes(60)
+    expect(wrapper.text()).toContain('本轮成功确认 2')
+    const pending = deferred<Awaited<ReturnType<typeof symbolApi.progress>>>()
+    mockedSymbolApi.progress.mockReturnValue(pending.promise)
+    await wrapper.findAll('button').find(item=>item.text()==='刷新进度')!.trigger('click')
+    const signal = mockedSymbolApi.progress.mock.calls.at(-1)?.[2]
+    wrapper.unmount()
+    expect(signal?.aborted).toBe(true)
+    pending.resolve({state:'idle',succeededCount:99,failedCount:0,updatedAt:null,errorCategory:null})
+    await flushPromises()
+    expect(mockedSymbolApi.progress).toHaveBeenCalledTimes(61)
+  })
+
+  /** 相同 buildId 重传获得新 symbolId，旧请求不能写入新进度。 */
+  it('isolates delayed progress after a symbol replacement and app switch', async () => {
+    const pending = deferred<Awaited<ReturnType<typeof symbolApi.progress>>>()
+    mockedSymbolApi.progress.mockReturnValueOnce(pending.promise)
+    const wrapper = mount(SymbolFilesView, { global: { stubs: { AppLayout: { template: '<div><slot /></div>' }, RouterLink:true } } })
+    await flushPromises()
+    await wrapper.findAll('button').find(item=>item.text()==='查看进度')!.trigger('click')
+    const oldSignal = mockedSymbolApi.progress.mock.calls[0]?.[2]
+    mockedSymbolApi.list.mockResolvedValue({appId:'app-1',items:[{...currentSymbol,symbolId:'new-symbol'}],nextCursor:null})
+    await wrapper.get('.symbol-filter-form').trigger('submit'); await flushPromises()
+    expect(oldSignal?.aborted).toBe(true)
+    await wrapper.findAll('button').find(item=>item.text()==='查看进度')!.trigger('click'); await flushPromises()
+    pending.resolve({state:'running',succeededCount:999,failedCount:0,updatedAt:null,errorCategory:null}); await flushPromises()
+    expect(wrapper.text()).not.toContain('999')
+    expect(mockedSymbolApi.progress.mock.calls.at(-1)?.[1]).toBe('new-symbol')
+    routeState.params.appId='app-2'; await flushPromises()
+    expect(wrapper.find('[aria-label="构建还原进度"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
 })

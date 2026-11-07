@@ -23,7 +23,7 @@ def prerequisites(configuration: Configuration | None = None) -> dict[str, bool]
 
 def main(argv: Sequence[str] | None = None) -> int:
     """准备、读取和提交均绑定同任务与私有恢复目录。"""
-    # 不提供旧独立模型入口，旧报告保留历史展示。
+    # 仅接受当前证据/报告契约，不提供旧执行入口或历史格式渲染。
     parser = argparse.ArgumentParser(description="宿主 Agent 当前代码分析和明确授权修复工具")
     # 动作必须由宿主明确选择。
     commands = parser.add_subparsers(dest="command", required=True)

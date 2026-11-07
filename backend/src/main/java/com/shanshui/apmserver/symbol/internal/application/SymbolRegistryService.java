@@ -53,8 +53,7 @@ public class SymbolRegistryService implements SymbolRegistry {
     /** 根据应用和构建标识获取固定版本文件租约。 */
     @Override
     public Optional<SymbolFileLease> acquire(UUID appId, String buildId) {
-        SymbolFileEntity entity = managementService.current(appId, buildId);
-        return entity == null ? Optional.empty() : Optional.of(fileStore.open(entity));
+        return managementService.acquire(appId, buildId);
     }
 
     /** 在共享许可内执行一次完整异常链还原。 */

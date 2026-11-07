@@ -30,3 +30,9 @@ Crash/卡顿详情默认省略大证据字段并列出 availableSections。使�
 ```
 
 事件工具另保留首次 fingerprint。不解析或拼装游标，页大小只改变条数。`INVALID_CURSOR`（400）须从第一页重新查询；`QUERY_TIMEOUT`（408）和 `QUERY_RESOURCE_LIMIT`（422）须缩小范围或增加筛选；`EVENT_STORE_UNAVAILABLE`（503）按暂时故障处理。协议测试覆盖上述传播、原样游标和小数秒时间，测试结果见[后端验收](../../backend/docs/knowledge-base/backend-api-query-validation.md)。
+
+## 当前 Crash 堆栈契约
+
+Crash 详情仅返回 `stack:{format,content}`：pending/failed 为 raw_chain 原始异常链，symbolicated 为 retrace_text 完整固定结果；同时保留 crashKind/fatal、groupingKind 和实际 symbolFileId/revision/sha256/processedAt。首次成功固定，mapping 删除重传不改写旧结果。Issue 显示 temporary 与 buildId 或 resolved；旧临时指纹可能变为空列表，分页不是快照。
+
+MCP 的 Crash 大片段名称只有 `stack`，摘要不夹带堆栈正文。续读摘要绑定 format 和 content，后台由原始链变为还原文本时返回 EVIDENCE_CHANGED，须重新开始。旧片段名返回 INVALID_SECTION；旧双份详情或旧状态返回 QUERY_BACKEND_INVALID_RESPONSE，不转换或降级。19 个工具和应用授权不变。协调切换时须同时更新后端、网页、MCP 与 Worker，旧分析任务不进入当前接口。

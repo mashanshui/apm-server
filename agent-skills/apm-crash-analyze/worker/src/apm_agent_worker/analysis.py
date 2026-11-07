@@ -117,8 +117,35 @@ def public_text(value: str) -> str:
     return re.sub(r'(?<![A-Za-z0-9_])(?:[A-Za-z]:[\\/]|/)(?:[^\s"<>]+)', '[LOCAL_PATH]', redact(value))
 
 
+def require_current_evidence(evidence: dict[str, Any]) -> None:
+    """只接受证据 3 的单份完整堆栈，不能猜测或转换其他版本。"""
+    if not isinstance(evidence, dict) or evidence.get('schemaVersion') != 3 or any(key in evidence for key in ('source', 'commitSha', 'repositoryId', 'origin')):
+        raise WorkerError('EVIDENCE_FORMAT_UNSUPPORTED')
+    event = evidence.get('event')  # 资格与归组来自当前不变事实和已发布状态。
+    fragments = evidence.get('fragments')  # 当前只有 crash-stack 一个片段。
+    mapping = evidence.get('mapping')  # 实际处理来源，不能以本机当前 mapping 代替。
+    if not isinstance(event, dict) or event.get('crashKind') != 'jvm' or event.get('fatal') is not True or not isinstance(mapping, dict) or not isinstance(fragments, list) or len(fragments) != 1:
+        raise WorkerError('EVIDENCE_FORMAT_UNSUPPORTED')
+    fragment = fragments[0]  # 保留完整链、内联和候选，不以截断满足上限。
+    if not isinstance(fragment, dict) or fragment.get('id') != 'crash-stack' or fragment.get('kind') != 'crash-stack':
+        raise WorkerError('EVIDENCE_FORMAT_UNSUPPORTED')
+    content = fragment.get('content')  # raw_chain 为对象，retrace_text 为完整文本。
+    if mapping.get('status') == 'symbolicated':
+        if event.get('groupingKind') != 'resolved' or fragment.get('format') != 'retrace_text' or not isinstance(content, str) or not content.strip() or not isinstance(mapping.get('symbolId'), str) or not isinstance(mapping.get('revision'), int) or mapping['revision'] < 1 or not isinstance(mapping.get('sha256'), str) or not re.fullmatch('[a-f0-9]{64}', mapping['sha256']) or not isinstance(mapping.get('processedAt'), str):
+            raise WorkerError('EVIDENCE_FORMAT_UNSUPPORTED')
+    elif mapping.get('status') in {'pending', 'failed'}:
+        if event.get('groupingKind') != 'temporary' or fragment.get('format') != 'raw_chain' or not isinstance(content, dict) or content.get('kind') != 'jvm' or content.get('fatal') is not True or not isinstance(content.get('throwableChain'), list) or not content['throwableChain']:
+            raise WorkerError('EVIDENCE_FORMAT_UNSUPPORTED')
+        for node in content['throwableChain']:
+            if not isinstance(node, dict) or not isinstance(node.get('type'), str) or not isinstance(node.get('frames'), list) or not node['frames'] or any(not isinstance(frame, dict) or not isinstance(frame.get('className'), str) or not isinstance(frame.get('methodName'), str) for frame in node['frames']):
+                raise WorkerError('EVIDENCE_FORMAT_UNSUPPORTED')
+    else:
+        raise WorkerError('EVIDENCE_FORMAT_UNSUPPORTED')
+
+
 def validated(text: str, evidence: dict[str, Any], project: Path, run_id: str, repair_authorized: bool = False) -> dict[str, Any]:
     """绑定事件与 Run；片段仅提交时检查，修改和验证均明确宿主自报。"""
+    require_current_evidence(evidence)
     try:
         result = ModelAnalysis.model_validate_json(text)
     except ValidationError:

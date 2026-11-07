@@ -1,6 +1,6 @@
 # Android 卡顿压缩包 manifest v3 契约
 
-> 状态：服务端当前契约。服务端严格要求 v3 `.rheajank.zip`、UUID v4 `processId` 和 `threadScope=main`；`rhea-trace-processor:1.0.2` 已通过客户端主线程-only 设备 ZIP 的 UUID 解析和云端落库验收，生产制品仓库、Android 长期运行、持久重试和容量仍需单独验收。
+> 状态：服务端当前契约。服务端严格要求 v3 `.rheajank.zip`、UUID v4 `processId` 和 `threadScope=main`。当前工作区使用本地 Maven 的 `rhea-trace-processor:1.0.4`，支持异步采样类型 `24`，manifest 字段不变；异步来源及间隔保存在 sampling extra。该版本尚未发布到远程制品仓库，云端服务未升级；历史 `1.0.2` 设备 ZIP 云端验收不覆盖异步采样，Android 长期运行、持久重试和容量仍需单独验收。
 
 本文定义一次主线程卡顿对应的 `.rheajank.zip` 及其最小 `manifest.json`。服务端仅依赖压缩包完成卡顿事件校验、解析、去重、指纹和落库，客户端不再同时构造 `/ingest/v1/batches` 的结构化 `jank` JSON。
 

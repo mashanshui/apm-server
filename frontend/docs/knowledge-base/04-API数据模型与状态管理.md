@@ -60,7 +60,7 @@ GET /api/v1/apps/{appId}/memory-leaks/trend?interval=5m|hour|day
 
 已发布契约、统计公式和服务端限制以[服务端 API 文档](../../../docs/api/README.md)、[Crash API 文档](../../../docs/api/crash-api.md)、[卡顿服务端 API](../../../docs/api/jank-server-api.md)及[平台查询与 Dashboard](../../../docs/knowledge-base/05-查询与Dashboard.md)为准；本页只记录前端消费方式。
 
-符号表使用 `src/api/symbolApi.ts` 调用 `/api/v1/apps/{appId}/symbols` 的列表、multipart 首次上传和 `expectedRevision` 替换接口。`http.ts` 对 `FormData` 不设置 JSON `Content-Type`，继续携带同源 Session/CSRF；`ApiError.details` 保存冲突响应的当前元数据，页面据此展示摘要并等待明确确认。Crash 详情类型包含 `symbolicationStatus`、`symbolicatedStackText`、`symbolFileRevision` 和 `symbolicationReason`，还原结果仅在页面状态中展示。
+符号表使用 `src/api/symbolApi.ts` 调用 `/api/v1/apps/{appId}/symbols` 的列表、multipart 首次上传、`expectedRevision` 替换/删除及单构建进度接口。`http.ts` 对 `FormData` 不设置 JSON `Content-Type`，继续携带同源 Session/CSRF；`ApiError.details` 保存冲突响应的当前元数据，页面据此展示摘要并等待明确确认。Crash 详情只包含单份 stack、当前三态、归组和实际来源；API 明确拒绝旧双份字段、旧状态与无来源的成功响应，不作转换。符号表支持 expectedRevision DELETE 和单构建进度接口。
 
 ## 请求约定
 
@@ -148,3 +148,5 @@ AppUpdateRequest 使用 name?: string、description?: string | null，appApi.upd
 ## 卡顿游标与预算错误
 
 createJankCursorQuery 原样保存不透明游标，以及首次响应 from/to 的完整小数秒；两个 Jank composable 续页沿用响应时间窗。应用/筛选切换从第一页清空状态，取消信号和请求代次隔离旧响应。INVALID_CURSOR 使旧游标失效并暴露显式恢复；重新查询替换列表，不自动追加第一页。超时/资源错误由 jankApi 提示缩小范围，其他成功区域保留。时间窗与游标只存在内存，不新增凭据持久化。
+
+Crash API 解析验证三态/归组、单份 stack 及成功实际来源；Issue temporary 必须带 buildId。前端不转换旧详情；分析列表和 Run 校验仅接受证据 3/报告 4，不渲染旧报告。符号表进度仅存在页面内存，以请求代次、symbolId 和 AbortController 隔离旧应用/文件响应；同时只轮询一个构建，非快照计数不作为全量成功数。

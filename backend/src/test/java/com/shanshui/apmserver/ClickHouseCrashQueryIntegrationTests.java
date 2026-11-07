@@ -35,6 +35,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /** 真实 ClickHouse 验证逻辑去重、跨桶与指纹分母。 */
 @Testcontainers
 class ClickHouseCrashQueryIntegrationTests {
+    /** 保留期内的固定 UTC 测试日，避免真实 TTL 清理历史样本。 */
+    private static final String DAY = java.time.Instant.now().minus(1, java.time.temporal.ChronoUnit.DAYS).toString().substring(0,10);
 
     @Container
     private static final GenericContainer<?> CLICKHOUSE = new GenericContainer<>("clickhouse/clickhouse-server:26.7.3.19")
@@ -44,20 +46,17 @@ class ClickHouseCrashQueryIntegrationTests {
             .withExposedPorts(8123);
 
     @Test
-    void overviewAndTrendMatchReferenceSemantics() {
+    void overviewAndTrendMatchReferenceSemantics() throws Exception {
         ClickHouseProperties properties = new ClickHouseProperties();
         properties.setUrl("http://" + CLICKHOUSE.getHost() + ":" + CLICKHOUSE.getMappedPort(8123));
         properties.setDatabase("default");
         properties.setUsername("apm_test");
         properties.setPassword("apm_test_password");
         ClickHouseHttpClient client = new ClickHouseHttpClient(properties);
-        client.execute("CREATE TABLE apm_event_raw (app_id UUID, event_id String, event_type String, "
-                + "event_time DateTime64(3, 'UTC'), received_time DateTime64(3, 'UTC'), "
-                + "session_id String, anonymous_device_id String, app_version String, channel String, "
-                + "environment String, os_version String, device_model String, crash_fingerprint String, "
-                + "fingerprint_version String, crash_exception_type String, version_code Int64, build_id String, "
-                + "symbolication_status String) "
-                + "ENGINE = ReplacingMergeTree(received_time) ORDER BY (app_id, event_type, event_time, event_id)");
+        // 使用当前实际 DDL，不建立旧 Crash 数据集。
+        String ddl = new String(getClass().getResourceAsStream("/db/clickhouse/008_background_crash_symbolication.sql").readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+        for (String statement : ddl.split(";")) if (!statement.isBlank()) client.execute(statement);
+        properties.setDatabase("apm");
         UUID appId = UUID.fromString("11111111-1111-4111-8111-111111111111");
         UUID other = UUID.fromString("22222222-2222-4222-8222-222222222222");
         insert(client, appId, "start-1", "app_start", "10:00:00", "s1", "", "");
@@ -73,8 +72,8 @@ class ClickHouseCrashQueryIntegrationTests {
         CrashQueryService query = new CrashQueryService(new ClickHouseCrashRepository(client, new ObjectMapper()),
                 CrashTestSupport.queryProperties(), storage,
                 new MicrometerTelemetryMetrics(new SimpleMeterRegistry()));
-        String from = "2026-09-28T10:00:00Z";
-        String to = "2026-09-28T12:00:00Z";
+        String from = "" + DAY + "T10:00:00Z";
+        String to = "" + DAY + "T12:00:00Z";
         var overview = query.overview(appId, from, to, CrashQueryCommand.empty()).stats();
         assertEquals(2, overview.startedSessions());
         assertEquals(3, overview.crashEvents());
@@ -101,10 +100,28 @@ class ClickHouseCrashQueryIntegrationTests {
                 .stats();
         assertEquals(2, noStarts.startedSessions());
         assertEquals(1, noStarts.crashEvents());
-        assertNull(query.overview(appId, "2026-09-28T09:00:00Z", from, CrashQueryCommand.empty())
+        assertNull(query.overview(appId, "" + DAY + "T09:00:00Z", from, CrashQueryCommand.empty())
                 .stats().crashRatePer1000Sessions());
-        assertEquals("denominator_insufficient", query.overview(appId, "2026-09-28T11:30:00Z", to,
+        assertEquals("denominator_insufficient", query.overview(appId, "" + DAY + "T11:30:00Z", to,
                 CrashQueryCommand.empty()).stats().status());
+
+        // 仓库 Grafana 资源同样只读当前数据集；真实执行全部面板 SQL，禁止残留旧表。
+        var dashboard = new ObjectMapper().readTree(getClass().getResourceAsStream("/grafana/dashboards/jvm-crash.json"));
+        for (var panel : dashboard.path("panels")) {
+            for (var target : panel.path("targets")) {
+                String sql = target.path("query").asText().replace("$app_id", appId.toString())
+                        .replace("$from", Long.toString(Instant.parse(from).getEpochSecond()))
+                        .replace("$to", Long.toString(Instant.parse(to).getEpochSecond()));
+                for (String dimension : new String[]{"app_version", "channel", "environment", "os_version", "device_model", "fingerprint"}) {
+                    sql = sql.replace("$" + dimension, "'All'");
+                }
+                assertTrue(!sql.contains("apm_event_raw") && !sql.contains("stack_payload"));
+                var rows = client.execute(sql + " FORMAT JSONEachRow");
+                assertTrue(!rows.isBlank());
+                if (panel.path("id").asInt() == 1) assertEquals(2, new ObjectMapper().readTree(rows).path("started_sessions").asInt());
+                if (panel.path("id").asInt() == 2) assertEquals(500.0, new ObjectMapper().readTree(rows).path("crash_rate_per_1000_sessions").asDouble());
+            }
+        }
 
         CrashQueryCommand firstPage = CrashQueryCommand.empty().withLimit(1);
         var issuesOne = query.issues(appId, from, to, firstPage);
@@ -153,7 +170,7 @@ class ClickHouseCrashQueryIntegrationTests {
         String log = client.execute("SELECT count() AS query_count, max(result_rows) AS max_result_rows, "
                 + "countIf(position(query, 'apm_crash_detail') > 0) AS detail_joins "
                 + "FROM system.query_log WHERE type = 'QueryFinish' "
-                + "AND position(query, 'FROM apm_event_raw AS r FINAL') > 0 "
+                + "AND query_kind='Select' AND position(query, 'apm_crash_fact') > 0 "
                 + "AND position(query, 'system.query_log') = 0 FORMAT JSONEachRow");
         tools.jackson.databind.JsonNode evidence = new ObjectMapper().readTree(log);
         assertTrue(evidence.path("query_count").asLong() >= 5);
@@ -168,42 +185,39 @@ class ClickHouseCrashQueryIntegrationTests {
         assertEquals("QUERY_RESOURCE_LIMIT", assertThrows(com.shanshui.apmserver.platform.api.QueryValidationException.class,
                 () -> limited.overview(appId, from, to, CrashQueryCommand.empty())).getCode());
 
-        // 最新物理版本改变维度后，旧维度不能再匹配该逻辑事件。
-        client.execute("INSERT INTO apm_event_raw (app_id,event_id,event_type,event_time,received_time,"
-                + "session_id,anonymous_device_id,app_version,channel,environment,os_version,device_model,"
-                + "crash_fingerprint,fingerprint_version,crash_exception_type,version_code,build_id,"
-                + "symbolication_status) VALUES ('" + appId + "','crash-1','crash',"
-                + "'2026-09-28 10:15:00.000','2026-09-28 12:01:00.000','s1','d1','2.0',"
-                + "'official','production','16','Pixel','fp-a','v1',"
-                + "'java.lang.IllegalStateException',2,'build-2','raw_only')");
-        assertEquals(3, query.overview(appId, from, to,
-                CrashQueryCommand.empty().withAppVersion("1.0")).stats().crashEvents());
-        assertEquals(1, query.overview(appId, from, to,
-                CrashQueryCommand.empty().withAppVersion("2.0")).stats().crashEvents());
+        // 补还原只改变状态归组，不允许重写事实维度或原日期。
+        var original = (CrashEvent) signal(appId, "crash-1", "crash", "10:15:00", "s1", "d1", "fp-a");
+        new com.shanshui.apmserver.crash.internal.persistence.ClickHouseCrashStateStore(client, new ObjectMapper(), CrashTestSupport.queryProperties()).publish(
+                new com.shanshui.apmserver.crash.internal.domain.CrashState(appId, "crash-1", "build-1", original.occurredAt(), 2, "symbolicated", null,
+                        "retrace_text", "java.lang.IllegalStateException\n\tat com.example.Main.run(Main.java:1)", "java.lang.IllegalStateException",
+                        "fp-resolved", "resolved-v1", "resolved", UUID.randomUUID(), 1, "a".repeat(64), Instant.now().truncatedTo(java.time.temporal.ChronoUnit.MILLIS), null));
+        assertEquals(4, query.overview(appId, from, to, CrashQueryCommand.empty().withAppVersion("1.0")).stats().crashEvents());
+        assertEquals(0, query.overview(appId, from, to, CrashQueryCommand.empty().withAppVersion("2.0")).stats().crashEvents());
+        assertEquals(2, query.overview(appId, from, to, CrashQueryCommand.empty().withFingerprint("fp-a")).stats().crashEvents());
+        assertEquals(1, query.overview(appId, from, to, CrashQueryCommand.empty().withFingerprint("fp-resolved")).stats().crashEvents());
     }
 
     /** 固定合成事件，仅覆盖查询使用的原始列。 */
     private void insert(ClickHouseHttpClient client, UUID appId, String eventId, String type, String time,
                         String session, String device, String fingerprint) {
-        client.execute("INSERT INTO apm_event_raw (app_id,event_id,event_type,event_time,received_time,"
-                + "session_id,anonymous_device_id,app_version,channel,environment,os_version,device_model,"
-                + "crash_fingerprint,fingerprint_version,crash_exception_type,version_code,build_id,"
-                + "symbolication_status) VALUES ('" + appId + "','" + eventId + "','" + type + "','2026-09-28 "
-                + time + ".000','2026-09-28 12:00:00.000','" + session + "','" + device
-                + "','1.0','official','production','16','Pixel','" + fingerprint
-                + "','v1','java.lang.IllegalStateException',1,'build-1','raw_only')");
+        // 每次插入都走当前两侧确认语义，同一身份的重放不改变不可变事实。
+        CrashStoredSignal event = signal(appId, eventId, type, time, session, device, fingerprint);
+        new com.shanshui.apmserver.crash.internal.persistence.ClickHouseCrashStateStore(client, new ObjectMapper(), CrashTestSupport.queryProperties())
+                .accept(new com.shanshui.apmserver.crash.internal.domain.CrashFact(event.metadata(), event.crashKind(), Boolean.TRUE.equals(event.crashFatal())),
+                        event instanceof CrashEvent crash ? crash.state() : null);
     }
 
     /** 与写入的 ClickHouse 合成行一一对应，重复物理版本只保留一个逻辑事件。 */
     private CrashStoredSignal signal(UUID appId, String eventId, String type, String time,
                                      String session, String device, String fingerprint) {
         EventMetadata metadata = new EventMetadata(appId, "com.example.app", eventId, type,
-                Instant.parse("2026-09-28T" + time + "Z"), Instant.parse("2026-09-28T12:00:00Z"),
+                Instant.parse("" + DAY + "T" + time + "Z"), Instant.parse("" + DAY + "T12:00:00Z"),
                 2, session.isEmpty() ? null : session, null, device.isEmpty() ? null : device,
                 "1.0", 1, "build-1", "production", "official", "16", "Pixel", "wifi", Map.of(), Map.of());
         return "crash".equals(type)
-                ? new CrashEvent(metadata, "jvm", true, "java.lang.IllegalStateException", fingerprint,
-                "v1", "raw_only", null)
+                ? new CrashEvent(metadata, "jvm", true, new com.shanshui.apmserver.crash.internal.domain.CrashState(appId, eventId,
+                "build-1", metadata.occurredAt(), 0, "pending", "mapping_missing", "raw_chain", "{}", "java.lang.IllegalStateException", fingerprint,
+                "tmp-v1", "temporary", null, null, null, null, null))
                 : new AppStartEvent(metadata);
     }
 }

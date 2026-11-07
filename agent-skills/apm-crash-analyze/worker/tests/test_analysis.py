@@ -7,16 +7,48 @@ from apm_agent_worker.platform import WorkerError
 
 # 合成标识，不能关联真实应用或设备。
 RUN = '22222222-2222-4222-8222-222222222222'
-EVIDENCE = {'evidenceId': '11111111-1111-4111-8111-111111111111', 'schemaVersion': 2, 'fragments': [{'id': 'raw-crash'}]}
+EVIDENCE = {
+    'evidenceId': '11111111-1111-4111-8111-111111111111', 'schemaVersion': 3,
+    'event': {'eventId': 'event', 'appId': 'app', 'crashKind': 'jvm', 'fatal': True, 'groupingKind': 'temporary'},
+    'mapping': {'status': 'pending', 'reason': 'awaiting_processing', 'symbolId': None, 'revision': None, 'sha256': None, 'processedAt': None},
+    'fragments': [{'id': 'crash-stack', 'kind': 'crash-stack', 'format': 'raw_chain', 'content': {
+        'kind': 'jvm', 'fatal': True, 'throwableChain': [{'type': 'java.lang.IllegalStateException', 'message': 'test',
+            'frames': [{'className': 'Example', 'methodName': 'crash', 'fileName': 'Example.kt', 'lineNumber': 2, 'applicationFrame': True}]}]}}],
+}
+
 
 
 def model_result():
     """宿主提供片段；来源、当前检查和摘要由工具填充。"""
     return {'schemaVersion': 4, 'evidenceId': EVIDENCE['evidenceId'], 'runId': RUN,
             'conclusion': 'ROOT_CAUSE_CANDIDATE', 'summary': '当前代码候选',
-            'candidates': [{'title': '显式抛出', 'reason': '触发条件未知', 'evidenceRefs': ['raw-crash']}],
+            'candidates': [{'title': '显式抛出', 'reason': '触发条件未知', 'evidenceRefs': ['crash-stack']}],
             'sourceRefs': [{'path': 'Example.kt', 'startLine': 2, 'endLine': 2, 'snippet': 'throw IllegalStateException()'}],
             'unknowns': [], 'risks': [], 'fixSuggestions': [], 'validationSuggestions': []}
+
+
+@pytest.mark.parametrize('format', ['raw_chain', 'retrace_text'])
+def test_only_current_single_stack_evidence_is_supported(tmp_path, format):
+    """原始与固定还原材料均支持，同一任务只有 crash-stack 一个片段。"""
+    evidence = json.loads(json.dumps(EVIDENCE))  # 各格式独立输入，不能改写其他测试的冻结材料。
+    if format == 'retrace_text':
+        evidence['event']['groupingKind'] = 'resolved'
+        evidence['mapping'] = {'status': 'symbolicated', 'symbolId': 'original-symbol', 'revision': 1, 'sha256': 'a' * 64, 'processedAt': '2026-11-05T00:00:00Z'}
+        evidence['fragments'][0].update(format='retrace_text', content='java.lang.Exception\n\tat Example.a(Source:1)\n<OR> at Other.b(Source:2)')
+    assert validated(json.dumps(model_result()), evidence, tmp_path, RUN)['schemaVersion'] == 4
+
+
+@pytest.mark.parametrize('failure', ['version', 'old-fragment', 'two-stacks', 'wrong-format', 'old-state'])
+def test_rejects_old_or_inconsistent_evidence_without_conversion(tmp_path, failure):
+    """未知版本、旧片段及状态/格式不一致明确失败，不拼接或转换材料。"""
+    evidence = json.loads(json.dumps(EVIDENCE))  # 每次只改一项当前契约。
+    if failure == 'version': evidence['schemaVersion'] = 2
+    elif failure == 'old-fragment': evidence['fragments'][0]['id'] = 'raw-crash'
+    elif failure == 'two-stacks': evidence['fragments'].append(dict(evidence['fragments'][0]))
+    elif failure == 'wrong-format': evidence['fragments'][0]['format'] = 'retrace_text'
+    else: evidence['mapping']['status'] = 'raw_only'
+    with pytest.raises(WorkerError, match='EVIDENCE_FORMAT_UNSUPPORTED'):
+        validated(json.dumps(model_result()), evidence, tmp_path, RUN)
 
 
 @pytest.mark.parametrize('content,check', [('throw IllegalStateException()', 'CURRENT_MATCH'), ('fixed()', 'CURRENT_DIFFERENT'), (None, 'UNAVAILABLE')])

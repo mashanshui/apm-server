@@ -5,7 +5,6 @@ import com.shanshui.apmserver.crash.api.CrashEventDetailResponse;
 import com.shanshui.apmserver.crash.api.CrashQueries;
 import com.shanshui.apmserver.identity.api.AppAccessControl;
 import com.shanshui.apmserver.platform.api.QueryValidationException;
-import com.shanshui.apmserver.symbol.api.AnalysisSymbolVersions;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
@@ -18,15 +17,13 @@ import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.UUID;
 
-/** 单事件创建和准备；耗时 Retrace 在数据库事务之外执行。 */
+/** 单事件创建和准备；证据读取在数据库事务之外执行。 */
 @Service
 public class AnalysisTaskService {
     /** 网页授权边界。 */
     private final AppAccessControl access;
     /** 唯一的 Crash 查询公开边界。 */
     private final CrashQueries crashes;
-    /** 发布时的短事务符号版本核验。 */
-    private final AnalysisSymbolVersions symbols;
     /** PostgreSQL 管理数据访问。 */
     private final JdbcTemplate jdbc;
     /** 短事务模板避免自调用事务注解失效。 */
@@ -43,12 +40,11 @@ public class AnalysisTaskService {
 
     /** 注入公开域边界、事务与部署限制。 */
     public AnalysisTaskService(AppAccessControl access, CrashQueries crashes,
-            AnalysisSymbolVersions symbols, JdbcTemplate jdbc, org.springframework.transaction.PlatformTransactionManager manager,
+            JdbcTemplate jdbc, org.springframework.transaction.PlatformTransactionManager manager,
             ObjectMapper mapper, @Value("${apm.agent.analysis.max-evidence-bytes:1048576}") int maxEvidenceBytes,
             @Value("${apm.agent.analysis.enabled:false}") boolean enabled) {
         this.access = access;
         this.crashes = crashes;
-        this.symbols = symbols;
         this.jdbc = jdbc;
         this.transaction = new TransactionTemplate(manager);
         this.mapper = mapper;
@@ -61,28 +57,28 @@ public class AnalysisTaskService {
     public AnalysisTaskView create(UUID appId, String eventId, UUID key, Authentication authentication) {
         requireEnabled();
         access.requireAnalysis(appId, authentication);
-        // 重复请求先核对原输入，避免无意义地重复 Retrace。
-        List<AnalysisTaskView> existing = jdbc.query("SELECT " + TASK_COLUMNS + " FROM crash_analysis_task WHERE app_id=? AND idempotency_key=?",
+        // 重复请求先核对原输入，避免重复读取和冻结证据。
+        List<AnalysisTaskView> existing = jdbc.query("SELECT " + TASK_COLUMNS + " FROM crash_analysis_task WHERE contract_version=3 AND app_id=? AND idempotency_key=?",
                 row(), appId, key);
         if (!existing.isEmpty()) return sameInput(existing.getFirst(), eventId);
-        // 只有被选中的事件被读取，先取得不带还原副作用的构建与 Issue 信息。
-        CrashEventDetailResponse raw = crashes.rawEvent(appId, eventId);
-        if (raw.rawCrash() == null || !"jvm".equals(raw.rawCrash().kind()) || !Boolean.TRUE.equals(raw.rawCrash().fatal())) {
+        // 只有被选中的事件被读取，取得不变资格与当前归组信息。
+        CrashEventDetailResponse raw = crashes.event(appId, eventId);
+        if (raw.stack() == null || !"jvm".equals(raw.crashKind()) || !raw.fatal()) {
             throw new QueryValidationException("UNSUPPORTED_ANALYSIS_EVENT", "仅支持 JVM fatal Crash", 400);
         }
         // 短事务创建初始阻断任务，准备期间仍能取消或显式查看。
         UUID taskId = transaction.execute(status -> {
             lockApp(appId);
             access.requireAnalysis(appId, authentication);
-            List<AnalysisTaskView> repeated = jdbc.query("SELECT " + TASK_COLUMNS + " FROM crash_analysis_task WHERE app_id=? AND idempotency_key=?", row(), appId, key);
+            List<AnalysisTaskView> repeated = jdbc.query("SELECT " + TASK_COLUMNS + " FROM crash_analysis_task WHERE contract_version=3 AND app_id=? AND idempotency_key=?", row(), appId, key);
             if (!repeated.isEmpty()) return sameInput(repeated.getFirst(), eventId).taskId();
             // 按应用限定活动数量，和幂等插入使用相同数据库事务锁。
-            Integer active = jdbc.queryForObject("SELECT count(*) FROM crash_analysis_task WHERE app_id=? AND state IN ('BLOCKED','READY','RUNNING','CANCELLING')", Integer.class, appId);
+            Integer active = jdbc.queryForObject("SELECT count(*) FROM crash_analysis_task WHERE contract_version=3 AND app_id=? AND state IN ('BLOCKED','READY','RUNNING','CANCELLING')", Integer.class, appId);
             if (active >= 3) throw new QueryValidationException("ANALYSIS_TASK_LIMIT", "应用最多三个未结束分析任务", 429);
             // 独立随机任务 ID；只绑定所选事件，不登记源码版本。
             UUID id = UUID.randomUUID();
-            jdbc.update("INSERT INTO crash_analysis_task(task_id,app_id,event_id,idempotency_key,created_by,fingerprint,state,block_reason) "
-                            + "VALUES (?,?,?,?,?,?,'BLOCKED','EVIDENCE_PREPARING')", id, appId, eventId, key,
+            jdbc.update("INSERT INTO crash_analysis_task(task_id,app_id,event_id,idempotency_key,created_by,fingerprint,state,block_reason,contract_version) "
+                            + "VALUES (?,?,?,?,?,?,'BLOCKED','EVIDENCE_PREPARING',3)", id, appId, eventId, key,
                     access.requireUserId(authentication), raw.fingerprint());
             return id;
         });
@@ -109,10 +105,10 @@ public class AnalysisTaskService {
         return get(appId, taskId, authentication);
     }
 
-    /** 事务外还原，然后用准备代次及版本条件发布完整证据。 */
+    /** 事务外读取当前材料，再用准备代次发布完整证据。 */
     private void prepare(UUID appId, UUID taskId, Authentication authentication) {
         // 原子读取本次任务投影与准备代次，防止两次读取之间被重检替换。
-        List<Preparation> rows = jdbc.query("SELECT " + TASK_COLUMNS + ",preparation_generation FROM crash_analysis_task WHERE app_id=? AND task_id=?",
+        List<Preparation> rows = jdbc.query("SELECT " + TASK_COLUMNS + ",preparation_generation FROM crash_analysis_task WHERE contract_version=3 AND app_id=? AND task_id=?",
                 (row, number) -> new Preparation(row().mapRow(row, number), row.getLong("preparation_generation")), appId, taskId);
         if (rows.isEmpty()) return;
         // 只发布该代次，异常也不能污染并发的新代次。
@@ -136,13 +132,12 @@ public class AnalysisTaskService {
         // 当前准备对象标识。
         UUID taskId = task.taskId();
         if (!"BLOCKED".equals(task.state()) || !"EVIDENCE_PREPARING".equals(task.blockReason())) return;
-        // 记录代次后只还原当前事件；缺少 mapping 时保留原始材料。
+        // 记录代次后只读取当前已发布材料，不访问符号文件。
         long generation = preparation.generation();
         CrashAnalysisSnapshot snapshot = crashes.analysisSnapshot(appId, task.eventId());
         // 输入身份必须保持当前应用、事件和 Issue 归组。
         String reason = null;
-        if (!task.eventId().equals(snapshot.detail().eventId()) || !appId.equals(snapshot.detail().appId())
-                || !task.fingerprint().equals(snapshot.detail().fingerprint())) reason = "EVENT_IDENTITY_CHANGED";
+        if (!task.eventId().equals(snapshot.detail().eventId()) || !appId.equals(snapshot.detail().appId())) reason = "EVENT_IDENTITY_CHANGED";
         // 每份内容与摘要使用独立随机证据 ID。
         UUID evidenceId = UUID.randomUUID();
         // 保留原始发送字节，与 JSONB 查询投影同时保存，避免 JSONB 重排影响摘要。
@@ -158,17 +153,14 @@ public class AnalysisTaskService {
         transaction.executeWithoutResult(status -> {
             lockApp(appId);
             access.requireAnalysis(appId, authentication);
-            // 同次还原使用的符号版本仍需核验，不把旧文本冒充新 mapping。
+            // 来源已随事件持久化，删除或替换当前 mapping 不影响冻结结果。
             String blocked = failureReason;
-            if (blocked == null && snapshot.detail().symbolFileId() != null
-                    && !symbols.lockAndMatch(appId, snapshot.detail().buildId(), snapshot.detail().symbolFileId(),
-                    snapshot.detail().symbolFileRevision(), snapshot.mappingSha256())) blocked = "SYMBOL_VERSION_CHANGED";
             if (blocked != null) {
                 jdbc.update("UPDATE crash_analysis_task SET block_reason=? WHERE app_id=? AND task_id=? AND state='BLOCKED' AND preparation_generation=?",
                         blocked, appId, taskId, generation);
             } else {
-                jdbc.update("UPDATE crash_analysis_task SET state='READY',block_reason=NULL,evidence_id=?,evidence=?::jsonb,evidence_text=?,evidence_sha256=? "
-                                + "WHERE app_id=? AND task_id=? AND state='BLOCKED' AND preparation_generation=?", evidenceId, evidence, evidence,
+                jdbc.update("UPDATE crash_analysis_task SET state='READY',block_reason=NULL,fingerprint=?,evidence_id=?,evidence=?::jsonb,evidence_text=?,evidence_sha256=? "
+                                + "WHERE app_id=? AND task_id=? AND state='BLOCKED' AND preparation_generation=?", snapshot.detail().fingerprint(), evidenceId, evidence, evidence,
                         AnalysisEvidence.digest(evidence), appId, taskId, generation);
             }
         });
@@ -201,13 +193,14 @@ public class AnalysisTaskService {
             if (!List.of("FAILED", "CANCELLED").contains(task.state()) || task.evidenceId() == null || task.contentExpired()) {
                 throw new QueryValidationException("ANALYSIS_STATE_CONFLICT", "当前任务不可重试，请新建分析", 409);
             }
-            if (!Integer.valueOf(2).equals(jdbc.queryForObject("SELECT (evidence->>'schemaVersion')::integer FROM crash_analysis_task WHERE app_id=? AND task_id=?", Integer.class, appId, taskId))) {
-                throw new QueryValidationException("ANALYSIS_CONFIG_MISMATCH", "旧任务仅供历史查看，请创建当前代码任务", 409);
+            // 当前契约仍须拒绝异常格式，不能隐式转换冻结材料。
+            if (!Integer.valueOf(3).equals(jdbc.queryForObject("SELECT (evidence->>'schemaVersion')::integer FROM crash_analysis_task WHERE app_id=? AND task_id=?", Integer.class, appId, taskId))) {
+                throw new QueryValidationException("ANALYSIS_CONFIG_MISMATCH", "不支持当前证据格式", 409);
             }
             // 旧执行即使失联，也不能默认已停止。
             Integer unknown = jdbc.queryForObject("SELECT count(*) FROM crash_analysis_run WHERE app_id=? AND task_id=? AND stop_confirmed=false", Integer.class, appId, taskId);
             if (unknown > 0) throw new QueryValidationException("ANALYSIS_STOP_UNCONFIRMED", "旧执行环境停止尚未确认", 409);
-            Integer active = jdbc.queryForObject("SELECT count(*) FROM crash_analysis_task WHERE app_id=? AND state IN ('BLOCKED','READY','RUNNING','CANCELLING')", Integer.class, appId);
+            Integer active = jdbc.queryForObject("SELECT count(*) FROM crash_analysis_task WHERE contract_version=3 AND app_id=? AND state IN ('BLOCKED','READY','RUNNING','CANCELLING')", Integer.class, appId);
             if (active >= 3) throw new QueryValidationException("ANALYSIS_TASK_LIMIT", "应用最多三个未结束分析任务", 429);
             jdbc.update("UPDATE crash_analysis_task SET state='READY',terminal_at=NULL,block_reason=NULL,current_run_id=NULL WHERE app_id=? AND task_id=?", appId, taskId);
         });
@@ -232,13 +225,13 @@ public class AnalysisTaskService {
     public List<AnalysisTaskView> list(UUID appId, String eventId, Authentication authentication, int page, int size) {
         access.requireView(appId, authentication);
         if (page < 0 || page > 1000 || size < 1 || size > 100) throw new QueryValidationException("INVALID_ANALYSIS_PAGE", "分页参数无效", 400);
-        return jdbc.query("SELECT " + TASK_COLUMNS + " FROM crash_analysis_task WHERE app_id=? AND event_id=? ORDER BY created_at DESC,task_id DESC LIMIT ? OFFSET ?",
+        return jdbc.query("SELECT " + TASK_COLUMNS + " FROM crash_analysis_task WHERE contract_version=3 AND app_id=? AND event_id=? ORDER BY created_at DESC,task_id DESC LIMIT ? OFFSET ?",
                 row(), appId, eventId, size, (long) page * size);
     }
 
     /** 只按授权应用和 ID 查找，未知与其他应用任务统一为不存在。 */
     private AnalysisTaskView find(UUID appId, UUID taskId) {
-        List<AnalysisTaskView> rows = jdbc.query("SELECT " + TASK_COLUMNS + " FROM crash_analysis_task WHERE app_id=? AND task_id=?", row(), appId, taskId);
+        List<AnalysisTaskView> rows = jdbc.query("SELECT " + TASK_COLUMNS + " FROM crash_analysis_task WHERE contract_version=3 AND app_id=? AND task_id=?", row(), appId, taskId);
         if (rows.isEmpty()) throw new QueryValidationException("ANALYSIS_TASK_NOT_FOUND", "分析任务不存在", 404);
         return rows.getFirst();
     }

@@ -62,29 +62,29 @@ public class ClickHouseCrashRepository implements CrashWritePort, CrashQueryPort
         this(client, objectMapper, new QueryProperties());
     }
 
+    /** 新接收只写当前事实和初始状态，确认两侧之后才计 accepted。 */
     @Override
-    public AppendResult append(UUID appId, List<CrashStoredSignal> events) {
-        Map<String, CrashStoredSignal> unique = new LinkedHashMap<>();
-        events.forEach(event -> unique.putIfAbsent(event.eventId(), event));
-        Set<String> existing = findExistingIds(appId, List.copyOf(unique.values()));
-        List<CrashStoredSignal> fresh = unique.values().stream()
-                .filter(event -> !existing.contains(event.eventId())).toList();
-        if (!fresh.isEmpty()) {
-            insertRaw(fresh);
-            List<CrashEvent> crashes = fresh.stream().filter(CrashEvent.class::isInstance)
-                    .map(CrashEvent.class::cast).toList();
-            if (!crashes.isEmpty()) {
-                insertDetails(crashes);
-            }
+    public synchronized AppendResult append(UUID appId, List<CrashStoredSignal> events) {
+        int accepted = 0;
+        for (CrashStoredSignal event : events) {
+            if (!appId.equals(event.appId())) throw new IllegalArgumentException("事件应用不一致");
+            boolean fresh = newStore().accept(new com.shanshui.apmserver.crash.internal.domain.CrashFact(
+                    event.metadata(), event.crashKind(), Boolean.TRUE.equals(event.crashFatal())),
+                    event instanceof CrashEvent crash ? crash.state() : null);
+            if (fresh) accepted++;
         }
-        return new AppendResult(fresh.size(), events.size() - fresh.size());
+        return new AppendResult(accepted, events.size() - accepted);
     }
 
+    /** 生产存储不暴露全应用堆栈读取，所有业务查询必须使用有预算的领域端口。 */
     @Override
     public List<CrashStoredSignal> findAll(UUID appId) {
-        String where = "r.app_id = '" + escape(appId.toString())
-                + "' AND r.event_type IN ('crash','app_start')";
-        return parseRows(client.execute(selectSql(where) + " ORDER BY r.event_time, r.event_id FORMAT JSONEachRow"));
+        throw new UnsupportedOperationException("ClickHouse Crash 必须使用有界聚合和分页查询");
+    }
+
+    /** 新事实和状态共用同一数据库通道与预算。 */
+    private ClickHouseCrashStateStore newStore() {
+        return new ClickHouseCrashStateStore(client, objectMapper, queryProperties);
     }
 
     /** 将应用、时间窗和白名单维度下推，数据库内完成逻辑事件去重与精确统计。 */
@@ -114,6 +114,8 @@ public class ClickHouseCrashRepository implements CrashWritePort, CrashQueryPort
         String aggregates = "SELECT crash_fingerprint AS fingerprint, "
                 + "argMin(fingerprint_version, tuple(event_time, event_id)) AS fingerprint_version, "
                 + "argMin(crash_exception_type, tuple(event_time, event_id)) AS exception_type, "
+                + "argMin(grouping_kind, tuple(event_time,event_id)) AS issue_grouping_kind, "
+                + "if(argMin(grouping_kind,tuple(event_time,event_id))='temporary',argMin(build_id,tuple(event_time,event_id)),'') AS temporary_build_id, "
                 + "count() AS event_count, uniqExact(nullIf(session_id, '')) AS crashed_sessions, "
                 + "uniqExact(nullIf(anonymous_device_id, '')) AS affected_devices, "
                 + "min(event_time) AS first_seen_at, max(event_time) AS last_seen_at "
@@ -137,7 +139,7 @@ public class ClickHouseCrashRepository implements CrashWritePort, CrashQueryPort
                         emptyToNull(text(row, "fingerprint_version")), emptyToNull(text(row, "exception_type")),
                         row.path("event_count").asLong(), row.path("crashed_sessions").asLong(),
                         row.path("affected_devices").asLong(), parseTime(text(row, "first_seen_at")),
-                        parseTime(text(row, "last_seen_at")))).toList();
+                        parseTime(text(row, "last_seen_at")), text(row, "issue_grouping_kind"), emptyToNull(text(row, "temporary_build_id")))).toList();
         boolean more = values.size() > filter.limit();
         List<CrashIssueSummary> page = more ? values.subList(0, filter.limit()) : values;
         return new CrashPage<>(page, more ? CrashCursor.issue(filter, page.getLast()) : null);
@@ -166,7 +168,7 @@ public class ClickHouseCrashRepository implements CrashWritePort, CrashQueryPort
                         text(row, "device_model"), emptyToNull(text(row, "session_id")),
                         emptyToNull(text(row, "anonymous_device_id")), emptyToNull(text(row, "crash_exception_type")),
                         emptyToNull(text(row, "crash_fingerprint")),
-                        emptyToNull(text(row, "symbolication_status")))).toList();
+                        emptyToNull(text(row, "symbolication_status")), text(row, "grouping_kind"))).toList();
         boolean more = values.size() > filter.limit();
         List<CrashEventSummary> page = more ? values.subList(0, filter.limit()) : values;
         return new CrashPage<>(page, more ? CrashCursor.event(filter, page.getLast()) : null);
@@ -177,56 +179,30 @@ public class ClickHouseCrashRepository implements CrashWritePort, CrashQueryPort
         return logicalRows(filter, Projection.STATS);
     }
 
+    /** 先确定最新状态再筛选指纹，当前启动分母来自同一事实表。 */
     private String logicalRows(CrashQueryFilter filter, Projection projection) {
-        StringBuilder rawWhere = new StringBuilder("r.app_id = '").append(escape(filter.appId().toString()))
-                .append("' AND r.event_type IN ('crash','app_start')")
-                .append(" AND r.event_time >= toDateTime64('").append(formatTime(filter.from()))
-                .append("', 3, 'UTC') AND r.event_time < toDateTime64('").append(formatTime(filter.to()))
-                .append("', 3, 'UTC')");
-        StringBuilder select = new StringBuilder("SELECT r.event_id AS event_id, argMax(r.event_type, r.received_time) AS event_type, ")
-                .append("argMax(r.event_time, r.received_time) AS event_time, ")
-                .append("argMax(r.session_id, r.received_time) AS session_id, ")
-                .append("argMax(r.anonymous_device_id, r.received_time) AS anonymous_device_id");
-        if (projection != Projection.STATS || filter.fingerprint() != null) {
-            select.append(", argMax(r.crash_fingerprint, r.received_time) AS crash_fingerprint");
-        }
-        if (projection != Projection.STATS) {
-            select.append(", argMax(r.fingerprint_version, r.received_time) AS fingerprint_version")
-                    .append(", argMax(r.crash_exception_type, r.received_time) AS crash_exception_type");
-        }
-        if (projection == Projection.EVENT || filter.appVersion() != null) {
-            select.append(", argMax(r.app_version, r.received_time) AS app_version");
-        }
-        if (projection == Projection.EVENT || filter.channel() != null) {
-            select.append(", argMax(r.channel, r.received_time) AS channel");
-        }
-        if (projection == Projection.EVENT || filter.environment() != null) {
-            select.append(", argMax(r.environment, r.received_time) AS environment");
-        }
-        if (projection == Projection.EVENT || filter.osVersion() != null) {
-            select.append(", argMax(r.os_version, r.received_time) AS os_version");
-        }
-        if (projection == Projection.EVENT || filter.deviceModel() != null) {
-            select.append(", argMax(r.device_model, r.received_time) AS device_model");
-        }
-        if (projection == Projection.EVENT) {
-            select.append(", argMax(r.version_code, r.received_time) AS version_code")
-                    .append(", argMax(r.build_id, r.received_time) AS build_id")
-                    .append(", argMax(r.symbolication_status, r.received_time) AS symbolication_status");
-        }
-        select.append(" FROM apm_event_raw AS r FINAL WHERE ").append(rawWhere)
-                .append(" GROUP BY r.event_id");
-        StringBuilder normalized = new StringBuilder("SELECT * FROM (").append(select).append(") WHERE 1 = 1");
-        dimension(normalized, "app_version", filter.appVersion());
-        dimension(normalized, "channel", filter.channel());
-        dimension(normalized, "environment", filter.environment());
-        dimension(normalized, "os_version", filter.osVersion());
-        dimension(normalized, "device_model", filter.deviceModel());
-        if (filter.fingerprint() != null) {
-            normalized.append(" AND (event_type = 'app_start' OR crash_fingerprint = '")
-                    .append(escape(filter.fingerprint())).append("')");
-        }
-        return normalized.toString();
+        String scope = "app_id='" + escape(filter.appId().toString()) + "' AND event_time >= toDateTime64('"
+                + formatTime(filter.from()) + "',3,'UTC') AND event_time < toDateTime64('" + formatTime(filter.to()) + "',3,'UTC')";
+        StringBuilder factWhere = new StringBuilder(scope);
+        dimension(factWhere, "app_version", filter.appVersion());
+        dimension(factWhere, "channel", filter.channel());
+        dimension(factWhere, "environment", filter.environment());
+        dimension(factWhere, "os_version", filter.osVersion());
+        dimension(factWhere, "device_model", filter.deviceModel());
+        // 状态侧只投影轻量列，摘要和统计 SQL 根本不引用 stack_payload。
+        String state = "SELECT app_id,build_id,event_time,event_id,fingerprint,fingerprint_version,exception_type,symbolication_status,grouping_kind"
+                + " FROM apm_crash_state FINAL WHERE " + scope;
+        String sql = "SELECT f.event_id AS event_id,f.event_type AS event_type,f.event_time AS event_time,"
+                + "f.session_id AS session_id,f.anonymous_device_id AS anonymous_device_id,f.app_version AS app_version,"
+                + "f.version_code AS version_code,f.build_id AS build_id,f.channel AS channel,f.environment AS environment,"
+                + "f.os_version AS os_version,f.device_model AS device_model,s.fingerprint AS crash_fingerprint,"
+                + "s.fingerprint_version AS fingerprint_version,s.exception_type AS crash_exception_type,"
+                + "s.symbolication_status AS symbolication_status,s.grouping_kind AS grouping_kind"
+                + " FROM (SELECT * FROM apm_crash_fact FINAL WHERE " + factWhere + ") AS f LEFT ANY JOIN (" + state + ") AS s"
+                + " ON f.app_id=s.app_id AND f.build_id=s.build_id AND f.event_time=s.event_time AND f.event_id=s.event_id"
+                + " WHERE (f.event_type='app_start' OR (f.event_type='crash' AND s.event_id!=''))";
+        if (filter.fingerprint() != null) sql += " AND (f.event_type='app_start' OR s.fingerprint='" + escape(filter.fingerprint()) + "')";
+        return sql;
     }
 
     private enum Projection { STATS, ISSUE, EVENT }
@@ -267,125 +243,18 @@ public class ClickHouseCrashRepository implements CrashWritePort, CrashQueryPort
         return new CrashStats(0, 0, 0, 0, null, null, "no_data");
     }
 
+    /** 详情先定位不变事实，再按同一定位读取最新完整状态。 */
     @Override
     public Optional<CrashStoredSignal> findByEventId(UUID appId, String eventId) {
-        String where = "r.app_id = '" + escape(appId.toString()) + "' AND r.event_id = '"
-                + escape(eventId) + "' AND r.event_type IN ('crash','app_start')";
-        return parseRows(client.executeQuery(selectSql(where) + " LIMIT 1 FORMAT JSONEachRow",
-                budget(queryProperties.getDefaultTimeoutMs()))).stream().findFirst();
-    }
-
-    private String selectSql(String where) {
-        return "SELECT r.app_id AS app_id, r.package_name AS package_name, r.event_id AS event_id, "
-                + "r.event_type AS event_type, r.event_time AS event_time, r.received_time AS received_time, "
-                + "r.schema_version AS schema_version, r.app_version AS app_version, r.version_code AS version_code, "
-                + "r.build_id AS build_id, r.channel AS channel, r.environment AS environment, r.session_id AS session_id, "
-                + "r.process_id AS process_id, r.anonymous_device_id AS anonymous_device_id, r.os_version AS os_version, "
-                + "r.device_model AS device_model, r.network_type AS network_type, r.crash_kind AS crash_kind, "
-                + "r.crash_fatal AS crash_fatal, r.crash_exception_type AS crash_exception_type, "
-                + "r.crash_fingerprint AS crash_fingerprint, r.fingerprint_version AS fingerprint_version, "
-                + "r.symbolication_status AS symbolication_status, ifNull(d.raw_stack_json, '') AS raw_crash_json "
-                + "FROM apm_event_raw AS r FINAL LEFT ANY JOIN apm_crash_detail AS d FINAL "
-                + "ON d.app_id = r.app_id AND d.event_id = r.event_id WHERE " + where;
-    }
-
-    private Set<String> findExistingIds(UUID appId, List<CrashStoredSignal> events) {
-        if (events.isEmpty()) {
-            return Set.of();
-        }
-        String ids = events.stream().map(CrashStoredSignal::eventId).distinct()
-                .map(id -> "'" + escape(id) + "'").reduce((left, right) -> left + "," + right).orElse("");
-        String sql = "SELECT event_id FROM apm_event_raw FINAL WHERE app_id = '" + escape(appId.toString())
-                + "' AND event_id IN (" + ids + ") GROUP BY event_id FORMAT JSONEachRow";
-        Set<String> existing = new HashSet<>();
-        rows(client.execute(sql)).forEach(row -> existing.add(row.path("event_id").asText()));
-        return existing;
-    }
-
-    private void insertRaw(List<CrashStoredSignal> events) {
-        StringBuilder body = new StringBuilder();
-        for (CrashStoredSignal event : events) {
-            Map<String, Object> row = rawRow(event);
-            row.put("crash_kind", valueOrEmpty(event.crashKind()));
-            row.put("crash_fatal", Boolean.TRUE.equals(event.crashFatal()) ? 1 : 0);
-            row.put("crash_exception_type", valueOrEmpty(event.crashExceptionType()));
-            row.put("crash_fingerprint", valueOrEmpty(event.crashFingerprint()));
-            row.put("fingerprint_version", valueOrEmpty(event.fingerprintVersion()));
-            row.put("symbolication_status", valueOrEmpty(event.symbolicationStatus()));
-            body.append(write(row)).append('\n');
-        }
-        client.execute("INSERT INTO apm_event_raw FORMAT JSONEachRow", body.toString());
-    }
-
-    private Map<String, Object> rawRow(CrashStoredSignal event) {
-        Map<String, Object> row = new LinkedHashMap<>();
-        row.put("app_id", event.appId().toString());
-        row.put("package_name", event.packageName());
-        row.put("event_id", event.eventId());
-        row.put("event_type", event.eventType());
-        row.put("event_time", formatTime(event.occurredAt()));
-        row.put("received_time", formatTime(event.receivedAt()));
-        row.put("schema_version", event.schemaVersion());
-        row.put("app_version", event.appVersion());
-        row.put("version_code", event.versionCode());
-        row.put("build_id", event.buildId());
-        row.put("channel", event.channel());
-        row.put("environment", event.environment());
-        row.put("session_id", event.sessionId());
-        row.put("process_id", valueOrEmpty(event.processId()));
-        row.put("anonymous_device_id", event.anonymousDeviceId());
-        row.put("os_version", event.osVersion());
-        row.put("device_model", event.deviceModel());
-        row.put("network_type", event.networkType());
-        row.put("duration_ms", null);
-        row.put("status", "");
-        row.put("measurements", event.measurements());
-        row.put("attributes", event.attributes());
-        return row;
-    }
-
-    private void insertDetails(List<CrashEvent> events) {
-        StringBuilder body = new StringBuilder();
-        for (CrashEvent event : events) {
-            Map<String, Object> row = new LinkedHashMap<>();
-            row.put("app_id", event.appId().toString());
-            row.put("event_id", event.eventId());
-            row.put("event_time", formatTime(event.occurredAt()));
-            row.put("received_time", formatTime(event.receivedAt()));
-            row.put("build_id", event.buildId());
-            row.put("crash_fingerprint", event.fingerprint());
-            row.put("fingerprint_version", event.fingerprintVersion());
-            row.put("symbolication_status", event.symbolicationStatus());
-            String crashJson = write(event.payload());
-            row.put("throwable_chain_json", crashJson);
-            row.put("raw_stack_json", crashJson);
-            row.put("symbolicated_stack_json", "");
-            row.put("symbolicated_fingerprint", "");
-            body.append(write(row)).append('\n');
-        }
-        client.execute("INSERT INTO apm_crash_detail FORMAT JSONEachRow", body.toString());
-    }
-
-    private List<CrashStoredSignal> parseRows(String response) {
-        List<CrashStoredSignal> events = new ArrayList<>();
-        for (JsonNode row : rows(response)) {
-            try {
-                EventMetadata metadata = metadata(row);
-                if ("app_start".equals(metadata.eventType())) {
-                    events.add(new AppStartEvent(metadata));
-                    continue;
-                }
-                String raw = text(row, "raw_crash_json");
-                CrashPayload payload = raw == null || raw.isBlank() ? null : objectMapper.readValue(raw, CrashPayload.class);
-                events.add(new CrashEvent(metadata, emptyToNull(text(row, "crash_kind")),
-                        row.path("crash_fatal").asInt() == 1, emptyToNull(text(row, "crash_exception_type")),
-                        emptyToNull(text(row, "crash_fingerprint")), emptyToNull(text(row, "fingerprint_version")),
-                        emptyToNull(text(row, "symbolication_status")), payload));
-            } catch (RuntimeException ex) {
-                throw new EventStoreUnavailableException();
-            }
-        }
-        return List.copyOf(events);
+        List<JsonNode> found = rows(client.executeQuery("SELECT * FROM apm_crash_fact FINAL WHERE app_id='"
+                + escape(appId.toString()) + "' AND event_id='" + escape(eventId) + "' LIMIT 1 FORMAT JSONEachRow",
+                budget(queryProperties.getDefaultTimeoutMs())));
+        if (found.isEmpty()) return Optional.empty();
+        JsonNode row = found.getFirst();
+        EventMetadata metadata = metadata(row);
+        if ("app_start".equals(metadata.eventType())) return Optional.of(new AppStartEvent(metadata));
+        var state = newStore().current(appId, eventId).orElseThrow(EventStoreUnavailableException::new);
+        return Optional.of(new CrashEvent(metadata, text(row, "crash_kind"), row.path("crash_fatal").asInt() == 1, state));
     }
 
     private EventMetadata metadata(JsonNode row) {

@@ -1,6 +1,5 @@
 package com.shanshui.apmserver.crash.internal.domain;
 
-import com.shanshui.apmserver.crash.api.CrashPayload;
 import com.shanshui.apmserver.telemetry.api.EventMetadata;
 
 import java.time.Instant;
@@ -40,5 +39,6 @@ public sealed interface CrashStoredSignal permits CrashEvent, AppStartEvent {
     default String crashFingerprint() { return this instanceof CrashEvent event ? event.fingerprint() : null; }
     default String fingerprintVersion() { return this instanceof CrashEvent event ? event.fingerprintVersion() : null; }
     default String symbolicationStatus() { return this instanceof CrashEvent event ? event.symbolicationStatus() : null; }
-    default CrashPayload crash() { return this instanceof CrashEvent event ? event.payload() : null; }
+    /** 当前归组类别，启动不归入 Crash Issue。 */
+    default String groupingKind() { return this instanceof CrashEvent event ? event.state().groupingKind() : null; }
 }

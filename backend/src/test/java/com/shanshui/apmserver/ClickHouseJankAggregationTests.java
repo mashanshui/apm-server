@@ -22,9 +22,12 @@ class ClickHouseJankAggregationTests {
     @Container private static final GenericContainer<?> DATABASE = new GenericContainer<>("clickhouse/clickhouse-server:26.7.3.19")
             .withEnv("CLICKHOUSE_USER", "apm_test").withEnv("CLICKHOUSE_PASSWORD", "apm_test_password")
             .withEnv("CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT", "1").withExposedPorts(8123);
-    /** 测试应用与时间窗固定，数据不包含真实设备信息。 */
+    /** 测试应用固定，数据不包含真实设备信息。 */
     private static final UUID APP = TestAppIds.id("aggregation");
-    private static final String FROM = "2026-10-01T00:00:00Z", TO = "2026-10-02T00:00:00Z";
+    /** 查询与插入共用昨天的 UTC 时间窗，避免固定历史样本被真实 30 天 TTL 删除。 */
+    private static final String FROM = java.time.Instant.now().truncatedTo(java.time.temporal.ChronoUnit.DAYS).minus(1, java.time.temporal.ChronoUnit.DAYS).toString();
+    /** 固定一日统计范围，原样本的聚合期望保持不变。 */
+    private static final String TO = java.time.Instant.parse(FROM).plus(1, java.time.temporal.ChronoUnit.DAYS).toString();
 
     @Test void completeAggregatesBoundedPagesAndBudgets() throws Exception {
         // 使用发布迁移中的真实列、引擎与排序键，不用简化替代表。
@@ -101,7 +104,7 @@ class ClickHouseJankAggregationTests {
     }
     /** 数据库生成合成事实，避免 Java 接收批量原始正文。 */
     private void insert(ClickHouseHttpClient client,int count) {
-        client.execute("INSERT INTO apm_jank_event (app_id,package_name,event_id,event_time,received_time,schema_version,session_id,anonymous_device_id,app_version,version_code,build_id,channel,environment,os_version,device_model,network_type,scene,algorithm_version,message_duration_ns,threshold_ns,sampling_interval_ns,estimated_duration_ns,estimated_unattributed_duration_ns,covered_duration_ns,uncovered_duration_ns,expected_sample_count,parsed_sample_count,missing_sample_count,fingerprint,fingerprint_version,jank_payload_json,jank_analysis_json) SELECT '"+APP+"','synthetic',concat('event-',leftPad(toString(number),6,'0')),toDateTime64('2026-10-01 00:00:00',3,'UTC'),toDateTime64('2026-10-01 01:00:00',3,'UTC'),2,concat('s-',toString(number%7)),concat('d-',toString(number%3)),'1.0',1,'build','official','production','16','Pixel','wifi','scene','v1',number*1000000,0,0,number*1000000,0,0,0,0,0,0,concat('fp-',toString(if(number<61,0,1+(number-61)%59))),'v1','deliberately invalid JSON payload','deliberately invalid JSON analysis' FROM numbers("+count+")");
+        client.execute("INSERT INTO apm_jank_event (app_id,package_name,event_id,event_time,received_time,schema_version,session_id,anonymous_device_id,app_version,version_code,build_id,channel,environment,os_version,device_model,network_type,scene,algorithm_version,message_duration_ns,threshold_ns,sampling_interval_ns,estimated_duration_ns,estimated_unattributed_duration_ns,covered_duration_ns,uncovered_duration_ns,expected_sample_count,parsed_sample_count,missing_sample_count,fingerprint,fingerprint_version,jank_payload_json,jank_analysis_json) SELECT '"+APP+"','synthetic',concat('event-',leftPad(toString(number),6,'0')),toDateTime64('"+FROM.replace("T"," ").replace("Z","")+"',3,'UTC'),toDateTime64('"+FROM.replace("T"," ").replace("Z","")+"',3,'UTC')+INTERVAL 1 HOUR,2,concat('s-',toString(number%7)),concat('d-',toString(number%3)),'1.0',1,'build','official','production','16','Pixel','wifi','scene','v1',number*1000000,0,0,number*1000000,0,0,0,0,0,0,concat('fp-',toString(if(number<61,0,1+(number-61)%59))),'v1','deliberately invalid JSON payload','deliberately invalid JSON analysis' FROM numbers("+count+")");
     }
     /** 适配真实查询依赖，摘要不得触碰无效详情 JSON。 */
     private JankQueryService service(ClickHouseHttpClient client, QueryProperties properties,ObjectMapper mapper) {
