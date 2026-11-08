@@ -15,7 +15,7 @@
 | 启停、部署、SSH、ClickHouse 和 Grafana | [部署与运维资料](operations/README.md) |
 | 固定样本及人工计算的统计期望 | [固定数据集](datasets/README.md) |
 | 带日期、环境与限制的跨端验收证据 | [验收资料](validation/README.md) |
-| Android Crash Handler 参考代码 | [Kotlin 联调样例](examples/AndroidCrashHandler.kt) |
+| Android SDK 选择、初始化和联调 | [客户端接入起点](client-integration/README.md#使用现有-sdk) |
 | 内存报告 multipart 的最小文件 | [metadata 示例](fixtures/memory-leak-metadata.example.json)、[report 示例](fixtures/memory-leak-report.example.json) |
 
 ## 文档维护

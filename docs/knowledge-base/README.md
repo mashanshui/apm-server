@@ -62,11 +62,11 @@
 
 | 使用者 | 文档入口 |
 |---|---|
-| Android SDK 开发 | [客户端接入目录](../client-integration/README.md) |
+| Android SDK 开发 | [Android 知识库](../../android/docs/knowledge-base/README.md)、[客户端接入目录](../client-integration/README.md) |
 | 后端接口联调 | [服务端 API 目录](../api/README.md) |
 | 数据与验收 | [固定数据集](../datasets/README.md)、[跨端验收资料](../validation/README.md)、[后端测试与专项基线](../../backend/docs/knowledge-base/06-测试与质量保障.md) |
 | 部署与运维 | [平台部署步骤](07-部署与运维.md)、[SSH/ClickHouse/Grafana/灰度资料](../operations/README.md) |
-| 工程开发 | [后端知识库](../../backend/docs/knowledge-base/README.md)、[前端知识库](../../frontend/docs/knowledge-base/README.md) |
+| 工程开发 | [后端知识库](../../backend/docs/knowledge-base/README.md)、[前端知识库](../../frontend/docs/knowledge-base/README.md)、[Android 知识库](../../android/docs/knowledge-base/README.md) |
 | Android 符号表 | [符号表管理 API](../api/symbol-api.md)、[网页上传与生效语义](../client-integration/symbol-mapping.md) |
 | Agent 只读查询 | [查询 Token 管理 API](../api/query-token-api.md)、[Agent HTTP API](../api/agent-query-api.md)、[MCP API](../api/mcp-api.md)、[MCP 运行说明](../../mcp-server/README.md) |
 | 本地 Crash 分析 | [Worker 运行](../../agent-skills/apm-crash-analyze/worker/README.md)、[Skill 安装与调用](../../agent-skills/apm-crash-analyze/README.md)、[分阶段验收索引](../validation/analysis/README.md)、[当前代码正式规范](../../openspec/specs/current-code-crash-fix/spec.md) |
@@ -74,7 +74,7 @@
 ## 推荐阅读路径
 
 - 新成员：本页 → [当前实现与验证边界](00-当前实现与验证边界.md) → [产品目标与范围](01-产品目标与范围.md) → [总体架构与模块](02-总体架构与模块.md) → [术语表](11-术语表.md)。
-- Android SDK 开发：本页 → [客户端接入目录](../client-integration/README.md) → [事件模型与数据存储](03-事件模型与数据存储.md) → [上报协议与可靠性](04-上报协议与可靠性.md) → [安全与隐私](06-安全与隐私.md)。
+- Android SDK 开发：本页 → [Android 知识库](../../android/docs/knowledge-base/README.md) → [客户端接入目录](../client-integration/README.md) → [事件模型与数据存储](03-事件模型与数据存储.md) → [上报协议与可靠性](04-上报协议与可靠性.md) → [安全与隐私](06-安全与隐私.md)。
 - 后端开发：本页 → [当前实现与验证边界](00-当前实现与验证边界.md) → [总体架构与模块](02-总体架构与模块.md) → [上报协议与可靠性](04-上报协议与可靠性.md) → [查询与 Dashboard](05-查询与Dashboard.md) → [测试与质量保障](08-测试与质量保障.md)。
 - 前端开发：本页 → [前端知识库](../../frontend/docs/knowledge-base/README.md) → [查询与 Dashboard](05-查询与Dashboard.md) → [安全与隐私](06-安全与隐私.md)。
 - 数据与运维：本页 → [事件模型与数据存储](03-事件模型与数据存储.md) → [部署与运维](07-部署与运维.md) → [测试与质量保障](08-测试与质量保障.md)。
@@ -99,7 +99,8 @@
 |---|---|
 | [后端知识库](../../backend/docs/knowledge-base/README.md) | Java 模块、内部链路、持久化、安全实现、构建配置、后端测试与性能证据 |
 | [前端知识库](../../frontend/docs/knowledge-base/README.md) | 页面、路由、状态、前端开发与测试 |
+| [Android 知识库](../../android/docs/knowledge-base/README.md) | SDK 内部实现、调用链、示例应用、独立构建、测试与发布验证 |
 | [API 文档](../api/README.md) | 对外字段、错误语义与统计口径 |
 | [客户端接入](../client-integration/README.md) | Android 构造事件、队列、上传和重试 |
 
-后端与前端维护各自内部主题，平台页通过链接引用，避免同一事实在多个目录重复维护。
+后端、前端与 Android 维护各自内部主题，平台页通过链接引用，避免同一事实在多个目录重复维护。

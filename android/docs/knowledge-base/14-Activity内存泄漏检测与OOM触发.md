@@ -91,8 +91,7 @@ KOOM 的 `mHasDumped` 保证同一进程最多执行一次 HPROF dump/analysis �
 
 报告上限为 2 MiB，队列配额为 20 MiB，任务保留 7 天，最多重试 10 次。report 入队成功后
 删除 KOOM 原始 JSON；HPROF uploader 不上传文件，只按 KOOM 回调约定删除本地 HPROF。
-字段和服务端校验以外部检出仓库 `F:/IdeaProjects/apm-server/docs/api/memory-leak-reports-api.md`
-为准。
+字段和服务端校验以平台根的[内存泄漏报告 API](../../../docs/api/memory-leak-reports-api.md)为准。
 
 ## 验证边界
 

@@ -1,6 +1,6 @@
 # 卡顿压缩包解析与落库 API
 
-客户端流程见[Android 卡顿压缩包上传接入](../client-integration/stack-artifact-upload.md)，manifest 字段见[卡顿压缩包 manifest v3](../client-integration/jank-artifact-manifest.md)。本文是服务端 HTTP 契约的事实来源。
+客户端流程见[卡顿 ZIP 上传与确认](../client-integration/jank-monitoring.md#卡顿-zip-上传与确认)，manifest 字段见[卡顿压缩包 manifest v3](../client-integration/jank-artifact-manifest.md)。本文是服务端 HTTP 契约的事实来源。
 
 ## 1. 能力边界
 

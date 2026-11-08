@@ -1,6 +1,6 @@
 # Android 卡顿压缩包 manifest v3 契约
 
-> 状态：服务端当前契约。服务端严格要求 v3 `.rheajank.zip`、UUID v4 `processId` 和 `threadScope=main`。当前工作区使用本地 Maven 的 `rhea-trace-processor:1.0.4`，支持异步采样类型 `24`，manifest 字段不变；异步来源及间隔保存在 sampling extra。该版本尚未发布到远程制品仓库，云端服务未升级；历史 `1.0.2` 设备 ZIP 云端验收不覆盖异步采样，Android 长期运行、持久重试和容量仍需单独验收。
+本文维护当前 v3 `.rheajank.zip` 的客户端构造约束与完整 manifest 示例。HTTP 上传、持久队列和确认见[卡顿接入](jank-monitoring.md)；服务端严格校验 UUID v4 `processId` 和目标主线程，processor 与异步采样要求见 [API 能力边界](../api/stack-artifact-api.md#1-能力边界)。环境发布状态与未完成事项由[平台状态](../knowledge-base/00-当前实现与验证边界.md)和[待确认事项](../knowledge-base/13-待确认事项.md#二进制堆栈解析)维护。
 
 本文定义一次主线程卡顿对应的 `.rheajank.zip` 及其最小 `manifest.json`。服务端仅依赖压缩包完成卡顿事件校验、解析、去重、指纹和落库，客户端不再同时构造 `/ingest/v1/batches` 的结构化 `jank` JSON。
 
@@ -24,7 +24,7 @@
   "artifactType": "RHEA_JANK",
   "eventId": "jank-01J6R2Z81Q9M8M1T8N7JY4P6K3",
   "occurredAt": 1787992200123,
-  "sessionId": "session-20260829-001",
+  "sessionId": "11111111-1111-4111-8111-111111111111",
   "anonymousDeviceId": "device-sha256-7f83b1657ff1",
   "packageName": "com.example.app",
   "appVersion": "3.2.0",
@@ -68,7 +68,7 @@
 | `occurredAt` | integer，毫秒 | Unix Epoch 毫秒，取主线程消息结束或卡顿确认时的墙上时间 | Sampling 只有单调时钟，无法恢复墙上发生时间 |
 | `sessionId` | string | 1～128 字符；与客户端会话口径一致 | 用于受影响会话统计 |
 | `anonymousDeviceId` | string | 1～256 字符；只能使用不可逆匿名标识 | 用于受影响设备统计，服务端不能从请求连接推断设备身份 |
-| `processId` | string | 标准连字符 UUID v4；主进程可等于本次 `sessionId`，子进程每次创建独立生成；禁止 Android 数值 PID | 标识产生卡顿证据的进程实例，重试时保持原值 |
+| `processId` | string | 标准连字符 UUID v4；主进程可等于本次 `sessionId`，子进程每次创建独立生成；禁止 Android 数值 PID | 标识产生卡顿证据的进程实例，并供 processor 定位唯一目标主线程；重试时保持原值 |
 
 `eventId` 和服务端认证得到的 `appId` 共同构成幂等键。客户端不得在 manifest 中自行声明 `appId`，也不得因上传重试重新生成 `eventId`、`occurredAt` 或其他事件字段。
 
@@ -94,10 +94,9 @@
 |---|---|---|---|
 | `messageStartNs` | integer，纳秒 | 主线程消息开始的 `elapsedRealtimeNanos` | 从产物中裁剪本次卡顿的证据起点 |
 | `messageEndNs` | integer，纳秒 | 同一消息结束的 `elapsedRealtimeNanos`，必须大于 `messageStartNs` | 从产物中裁剪证据终点，并计算精确消息耗时 |
-| `thresholdNs` | integer，纳秒 | 客户端本次实际采用的卡顿阈值，必须为正且不大于消息耗时 | 记录客户端为何判定为卡顿；固定阈值部署可按第 8 节省略 |
+| `thresholdNs` | integer，纳秒 | 客户端本次实际采用的卡顿阈值，必须为正且不大于消息耗时 | 记录客户端为何判定为卡顿；当前必填 |
 | `minSampleIntervalNs` | integer，纳秒 | Native 采集器对本次产物实际采用的最小采样请求间隔，必须为正 | 服务端重建点采样有限覆盖范围 |
 | `attemptedSampleCount` | integer | 非负；processor v3 契约要求存在 | 仅供 processor 读取和校验；服务端业务映射、统计、指纹和存储全部忽略 |
-| `processId` | string | 标准连字符 UUID v4；不能为空、不能是数值 PID 或其他 UUID 版本 | 由支持 UUID 的 processor 映射到唯一目标主线程；服务端不把它解释为数字 tid |
 
 `occurredAt` 使用墙上时钟；`messageStartNs`、`messageEndNs` 和 Sampling 记录使用单调时钟。客户端和服务端都不得用墙上时间与单调时间直接相减，也不得把跨设备的单调时钟绝对值放到同一时间轴比较。
 
@@ -157,32 +156,17 @@
 - `networkType`
 - `measurements`、`attributes`
 
-`overwrittenRecordCount`、`droppedByRateLimit` 和 `abi` 可在将来的可观测性版本中作为可选诊断字段引入，但不得成为卡顿事件成功上传的前置条件。需要增加可选字段时仍应更新契约和测试，不能依赖服务端静默忽略未知字段。
+当前仅发送本页规定字段。增加字段须先同步契约与测试，不能依赖服务端静默忽略未知字段。
 
 ## 7. Sampling mapping 和 ProGuard/R8 mapping
 
 `sampling-mapping.bin` 保存运行时方法指针、符号和线程名称映射，不是 ProGuard/R8 mapping。
 
-最小协议默认约定 ProGuard/R8 mapping 的业务标识等于 `buildId`。当前服务端网页上传的 mapping 注册表按 `appId + buildId` 选择当前版本；以下旧目录示例仅用于说明客户端不发送路径，不是生产存储结构：
+服务端按认证得到的 `appId` 与 manifest `buildId` 选择网页注册的当前 mapping；客户端不能提供系统应用标识、mapping 标识、路径或内容。网页上传与替换步骤见[符号表接入](symbol-mapping.md)；对应 mapping 不存在时，服务端继续保存未解混淆证据。
 
-```text
-<mapping-root>/<appId>/<buildId>.txt
-```
+当前 `packageName`、`thresholdNs` 和版本等第 3 节字段仍须完整提供，不因固定阈值部署或客户端能推导字段而省略。
 
-`appId` 由应用 Key 认证得到，客户端不能提供 mapping 标识或路径。网页上传和替换步骤见[符号表网页上传与生效语义](symbol-mapping.md)；对应 mapping 不存在时，服务端继续保存未解混淆证据。
-
-## 8. 可按部署约束进一步省略的字段
-
-只有形成并验证以下服务端事实来源后，才能继续减少客户端字段：
-
-| 可省略字段 | 前置条件 |
-|---|---|
-| `thresholdNs` | v3 在所有客户端和场景中使用不可配置的固定阈值，服务端按协议版本得到同一值 |
-| `appVersion`、`versionCode`、`channel`、`environment` | 服务端存在经过发布流程维护的 `buildId` 注册表，且能稳定反查这些字段 |
-
-当前 `packageName` 不可省略：服务端使用它与 appKey 绑定的包名做逐字符匹配，不会用绑定值静默补齐 manifest。系统生成的 `appId` 不写入 manifest；mapping 注册中心由网页管理员维护，客户端仍应按第 3 节提供其余字段，不能在产物中携带 mapping 路径或内容。
-
-## 9. 客户端生成顺序
+## 8. 客户端生成顺序
 
 1. 主线程消息开始时记录 `messageStartNs`，消息结束时记录 `messageEndNs` 和墙上时间 `occurredAt`。
 2. 确认达到本次 `thresholdNs` 后立即生成稳定 `eventId`，冻结公共事件字段、场景和 `attemptedSampleCount`。
@@ -193,7 +177,7 @@
 7. 队列至少保存最终文件路径、`eventId`、创建时间、重试次数和下次重试时间；不得在重试时重新导出或修改 ZIP。
 8. 使用新的卡顿压缩包媒体类型上传；只有收到 `accepted` 或 `duplicate` 才删除本地文件。
 
-## 10. 客户端验收清单
+## 9. 客户端验收清单
 
 - 解压后只有三个固定条目，且文件名大小写完全一致。
 - `manifest.json` 能以 UTF-8 解析，根节点为对象，所有必填字段无 `null`。
@@ -206,13 +190,4 @@
 - manifest、文件名和客户端日志不包含应用 Key、账号、手机号、原始设备 ID、业务正文或绝对文件路径。
 - 至少准备一个正常产物、一个采样存在明显空洞的产物和一个 `attemptedSampleCount` 大于服务端可解析成功轮次的产物，供服务端后续回归。
 
-## 11. 当前服务端接收边界
-
-- 请求路径仍使用 `POST /ingest/v1/stack-artifacts:parse`。
-- 媒体类型切换为 `application/vnd.shanshui.rheajank+zip`。
-- mapping 默认按 `buildId` 选择，不再要求客户端重复发送 `X-Mapping-Id`。
-- 成功响应只确认 `accepted` 或 `duplicate`，不返回完整 `RHEA_STACK_REPORT`。
-- 服务端把解析结果写入卡顿原始、事实和详情存储；客户端不再为同一卡顿额外上传结构化 `jank` JSON。
-- `/ingest/v1/batches` 仍用于 Crash、启动、场景 FPS 和前台挂起汇总。
-
-完整请求、成功响应、错误码和重试规则以[卡顿压缩包解析与落库 API](../api/stack-artifact-api.md)为准。
+完整请求、成功响应、错误码和重试规则以[卡顿压缩包 API](../api/stack-artifact-api.md)为准；客户端上传操作统一见[卡顿接入](jank-monitoring.md#卡顿-zip-上传与确认)。

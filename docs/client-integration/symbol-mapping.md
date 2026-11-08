@@ -1,12 +1,12 @@
 # Android 符号表网页上传与生效语义
 
-首版由网页管理员上传 Android 发布构建产生的 `mapping.txt`，客户端 SDK 不自动上传，也不需要在事件请求中携带 mapping 内容。服务端使用由上报 Key 解析的 appId 与事件 buildId 选择 mapping，因此客户端必须在 Crash 事件和卡顿 manifest 中稳定保存同次构建的 `buildId`。
+由网页管理员上传 Android 发布构建产生的 `mapping.txt`，客户端 SDK 不自动上传，也不在事件请求中携带 mapping 内容。服务端按认证应用与事件 `buildId` 选择 mapping，因此客户端必须在 Crash 事件和卡顿 manifest 中稳定保存同次构建的 `buildId`。
 
-网页上传步骤、请求字段、错误码和替换规则见[Android 符号表管理 API](../api/symbol-api.md)。上传前应确认 mapping 与发布 APK/AAB 使用同一次 R8/ProGuard 构建；服务端会用官方 R8 Retrace 校验格式，不能用任意文本或只包含几行示例的文件代替。
+发布时将 APK、`build-info.json`、`buildId` 和 mapping 一起归档；当前自动导出范围与核对方法见 [Android 构建信息导出](../../android/docs/knowledge-base/11-构建测试与本地发布.md#打包时导出-buildid)。上传前确认 mapping 来自同次 R8/ProGuard 构建；AAB 的构建信息导出按该页边界另行核对。网页步骤、请求字段、错误码与替换规则统一见[符号表 API](../api/symbol-api.md)。
 
 Crash 上报保存 pending 原始脱敏异常链和事实后即可确认，详情不执行实时还原。上传或替换成功只表示文件已持久化且构建工作已登记，通过独立进度接口查看排队、运行、等待 mapping、退避及当前空闲；不必因后台等待或失败重新生成事件。
 
-后台只处理当前数据集内未成功事件，成功后仅保存完整固定还原文本和实际来源，并按原发生日期调整归组，事件总量、会话和设备统计不增加。格式合法不能证明 mapping 与 APK 匹配，错误 mapping 的首次成功不可纠正；替换、删除和同构建重传都不重算已成功事件。删除保留身份与审计，重传生成新 symbolId、revision=1。已领取旧文件的一批可以完成，后续批次重新获取活动文件。
+格式合法不能证明 mapping 与 APK 匹配。Crash 首次成功后的还原文本固定，错误 mapping 一旦得到成功结果，替换、删除和同构建重传均不会重算该事件。后台状态、文件租约和审计细节见[符号表实现](../../backend/docs/knowledge-base/symbol-mapping.md)，不据网页上传成功推断历史事件已重算。
 
 当前材料为原始 raw_chain 或成功后的 retrace_text，不提供双份堆栈。卡顿仍在 ZIP 上传解析时使用当前 mapping；删除后按既有无 mapping 可选解析，既存卡顿事件和指纹不回算，也不进入 JVM Crash 后台队列。
 

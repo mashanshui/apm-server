@@ -46,6 +46,8 @@ class App : Application() {
 不要把真实 App Key 提交到源码、版本控制或文档中。SDK 只在运行期将 App Key 放到
 请求认证头中，不会将它写入持久队列，也不会在网络日志中输出明文。
 
+通过 BuildConfig 注入意味着 APK 内会包含上报 Key，它可被逆向取得，不能充当用户密码。日志、URL、事件和持久诊断资料的验收边界见[客户端接入公共规则](../../../docs/client-integration/README.md#应用-key-与隐私)。
+
 ## 2. 配置结构
 
 需要覆盖默认值时，使用 `PerformanceSdk.initialize(application, appKey, config)`：
@@ -300,8 +302,7 @@ SDK 初始化时会自动解析并复用以下信息：
 - Jank 的 `mappingId` 不参与自动推导，默认保持为空。
 
 `PerformanceSdk.sessionId` 和 `PerformanceSdk.processId` 是只读属性，供示例或业务构造 JankEvent
-时复用。SDK 会拒绝 sessionId 与当前实例不一致的 JankEvent；事件字段差异以[服务端协议对照]
-(../docs/knowledge-base/09-服务端对接与数据协议.md)为准。
+时复用。SDK 会拒绝 sessionId 与当前实例不一致的 JankEvent；事件字段差异以[服务端协议对照](09-服务端对接与数据协议.md)为准。
 
 ## 5. 初始化结果和异常
 
