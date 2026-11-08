@@ -73,17 +73,17 @@ public class InMemoryMemoryMetricsRepository implements MemoryEventRepository, M
 
     @Override
     public MemoryMetricStats queryPss(MemoryQueryFilter filter) {
-        return stats(filter, MemoryEvent::pssBytes);
+        return stats(filter, "pss");
     }
 
     @Override
     public MemoryMetricStats queryVss(MemoryQueryFilter filter) {
-        return stats(filter, MemoryEvent::vssBytes);
+        return stats(filter, "vss");
     }
 
     @Override
     public MemoryMetricStats queryJavaHeap(MemoryQueryFilter filter) {
-        return stats(filter, MemoryEvent::javaHeapUsedBytes);
+        return stats(filter, "java_heap");
     }
 
     @Override
@@ -92,7 +92,7 @@ public class InMemoryMemoryMetricsRepository implements MemoryEventRepository, M
         java.util.function.Function<MemoryEvent, Long> extractor = extractor(metric);
         ChronoUnit unit = unit(interval);
         Map<Instant, List<MemoryEvent>> grouped = new LinkedHashMap<>();
-        for (MemoryEvent event : filtered(filter)) {
+        for (MemoryEvent event : filtered(filter, metric)) {
             Instant bucket = event.occurredAt().truncatedTo(unit);
             grouped.computeIfAbsent(bucket, ignored -> new ArrayList<>()).add(event);
         }
@@ -119,12 +119,15 @@ public class InMemoryMemoryMetricsRepository implements MemoryEventRepository, M
         events.clear();
     }
 
-    private MemoryMetricStats stats(MemoryQueryFilter filter, java.util.function.Function<MemoryEvent, Long> extractor) {
+    /** 按所选峰值上下文过滤后计算验证模式统计。 */
+    private MemoryMetricStats stats(MemoryQueryFilter filter, String metric) {
+        java.util.function.Function<MemoryEvent, Long> extractor = extractor(metric);
         ensureAvailable();
-        return MemoryStatistics.of(filtered(filter).stream().map(extractor).toList());
+        return MemoryStatistics.of(filtered(filter, metric).stream().map(extractor).toList());
     }
 
-    private List<MemoryEvent> filtered(MemoryQueryFilter filter) {
+    /** 在验证模式中选择属于该指标的有效运行。 */
+    private List<MemoryEvent> filtered(MemoryQueryFilter filter, String metric) {
         List<MemoryEvent> result = new ArrayList<>();
         for (MemoryEvent event : events.values()) {
             if (!event.appId().equals(filter.appId()) || event.occurredAt().isBefore(filter.from())
@@ -135,11 +138,17 @@ public class InMemoryMemoryMetricsRepository implements MemoryEventRepository, M
                     || !matches(filter.osVersion(), event.osVersion())
                     || !matches(filter.deviceModel(), event.deviceModel())
                     || !matches(filter.processName(), event.processName())
-                    || !matches(filter.scene(), event.scene())
-                    || (filter.foreground() != null && !filter.foreground().equals(event.foreground()))) {
+                    ) {
                 continue;
             }
-            result.add(event);
+            var peak = switch (metric) {
+                case "pss" -> event.payload().pss();
+                case "vss" -> event.payload().vss();
+                case "java_heap" -> event.payload().javaHeap();
+                default -> throw new IllegalArgumentException("未知内存指标");
+            };
+            if (peak != null && matches(filter.scene(), peak.scene())
+                    && (filter.foreground() == null || filter.foreground().equals(peak.foreground()))) result.add(event);
         }
         return result;
     }

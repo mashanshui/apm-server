@@ -1,7 +1,7 @@
 package com.shanshui.apmserver.memory.internal.persistence;
 
 import com.shanshui.apmserver.memory.api.MemoryMetricStats;
-import com.shanshui.apmserver.memory.api.MemorySamplePayload;
+import com.shanshui.apmserver.memory.api.MemoryPeakSummaryPayload;
 import com.shanshui.apmserver.memory.internal.domain.MemoryEvent;
 import com.shanshui.apmserver.memory.internal.domain.MemoryQueryFilter;
 import com.shanshui.apmserver.memory.internal.domain.MemoryTrendAggregate;
@@ -38,23 +38,33 @@ public class ClickHouseMemoryMetricsRepository implements MemoryEventRepository,
 
     private final ClickHouseHttpClient client;
     private final ObjectMapper objectMapper;
+    /** 复用平台查询预算。 */
+    private final com.shanshui.apmserver.platform.api.QueryProperties queryProperties;
 
-    public ClickHouseMemoryMetricsRepository(ClickHouseHttpClient client, ObjectMapper objectMapper) {
+    public ClickHouseMemoryMetricsRepository(ClickHouseHttpClient client, ObjectMapper objectMapper, com.shanshui.apmserver.platform.api.QueryProperties queryProperties) {
         this.client = client;
         this.objectMapper = objectMapper;
+        this.queryProperties = queryProperties;
     }
 
     @Override
-    public AppendResult append(UUID appId, List<MemoryEvent> events) {
-        Map<String, MemoryEvent> unique = new LinkedHashMap<>();
-        events.forEach(event -> unique.putIfAbsent(event.eventId(), event));
-        List<MemoryEvent> uniqueEvents = List.copyOf(unique.values());
-        Set<String> existing = findExistingIds(appId, uniqueEvents);
-        List<MemoryEvent> fresh = uniqueEvents.stream().filter(event -> !existing.contains(event.eventId())).toList();
-        if (!fresh.isEmpty()) {
-            insert(fresh);
+    public synchronized AppendResult append(UUID appId, List<MemoryEvent> events) {
+        try {
+            Map<String, MemoryEvent> unique = new LinkedHashMap<>();
+            events.forEach(event -> unique.putIfAbsent(event.eventId(), event));
+            List<MemoryEvent> uniqueEvents = List.copyOf(unique.values());
+            Set<String> existing = findExistingIds(appId, uniqueEvents);
+            List<MemoryEvent> fresh = uniqueEvents.stream().filter(event -> !existing.contains(event.eventId())).toList();
+            if (!fresh.isEmpty()) {
+                insert(fresh);
+            }
+            return new AppendResult(fresh.size(), events.size() - fresh.size());
+        } catch (EventStoreUnavailableException failure) {
+            throw failure;
+        } catch (RuntimeException failure) {
+            // 数据库协议/DDL等写入错误均不能向客户端声称已持久化。
+            throw new EventStoreUnavailableException("运行峰值存储暂时不可用", failure);
         }
-        return new AppendResult(fresh.size(), events.size() - fresh.size());
     }
 
     @Override
@@ -65,11 +75,8 @@ public class ClickHouseMemoryMetricsRepository implements MemoryEventRepository,
 
     @Override
     public Optional<MemoryEvent> findByEventId(UUID appId, String eventId) {
-        String sql = "SELECT app_id, package_name, event_id, event_time, received_time, schema_version, session_id, process_id, "
-                + "anonymous_device_id, app_version, version_code, build_id, channel, environment, os_version, "
-                + "device_model, network_type, pss_bytes, vss_bytes, java_heap_used_bytes, process_name, foreground, scene "
-                + "FROM apm_memory_sample FINAL WHERE app_id = '" + escape(appId.toString()) + "' AND event_id = '"
-                + escape(eventId) + "' LIMIT 1 FORMAT JSONEachRow";
+        String sql = "SELECT * FROM apm_memory_peak_summary FINAL WHERE app_id = '" + escape(appId.toString())
+                + "' AND event_id = '" + escape(eventId) + "' LIMIT 1 FORMAT JSONEachRow";
         return parseEvents(client.execute(sql)).stream().findFirst();
     }
 
@@ -91,8 +98,8 @@ public class ClickHouseMemoryMetricsRepository implements MemoryEventRepository,
     @Override
     public List<MemoryTrendAggregate> queryTrend(MemoryQueryFilter filter, String metric, String interval) {
         List<MemoryTrendAggregate> result = new ArrayList<>();
-        for (JsonNode row : rows(client.execute(ClickHouseMemoryMetricsQuerySql.selectTrend(filter, metric, interval)))) {
-            long count = row.path("sample_count").asLong();
+        for (JsonNode row : rows(client.executeQuery(ClickHouseMemoryMetricsQuerySql.selectTrend(filter, metric, interval), budget(filter)))) {
+            long count = row.path("run_count").asLong();
             MemoryMetricStats stats = new MemoryMetricStats(count, number(row, "average_bytes", count),
                     number(row, "p50_bytes", count), number(row, "p90_bytes", count),
                     number(row, "p95_bytes", count), number(row, "p99_bytes", count),
@@ -108,17 +115,23 @@ public class ClickHouseMemoryMetricsRepository implements MemoryEventRepository,
     }
 
     private MemoryMetricStats querySummary(MemoryQueryFilter filter, String metric) {
-        JsonNode row = rows(client.execute(ClickHouseMemoryMetricsQuerySql.selectSummary(filter))).stream()
+        JsonNode row = rows(client.executeQuery(ClickHouseMemoryMetricsQuerySql.selectSummary(filter), budget(filter))).stream()
                 .findFirst().orElse(null);
         if (row == null) {
             return new MemoryMetricStats(0, null, null, null, null, null, "no_data");
         }
         String prefix = metric;
-        long count = row.path(prefix + "_sample_count").asLong();
+        long count = row.path(prefix + "_run_count").asLong();
         return new MemoryMetricStats(count, number(row, prefix + "_average_bytes", count),
                 number(row, prefix + "_p50_bytes", count), number(row, prefix + "_p90_bytes", count),
                 number(row, prefix + "_p95_bytes", count), number(row, prefix + "_p99_bytes", count),
                 count == 0 ? "no_data" : "ok");
+    }
+
+    /** 将本次超时和平台资源上限一起传给有界查询客户端。 */
+    private com.shanshui.apmserver.platform.api.QueryBudget budget(com.shanshui.apmserver.memory.internal.domain.MemoryQueryFilter filter) {
+        return new com.shanshui.apmserver.platform.api.QueryBudget(filter.timeoutMs(), queryProperties.getMaxRowsToRead(),
+                queryProperties.getMaxBytesToRead(), queryProperties.getMaxMemoryUsage(), queryProperties.getMaxResponseBytes());
     }
 
     private Set<String> findExistingIds(UUID appId, List<MemoryEvent> events) {
@@ -127,7 +140,7 @@ public class ClickHouseMemoryMetricsRepository implements MemoryEventRepository,
         }
         String ids = events.stream().map(MemoryEvent::eventId).distinct()
                 .map(id -> "'" + escape(id) + "'").reduce((left, right) -> left + "," + right).orElse("");
-        String sql = "SELECT event_id FROM apm_memory_sample FINAL WHERE app_id = '" + escape(appId.toString())
+        String sql = "SELECT event_id FROM apm_memory_peak_summary FINAL WHERE app_id = '" + escape(appId.toString())
                 + "' AND event_id IN (" + ids + ") GROUP BY event_id FORMAT JSONEachRow";
         Set<String> existing = new HashSet<>();
         rows(client.execute(sql)).forEach(row -> {
@@ -164,18 +177,17 @@ public class ClickHouseMemoryMetricsRepository implements MemoryEventRepository,
             row.put("vss_bytes", event.vssBytes());
             row.put("java_heap_used_bytes", event.javaHeapUsedBytes());
             row.put("process_name", event.processName());
-            row.put("foreground", Boolean.TRUE.equals(event.foreground()) ? 1 : 0);
-            row.put("scene", event.scene());
+            row.put("collection_started_at", event.payload().collectionStartedAt());
+            putPeak(row, "pss", event.payload().pss());
+            putPeak(row, "vss", event.payload().vss());
+            putPeak(row, "java_heap", event.payload().javaHeap());
             body.append(write(row)).append('\n');
         }
-        client.execute("INSERT INTO apm_memory_sample FORMAT JSONEachRow", body.toString());
+        client.execute("INSERT INTO apm_memory_peak_summary FORMAT JSONEachRow", body.toString());
     }
 
     private String selectAll(UUID appId) {
-        return "SELECT app_id, package_name, event_id, event_time, received_time, schema_version, session_id, process_id, "
-                + "anonymous_device_id, app_version, version_code, build_id, channel, environment, os_version, "
-                + "device_model, network_type, pss_bytes, vss_bytes, java_heap_used_bytes, process_name, foreground, scene "
-                + "FROM apm_memory_sample FINAL WHERE app_id = '" + escape(appId.toString())
+        return "SELECT * FROM apm_memory_peak_summary FINAL WHERE app_id = '" + escape(appId.toString())
                 + "' ORDER BY event_time, event_id FORMAT JSONEachRow";
     }
 
@@ -184,21 +196,38 @@ public class ClickHouseMemoryMetricsRepository implements MemoryEventRepository,
         for (JsonNode row : rows(response)) {
             try {
                 EventMetadata metadata = new EventMetadata(UUID.fromString(text(row, "app_id")),
-                        text(row, "package_name"), text(row, "event_id"), "memory_sample",
+                        text(row, "package_name"), text(row, "event_id"), "memory_peak_summary",
                         parseTime(row, "event_time"), parseTime(row, "received_time"), row.path("schema_version").asInt(),
                          text(row, "session_id"), emptyToNull(text(row, "process_id")), text(row, "anonymous_device_id"), text(row, "app_version"),
                         row.path("version_code").asInt(), text(row, "build_id"), text(row, "environment"),
                         text(row, "channel"), text(row, "os_version"), text(row, "device_model"),
                         text(row, "network_type"), Map.of(), Map.of());
-                MemorySamplePayload payload = new MemorySamplePayload(nullableLong(row, "pss_bytes"),
-                        nullableLong(row, "vss_bytes"), nullableLong(row, "java_heap_used_bytes"),
-                        text(row, "process_name"), row.path("foreground").asInt() != 0, text(row, "scene"));
+                MemoryPeakSummaryPayload payload = new MemoryPeakSummaryPayload(text(row, "process_name"),
+                        nullableLong(row, "collection_started_at"), metadata.occurredAt().toEpochMilli(),
+                        readPeak(row, "pss", "pss_bytes"), readPeak(row, "vss", "vss_bytes"),
+                        readPeak(row, "java_heap", "java_heap_used_bytes"));
                 result.add(new MemoryEvent(metadata, payload));
             } catch (RuntimeException ex) {
                 throw new EventStoreUnavailableException("ClickHouse 内存事件响应无效", ex);
             }
         }
         return List.copyOf(result);
+    }
+
+    /** 将各项原峰值上下文独立写入列，空指标的所有上下文保持 null。 */
+    private void putPeak(Map<String, Object> row, String prefix, com.shanshui.apmserver.memory.api.MemoryPeak peak) {
+        row.put(prefix + "_occurred_at", peak == null ? null : peak.occurredAt());
+        row.put(prefix + "_foreground", peak == null ? null : (peak.foreground() ? 1 : 0));
+        row.put(prefix + "_scene", peak == null ? null : peak.scene());
+    }
+
+    /** 从同一指标的列恢复峰值，不能借用其他指标上下文。 */
+    private com.shanshui.apmserver.memory.api.MemoryPeak readPeak(JsonNode row, String prefix, String valueColumn) {
+        // 缺失字节代表整项指标不存在，不能生成虚假上下文。
+        Long bytes = nullableLong(row, valueColumn);
+        return bytes == null ? null : new com.shanshui.apmserver.memory.api.MemoryPeak(bytes,
+                nullableLong(row, prefix + "_occurred_at"), row.path(prefix + "_foreground").asInt() != 0,
+                text(row, prefix + "_scene"));
     }
 
     private List<JsonNode> rows(String response) {

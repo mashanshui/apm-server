@@ -1,5 +1,7 @@
 # APM 查询 MCP 服务
 
+内存指标查询返回运行期观测峰值分布和runCount，按最后持久化采样时间归属，scene/foreground分别匹配各指标峰值上下文；下次启动补报后才可见，不兼容sampleCount别名。客户端联合验收仍待完成；服务端实际HTTP与官方客户端证据见[独立验收](../docs/validation/memory-runtime-peaks/README.md)。内存工具拒绝旧sampleCount及非法runCount结果，scene最长128、processName及版本/系统/机型最长256字符，趋势metric仅接受pss/vss/java_heap。
+
 独立 TypeScript 工程，将官方 MCP Streamable HTTP 工具映射到 Java 后端固定的 /api/agent/v1 只读接口。MCP 不连接数据库，也不接受客户端指定的上游 URL。完整工具与错误契约见 [MCP API](../docs/api/mcp-api.md)；Token 管理见 [管理 API](../docs/api/query-token-api.md)。
 
 ## 结构

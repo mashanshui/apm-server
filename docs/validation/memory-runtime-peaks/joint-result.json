@@ -1,0 +1,116 @@
+{
+  "device": "Pixel_6/API35/arm64-v8a",
+  "checks": {
+    "J1_current_private": true,
+    "J3_503_lost_response_duplicate": true,
+    "J2_startup_fault_boundaries": true,
+    "J4_upgrade_original_metadata": true,
+    "J5_device_http_mcp": true,
+    "J6_http_contract_and_storage": true,
+    "J7_client_frequency_evidence": true,
+    "J5_dashboard": true
+  },
+  "events": [
+    {
+      "alias": "A1",
+      "eventIdSha256": "cfa46677ee27022a92be8bba0676159fd1d13c9cbd9012e6becf13ea49c188f5",
+      "processIdSha256": "f49ebc31589e037972b528030029b4f0f5efc1e95d422323980b33ad18b063e3",
+      "payloadSha256": "25aa8ec0903c61e8088aee92c867e52586cdd4cadccf35bb60d91bf0d20ed1f6",
+      "appVersion": "memory-joint-A",
+      "buildId": "memory-joint-A-1-20261107140240807-e6e2d13b",
+      "requests": 3
+    },
+    {
+      "alias": "A2",
+      "eventIdSha256": "b2db5dbac7e5b92322c548fe3bf98114a60eb27281c9031bc6b59c3c222bf46e",
+      "processIdSha256": "76aaf9b6df5911476dec91b9ddc3c77d6f5452df264b62bff65dbcd4f28033ed",
+      "payloadSha256": "a8909176f3cbb3de69791a543c478f6423946c94e0dc3ab13aefdf622d0fb2ba",
+      "appVersion": "memory-joint-A",
+      "buildId": "memory-joint-A-1-20261107140240807-e6e2d13b",
+      "requests": 1
+    }
+  ],
+  "builds": {
+    "memory-joint-A": {
+      "versionCode": 1,
+      "buildId": "memory-joint-A-1-20261107140240807-e6e2d13b",
+      "sha256": "372f38751be6499dafce2fba0be1105c6e72e318b94f4cfbfd75c1098d8496aa"
+    },
+    "memory-joint-B": {
+      "versionCode": 2,
+      "buildId": "memory-joint-B-2-20261107140242504-d1f72462",
+      "sha256": "595726c934377a2e30ed4f8bb890f09539b6fde8db51d271f0744bf95d2cc335"
+    }
+  },
+  "query": {
+    "from": "2026-11-07T14:01:59.119Z",
+    "to": "2026-11-07T14:05:36.878Z",
+    "appVersion": "memory-joint-A"
+  },
+  "restoredOriginalMemoryAndApks": true,
+  "sourceBases": {
+    "server": "031686fac9a8486e0e1dcb967130e4c0c75f3d89",
+    "client": "9bdd1b79d4d9a5e1e6d532a5a6d7c311055d1f61",
+    "scope": "上述提交加两端本次未提交变更"
+  },
+  "syntheticLoadSummary": {
+    "pss": {
+      "runCount": 2,
+      "averageBytes": 84183040.0,
+      "p50Bytes": 84183040.0,
+      "p90Bytes": 101897420.8,
+      "p95Bytes": 104111718.4,
+      "p99Bytes": 105883156.47999999,
+      "status": "ok"
+    },
+    "vss": {
+      "runCount": 2,
+      "averageBytes": 17303007232.0,
+      "p50Bytes": 17303007232.0,
+      "p90Bytes": 17354331750.4,
+      "p95Bytes": 17360747315.2,
+      "p99Bytes": 17365879767.04,
+      "status": "ok"
+    },
+    "javaHeap": {
+      "runCount": 2,
+      "averageBytes": 21675768.0,
+      "p50Bytes": 21675768.0,
+      "p90Bytes": 31615793.599999998,
+      "p95Bytes": 32858296.8,
+      "p99Bytes": 33852299.36,
+      "status": "ok"
+    }
+  },
+  "dashboard": {
+    "checks": {
+      "threeMetrics": true,
+      "p95Switch": true,
+      "backgroundNoData": true,
+      "restoredAll": true
+    },
+    "summaryMiB": {
+      "pss": [
+        "80.28",
+        "80.28",
+        "97.18",
+        "99.29",
+        "100.98"
+      ],
+      "vss": [
+        "16501.43",
+        "16501.43",
+        "16550.38",
+        "16556.50",
+        "16561.39"
+      ],
+      "javaHeap": [
+        "20.67",
+        "20.67",
+        "30.15",
+        "31.34",
+        "32.28"
+      ]
+    }
+  }
+}

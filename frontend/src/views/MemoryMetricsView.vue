@@ -34,7 +34,7 @@ watch(() => route.fullPath, () => {
 onBeforeUnmount(query.cancel)
 
 const selectedStats = computed(() => query.summary.value?.[filters.value.metric === 'java_heap' ? 'javaHeap' : filters.value.metric])
-const hasTrendSamples = computed(() => query.trend.value?.points.some((point) => point.sampleCount > 0) ?? false)
+const hasTrendSamples = computed(() => query.trend.value?.points.some((point) => point.runCount > 0) ?? false)
 const queryWarning = computed(() => memoryMetricQueryWarning(route.query))
 
 function navigate(next: MemoryMetricFilterForm): void {
@@ -52,13 +52,13 @@ function correctQuery(): void {
 }
 
 function statusMessage(status: string | undefined): string {
-  return status === 'no_data' ? '当前筛选范围没有可展示的数据' : '当前筛选范围没有有效采样'
+  return status === 'no_data' ? '当前筛选范围没有可展示的数据' : '当前筛选范围没有有效运行峰值'
 }
 </script>
 
 <template>
   <AppLayout :app-id="appId">
-    <header class="page-header"><div><p class="eyebrow">APP / {{ appId }}</p><h1>内存指标分析</h1><p class="subtitle">观察 PSS、VSS 与 Java 堆的采样分布和 UTC 趋势。</p></div><span v-if="query.summary.value" class="badge badge-success">数据源 · {{ query.summary.value.dataSource }}</span></header>
+    <header class="page-header"><div><p class="eyebrow">APP / {{ appId }}</p><h1>内存指标分析</h1><p class="subtitle">观察 PSS、VSS 与 Java 堆的运行期观测峰值分布和 UTC 趋势。下一次进程启动后补报；时间按最后持久化采样归属，各项筛选分别匹配其峰值上下文。</p></div><span v-if="query.summary.value" class="badge badge-success">数据源 · {{ query.summary.value.dataSource }}</span></header>
 
     <div class="metric-tabs memory-tabs" role="tablist" aria-label="内存指标类型">
       <button v-for="item in metrics" :key="item.value" type="button" role="tab" :aria-selected="filters.metric === item.value" :class="{ active: filters.metric === item.value }" @click="switchMetric(item.value)"><strong>{{ item.label }}</strong><span>{{ item.description }}</span></button>

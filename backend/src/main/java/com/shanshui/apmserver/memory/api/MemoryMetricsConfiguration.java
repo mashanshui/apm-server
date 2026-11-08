@@ -7,7 +7,8 @@ public interface MemoryMetricsConfiguration {
 
     int getMaxEventBytes();
 
-    int getMaxPastDays();
+    /** 峰值历史接收窗口，独立于其他领域。 */
+    int getMaxMemoryPeakPastDays();
 
     int getMaxFutureSkewMinutes();
 

@@ -10,7 +10,7 @@ vi.mock('vue-router', () => ({ useRoute: () => routeMock, useRouter: () => route
 vi.mock('../composables/useMemoryMetrics', () => ({ useMemoryMetrics: composableMock.use }))
 
 function state() {
-  const stats = { sampleCount: 1, averageBytes: 1_048_576, p50Bytes: 1_048_576, p90Bytes: 1_048_576, p95Bytes: 1_048_576, p99Bytes: 1_048_576, status: 'ok' }
+  const stats = { runCount: 1, averageBytes: 1_048_576, p50Bytes: 1_048_576, p90Bytes: 1_048_576, p95Bytes: 1_048_576, p99Bytes: 1_048_576, status: 'ok' }
   return {
     summary: ref({ appId: 'demo', from: '', to: '', pss: stats, vss: stats, javaHeap: stats, status: 'ok', dataSource: 'memory' }), summaryLoading: ref(false), summaryError: ref(null),
     trend: ref({ appId: 'demo', from: '', to: '', metric: 'pss', interval: 'hour', points: [], status: 'no_data', dataSource: 'memory' }), trendLoading: ref(false), trendError: ref(null),

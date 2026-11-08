@@ -1,10 +1,10 @@
 package com.shanshui.apmserver.memory.internal.domain;
 
-import com.shanshui.apmserver.memory.api.MemorySamplePayload;
+import com.shanshui.apmserver.memory.api.MemoryPeakSummaryPayload;
 import com.shanshui.apmserver.telemetry.api.EventMetadata;
 
 /** 内存领域内部保存的事件，公共元数据与内存载荷保持分离。 */
-public record MemoryEvent(EventMetadata metadata, MemorySamplePayload payload) {
+public record MemoryEvent(EventMetadata metadata, MemoryPeakSummaryPayload payload) {
 
     public java.util.UUID appId() { return metadata.appId(); }
 
@@ -25,9 +25,9 @@ public record MemoryEvent(EventMetadata metadata, MemorySamplePayload payload) {
 
     public String processName() { return payload.processName(); }
 
-    public Boolean foreground() { return payload.foreground(); }
 
-    public String scene() { return payload.scene(); }
+
+
 
     public Long pssBytes() { return payload.pssBytes(); }
 

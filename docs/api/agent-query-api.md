@@ -1,5 +1,7 @@
 # Agent 只读查询 HTTP API
 
+内存指标查询返回运行期观测峰值分布和runCount，按最后持久化采样时间归属，scene/foreground分别匹配各指标峰值上下文；下次启动补报后才可见，不兼容sampleCount别名。客户端联合验收仍待完成。
+
 当前实现提供独立的 /api/agent/v1 GET 入口。调用方使用 Authorization: Bearer <应用查询Token>；appId 由 Token 推导，请求路径和查询参数都不接收调用方指定的应用 ID。Android 上报 X-App-Key、网页 Session 和 Cookie 不能替代 Token；同时携带 X-App-Key 会被拒绝。同一个 Token 可供 MCP 和其他受信查询客户端复用。
 
 | 分类 | GET 路径 | 用途 |

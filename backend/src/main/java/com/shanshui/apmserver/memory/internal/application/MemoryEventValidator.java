@@ -2,7 +2,7 @@ package com.shanshui.apmserver.memory.internal.application;
 
 import com.shanshui.apmserver.memory.api.MemoryIngestCommand;
 import com.shanshui.apmserver.memory.api.MemoryMetricsConfiguration;
-import com.shanshui.apmserver.memory.api.MemorySamplePayload;
+import com.shanshui.apmserver.memory.api.MemoryPeakSummaryPayload;
 import com.shanshui.apmserver.telemetry.api.EventValidationException;
 import com.shanshui.apmserver.telemetry.api.ValidationIssue;
 import com.shanshui.apmserver.telemetry.api.ProcessIdentity;
@@ -35,6 +35,7 @@ public class MemoryEventValidator {
         this.clock = clock;
     }
 
+    /** 校验运行峰值公共信封及各项业务边界。 */
     public void validate(MemoryIngestCommand event) {
         List<ValidationIssue> issues = new ArrayList<>();
         if (event == null) {
@@ -58,11 +59,14 @@ public class MemoryEventValidator {
         if (event.versionCode() == null || event.versionCode() < 0) {
             issues.add(issue("MISSING_VERSION_CODE", "versionCode 必须是非负整数"));
         }
-        if (!"memory_sample".equals(event.eventType())) {
-            issues.add(issue("UNSUPPORTED_EVENT_TYPE", "内存领域仅支持 memory_sample 事件"));
+        if (!"memory_peak_summary".equals(event.eventType())) {
+            issues.add(issue("UNSUPPORTED_EVENT_TYPE", "内存领域仅支持 memory_peak_summary 事件"));
         }
         validateTime(event.occurredAt(), issues);
-        validateSample(event.memorySample(), issues);
+        validateSample(event.memoryPeakSummary(), issues);
+        if (event.memoryPeakSummary() != null && !java.util.Objects.equals(event.occurredAt(), event.memoryPeakSummary().lastSampledAt())) {
+            issues.add(issue("INVALID_MEMORY_TIME", "occurredAt 必须等于 lastSampledAt"));
+        }
         try {
             if (objectMapper.writeValueAsBytes(event).length > properties.getMaxEventBytes()) {
                 issues.add(issue("EVENT_TOO_LARGE", "单事件超过大小上限"));
@@ -75,9 +79,10 @@ public class MemoryEventValidator {
         }
     }
 
-    private void validateSample(MemorySamplePayload sample, List<ValidationIssue> issues) {
+    /** 校验完整运行区间和独立峰值。 */
+    private void validateSample(MemoryPeakSummaryPayload sample, List<ValidationIssue> issues) {
         if (sample == null) {
-            issues.add(issue("MISSING_MEMORY_SAMPLE", "memorySample 载荷不能为空"));
+            issues.add(issue("MISSING_MEMORY_SAMPLE", "memoryPeakSummary 载荷不能为空"));
             return;
         }
         if (sample.pssBytes() == null && sample.vssBytes() == null && sample.javaHeapUsedBytes() == null) {
@@ -87,13 +92,29 @@ public class MemoryEventValidator {
         validateValue(sample.vssBytes(), "vssBytes", issues);
         validateValue(sample.javaHeapUsedBytes(), "javaHeapUsedBytes", issues);
         require(sample.processName(), "processName", properties.getMaxProcessNameLength(), issues);
-        if (sample.foreground() == null) {
-            issues.add(issue("MISSING_FOREGROUND", "foreground 必须是布尔值"));
+        if (sample.collectionStartedAt() == null || sample.lastSampledAt() == null
+                || sample.collectionStartedAt() < 0 || sample.lastSampledAt() < sample.collectionStartedAt()) {
+            issues.add(issue("INVALID_MEMORY_TIME", "采集起止时间缺失或倒置"));
+            return;
         }
-        if (sample.scene() != null && sample.scene().isBlank()) {
-            issues.add(issue("INVALID_SCENE", "scene(Activity 名称)不能为空字符串"));
-        } else if (sample.scene() != null && sample.scene().length() > properties.getMaxSceneLength()) {
-            issues.add(issue("FIELD_TOO_LONG", "scene(Activity 名称)超过长度上限"));
+        validatePeak(sample.pss(), sample, issues);
+        validatePeak(sample.vss(), sample, issues);
+        validatePeak(sample.javaHeap(), sample, issues);
+    }
+
+    /** 校验单项峰值自身的完整上下文，缺失指标不补值。 */
+    private void validatePeak(com.shanshui.apmserver.memory.api.MemoryPeak peak, MemoryPeakSummaryPayload sample,
+                              List<ValidationIssue> issues) {
+        if (peak == null) return;
+        if (peak.bytes() == null || peak.foreground() == null || peak.occurredAt() == null) {
+            issues.add(issue("INVALID_MEMORY_PEAK", "峰值必须包含 bytes、occurredAt 和 foreground"));
+            return;
+        }
+        if (peak.occurredAt() < sample.collectionStartedAt() || peak.occurredAt() > sample.lastSampledAt()) {
+            issues.add(issue("INVALID_MEMORY_TIME", "峰值时间必须位于采集区间内"));
+        }
+        if (peak.scene() != null && (peak.scene().isBlank() || peak.scene().length() > properties.getMaxSceneLength())) {
+            issues.add(issue("INVALID_SCENE", "scene(Activity 名称)为空或超过长度上限"));
         }
     }
 
@@ -108,6 +129,7 @@ public class MemoryEventValidator {
         }
     }
 
+    /** 校验峰值专属历史窗口及公共未来容差。 */
     private void validateTime(Long epochMillis, List<ValidationIssue> issues) {
         if (epochMillis == null) {
             issues.add(issue("MISSING_OCCURRED_AT", "occurredAt 不能为空"));
@@ -124,7 +146,7 @@ public class MemoryEventValidator {
         if (occurredAt.isAfter(now.plus(Duration.ofMinutes(properties.getMaxFutureSkewMinutes())))) {
             issues.add(issue("EVENT_TIME_IN_FUTURE", "事件时间超出允许的未来窗口"));
         }
-        if (occurredAt.isBefore(now.minus(Duration.ofDays(properties.getMaxPastDays())))) {
+        if (!occurredAt.isAfter(now.minus(Duration.ofDays(properties.getMaxMemoryPeakPastDays())))) {
             issues.add(issue("EVENT_TIME_TOO_OLD", "事件时间超出允许的历史窗口"));
         }
     }

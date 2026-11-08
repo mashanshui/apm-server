@@ -288,4 +288,15 @@ public class IngestConfigurationProperties implements IngestConfiguration, Crash
     public void setMaxMemoryMetricBytes(long maxMemoryMetricBytes) {
         this.maxMemoryMetricBytes = maxMemoryMetricBytes;
     }
+    /** 运行峰值独立补报窗口，默认九十天。 */
+    private int maxMemoryPeakPastDays = 90;
+
+    /** 返回峰值历史窗口。 */
+    public int getMaxMemoryPeakPastDays() { return maxMemoryPeakPastDays; }
+
+    /** 设置峰值窗口，拒绝非正数。 */
+    public void setMaxMemoryPeakPastDays(int days) {
+        if (days < 1) throw new IllegalArgumentException("峰值历史窗口必须为正数");
+        maxMemoryPeakPastDays = days;
+    }
 }

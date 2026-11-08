@@ -2,7 +2,7 @@ package com.shanshui.apmserver.memory.internal.application;
 
 import com.shanshui.apmserver.memory.api.MemoryIngestCommand;
 import com.shanshui.apmserver.memory.api.MemoryMetricsConfiguration;
-import com.shanshui.apmserver.memory.api.MemorySamplePayload;
+import com.shanshui.apmserver.memory.api.MemoryPeakSummaryPayload;
 import org.springframework.stereotype.Service;
 
 import java.nio.charset.StandardCharsets;
@@ -29,12 +29,13 @@ public class MemorySanitizer {
         this.properties = properties;
     }
 
+    /** 保留原峰值和独立上下文，清理公共文本。 */
     public MemoryIngestCommand sanitize(MemoryIngestCommand event) {
-        MemorySamplePayload sample = event.memorySample();
-        MemorySamplePayload sanitizedSample = sample == null ? null : new MemorySamplePayload(
-                sample.pssBytes(), sample.vssBytes(), sample.javaHeapUsedBytes(),
-                sanitizeName(sample.processName(), properties.getMaxProcessNameLength()), sample.foreground(),
-                sanitizeName(sample.scene(), properties.getMaxSceneLength()));
+        MemoryPeakSummaryPayload sample = event.memoryPeakSummary();
+        MemoryPeakSummaryPayload sanitizedSample = sample == null ? null : new MemoryPeakSummaryPayload(
+                sanitizeName(sample.processName(), properties.getMaxProcessNameLength()),
+                sample.collectionStartedAt(), sample.lastSampledAt(),
+                sanitizePeak(sample.pss()), sanitizePeak(sample.vss()), sanitizePeak(sample.javaHeap()));
         return new MemoryIngestCommand(event.schemaVersion(), sanitizeIdentifier(event.eventId(), 128),
                 sanitizeIdentifier(event.eventType(), 32), event.occurredAt(), sanitizeIdentifier(event.sessionId(), 128),
                 event.processId(),
@@ -44,6 +45,12 @@ public class MemorySanitizer {
                 sanitizeIdentifier(event.osVersion(), 64), sanitizeText(event.deviceModel(), 256),
                 sanitizeIdentifier(event.networkType(), 32), sanitizeMap(event.measurements(), false, true),
                 sanitizeMap(event.attributes(), true, false), sanitizedSample);
+    }
+
+    /** 仅清理本项结构化场景，保留原数值、时间与前后台。 */
+    private com.shanshui.apmserver.memory.api.MemoryPeak sanitizePeak(com.shanshui.apmserver.memory.api.MemoryPeak peak) {
+        return peak == null ? null : new com.shanshui.apmserver.memory.api.MemoryPeak(peak.bytes(), peak.occurredAt(),
+                peak.foreground(), sanitizeName(peak.scene(), properties.getMaxSceneLength()));
     }
 
     public String sanitizeIdentifier(String value, int maxLength) {

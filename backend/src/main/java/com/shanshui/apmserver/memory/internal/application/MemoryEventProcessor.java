@@ -15,6 +15,8 @@ import java.util.UUID;
 @Service
 public class MemoryEventProcessor implements MemoryEventProcessing {
 
+    /** 峰值接收流程日志，仅包含标识与确认计数。 */
+    private static final org.slf4j.Logger LOGGER = org.slf4j.LoggerFactory.getLogger(MemoryEventProcessor.class);
     private final MemoryEventValidator validator;
     private final MemorySanitizer sanitizer;
     private final MemoryWriteCoordinator writeCoordinator;
@@ -42,8 +44,10 @@ public class MemoryEventProcessor implements MemoryEventProcessing {
                 sanitizer.sanitizeText(sanitized.deviceModel(), 256), sanitizer.sanitizeIdentifier(sanitized.networkType(), 32),
                 sanitized.measurements() == null ? Map.of() : sanitized.measurements(),
                 sanitized.attributes() == null ? Map.of() : sanitized.attributes());
-        MemoryEvent stored = new MemoryEvent(metadata, sanitized.memorySample());
+        MemoryEvent stored = new MemoryEvent(metadata, sanitized.memoryPeakSummary());
         var appendResult = writeCoordinator.append(appId, java.util.List.of(stored));
+        LOGGER.info("memory peak persisted appId={} eventId={} accepted={} duplicate={}",
+                appId, metadata.eventId(), appendResult.accepted(), appendResult.duplicate());
         return new SignalIngestResult(appendResult, metadata, null);
     }
 }

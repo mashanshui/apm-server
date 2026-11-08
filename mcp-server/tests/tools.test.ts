@@ -113,7 +113,7 @@ test('all tools map to existing GET routes and preserve domain evidence', async 
           expectedSampleCount: 2, parsedSampleCount: 1, missingSampleCount: 1,
           stackDictionary: { '1': [{ className: 'A' }] } } }
       : crash ? { appId: 'app-a', eventId: 'e1', crashKind: 'jvm', fatal: true, symbolicationStatus: 'pending', groupingKind: 'temporary', stack: { format: 'raw_chain', content: { kind: 'jvm', fatal: true, throwableChain: [{ type: 'Exception', frames: [{ className: 'A', methodName: 'run' }] }] } }, value: 0, denominator: null }
-      : { appId: 'app-a', issues: [], events: [], status: 'no_data', value: 0, denominator: null }));
+      : { appId: 'app-a', issues: [], events: [], status: 'no_data', value: 0, denominator: null, pss: { runCount: 0 }, vss: { runCount: 0 }, javaHeap: { runCount: 0 }, points: [] }));
   });
   const handler = createProtocolHandler(backend);
   const transport = new StreamableHTTPClientTransport(new URL('http://test.local/mcp'), {
@@ -135,7 +135,7 @@ test('all tools map to existing GET routes and preserve domain evidence', async 
       if (name.includes('events') && name.startsWith('list_')) arguments_.fingerprint = 'fp1';
       if (name.endsWith('_event')) arguments_.eventId = 'e1';
       if (name.includes('metric_trend') || name === 'get_jank_dimensions' || name === 'get_memory_trend') {
-        arguments_.metric = 'fps';
+        arguments_.metric = name === 'get_memory_trend' ? 'pss' : 'fps';
       }
       if (name === 'get_jank_dimensions') arguments_.dimension = 'scene';
       const result = await client.callTool({ name, arguments: arguments_ });

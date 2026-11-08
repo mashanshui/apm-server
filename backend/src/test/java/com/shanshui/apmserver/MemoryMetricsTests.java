@@ -16,7 +16,7 @@ import com.shanshui.apmserver.jank.internal.application.JankSanitizer;
 import com.shanshui.apmserver.jank.internal.application.JankWriteCoordinator;
 import com.shanshui.apmserver.jank.internal.persistence.InMemoryJankEventRepository;
 import com.shanshui.apmserver.memory.api.MemoryMetricStats;
-import com.shanshui.apmserver.memory.api.MemorySamplePayload;
+import com.shanshui.apmserver.memory.api.MemoryPeakSummaryPayload;
 import com.shanshui.apmserver.memory.internal.application.MemoryEventProcessor;
 import com.shanshui.apmserver.memory.internal.application.MemoryEventValidator;
 import com.shanshui.apmserver.memory.internal.application.MemoryMetricsQueryService;
@@ -63,8 +63,8 @@ class MemoryMetricsTests {
 
         assertThat(response.status()).isEqualTo("ok");
         assertStats(response.pss(), 4, 150D, 150D, 270D, 285D, 297D);
-        assertThat(response.vss().sampleCount()).isEqualTo(4);
-        assertThat(response.javaHeap().sampleCount()).isEqualTo(4);
+        assertThat(response.vss().runCount()).isEqualTo(4);
+        assertThat(response.javaHeap().runCount()).isEqualTo(4);
         assertThat(response.pss().averageBytes()).isEqualTo(150D);
     }
 
@@ -72,14 +72,14 @@ class MemoryMetricsTests {
     void zeroIsValidAndMissingAllMetricsIsRejected() {
         IngestConfigurationProperties properties = properties();
         var validator = new MemoryEventValidator(properties, new ObjectMapper(), Clock.fixed(NOW, ZoneOffset.UTC));
-        validator.validate(new com.shanshui.apmserver.memory.api.MemoryIngestCommand(2, "zero", "memory_sample",
+        validator.validate(new com.shanshui.apmserver.memory.api.MemoryIngestCommand(2, "zero", "memory_peak_summary",
                 NOW.toEpochMilli(), "session", CrashTestSupport.PROCESS_ID, "device", "com.example.app", "1.0", 1, "build", "prod",
                 "official", "16", "Pixel", "wifi", null, null,
-                new MemorySamplePayload(0L, null, null, "com.example.app", false, null)));
+                peakSummary(0L, null, null, "com.example.app", false, null)));
         assertThatThrownBy(() -> validator.validate(new com.shanshui.apmserver.memory.api.MemoryIngestCommand(2,
-                "missing", "memory_sample", NOW.toEpochMilli(), "session", CrashTestSupport.PROCESS_ID, "device", "com.example.app", "1.0",
+                "missing", "memory_peak_summary", NOW.toEpochMilli(), "session", CrashTestSupport.PROCESS_ID, "device", "com.example.app", "1.0",
                 1, "build", "prod", "official", "16", "Pixel", "wifi", null, null,
-                new MemorySamplePayload(null, null, null, "com.example.app", true, null))))
+                peakSummary(null, null, null, "com.example.app", true, null))))
                 .isInstanceOf(EventValidationException.class)
                 .hasMessageContaining("至少需要提供一项");
     }
@@ -89,15 +89,15 @@ class MemoryMetricsTests {
         IngestConfigurationProperties properties = properties();
         var validator = new MemoryEventValidator(properties, new ObjectMapper(), Clock.fixed(NOW, ZoneOffset.UTC));
         assertThatThrownBy(() -> validator.validate(new com.shanshui.apmserver.memory.api.MemoryIngestCommand(2,
-                "negative", "memory_sample", NOW.toEpochMilli(), "session", CrashTestSupport.PROCESS_ID, "device", "com.example.app", "1.0",
+                "negative", "memory_peak_summary", NOW.toEpochMilli(), "session", CrashTestSupport.PROCESS_ID, "device", "com.example.app", "1.0",
                 1, "build", "prod", "official", "16", "Pixel", "wifi", null, null,
-                new MemorySamplePayload(-1L, null, null, "com.example.app", true, null))))
+                peakSummary(-1L, null, null, "com.example.app", true, null))))
                 .isInstanceOf(EventValidationException.class)
                 .hasMessageContaining("非负整数");
         assertThatThrownBy(() -> validator.validate(new com.shanshui.apmserver.memory.api.MemoryIngestCommand(2,
-                "too-large", "memory_sample", NOW.toEpochMilli(), "session", CrashTestSupport.PROCESS_ID, "device", "com.example.app", "1.0",
+                "too-large", "memory_peak_summary", NOW.toEpochMilli(), "session", CrashTestSupport.PROCESS_ID, "device", "com.example.app", "1.0",
                 1, "build", "prod", "official", "16", "Pixel", "wifi", null, null,
-                new MemorySamplePayload(properties.getMaxMemoryMetricBytes() + 1, null, null,
+                peakSummary(properties.getMaxMemoryMetricBytes() + 1, null, null,
                         "com.example.app", true, null))))
                 .isInstanceOf(EventValidationException.class)
                 .hasMessageContaining("安全整数上限");
@@ -105,14 +105,14 @@ class MemoryMetricsTests {
         EventSchemaValidator schema = new EventSchemaValidator();
         assertThatThrownBy(() -> schema.validateBatch(new ObjectMapper().readTree(
                 "{\"requestId\":\"fraction\",\"events\":[{\"schemaVersion\":2,"
-                        + "\"eventId\":\"fraction\",\"eventType\":\"memory_sample\","
+                        + "\"eventId\":\"fraction\",\"eventType\":\"memory_peak_summary\","
                         + "\"occurredAt\":1,\"sessionId\":\"s\",\"processId\":\"11111111-1111-4111-8111-111111111111\",\"anonymousDeviceId\":\"d\","
                         + "\"packageName\":\"com.example.app\",\"appVersion\":\"1\",\"versionCode\":1,"
                         + "\"buildId\":\"b\",\"environment\":\"p\",\"channel\":\"c\","
-                        + "\"osVersion\":\"16\",\"deviceModel\":\"m\",\"memorySample\":{"
-                        + "\"pssBytes\":1.5,\"processName\":\"com.example.app\",\"foreground\":true}}]}")))
+                        + "\"osVersion\":\"16\",\"deviceModel\":\"m\",\"memoryPeakSummary\":{"
+                        + "\"pss\":{\"bytes\":1.5},\"processName\":\"com.example.app\"}}]}")))
                 .isInstanceOf(RuntimeException.class)
-                .hasMessageContaining("pssBytes 必须是整数");
+                .hasMessageContaining("bytes 必须是整数");
     }
 
     @Test
@@ -120,10 +120,10 @@ class MemoryMetricsTests {
         IngestConfigurationProperties properties = properties();
         InMemoryMemoryMetricsRepository repository = new InMemoryMemoryMetricsRepository(CrashTestSupport.storageProperties());
         BatchIngestionService ingestion = ingestion(properties, repository);
-        EventEnvelope conflicting = new EventEnvelope(2, "conflict", "memory_sample", NOW.toEpochMilli(), "session", CrashTestSupport.PROCESS_ID,
+        EventEnvelope conflicting = new EventEnvelope(2, "conflict", "memory_peak_summary", NOW.toEpochMilli(), "session", CrashTestSupport.PROCESS_ID,
                 "device-conflict", "com.example.app", "1.0", 1, "build", "prod", "official", "16", "Pixel",
                 "wifi", null, null, CrashTestSupport.crash("java.lang.IllegalStateException", "boom", 1, "A"),
-                null, null, null, new MemorySamplePayload(10L, null, null, "com.example.app", true, null));
+                null, null, null, peakSummary(10L, null, null, "com.example.app", true, null));
         var response = ingestion.ingest(APP_ID, CrashTestSupport.batch(List.of(memory("valid", 10L, null, null), conflicting)));
         assertThat(response.accepted()).isEqualTo(1);
         assertThat(response.rejected()).isEqualTo(1);
@@ -147,17 +147,17 @@ class MemoryMetricsTests {
         IngestConfigurationProperties properties = properties();
         InMemoryMemoryMetricsRepository repository = new InMemoryMemoryMetricsRepository(CrashTestSupport.storageProperties());
         BatchIngestionService ingestion = ingestion(properties, repository);
-        EventEnvelope event = new EventEnvelope(2, "named", "memory_sample", NOW.toEpochMilli(), "session", CrashTestSupport.PROCESS_ID,
+        EventEnvelope event = new EventEnvelope(2, "named", "memory_peak_summary", NOW.toEpochMilli(), "session", CrashTestSupport.PROCESS_ID,
                 "device-named", "com.example.app2", "1.0", 1, "symbol-validation-2026-09-20", "prod", "official", "16", "Pixel",
                 "wifi", null, null, null, null, null, null,
-                new MemorySamplePayload(42L, null, null, "com.example.app2:worker", true,
+                peakSummary(42L, null, null, "com.example.app2:worker", true,
                         "com.example.MainActivity2"));
 
         ingestion.ingest(APP_ID, CrashTestSupport.batch(List.of(event)));
 
         var stored = repository.findByEventId(APP_ID, "named").orElseThrow();
         assertThat(stored.processName()).isEqualTo("com.example.app2:worker");
-        assertThat(stored.scene()).isEqualTo("com.example.MainActivity2");
+        assertThat(stored.payload().pss().scene()).isEqualTo("com.example.MainActivity2");
         assertThat(stored.metadata().buildId()).isEqualTo("symbol-validation-2026-09-20");
     }
 
@@ -175,10 +175,60 @@ class MemoryMetricsTests {
         var trend = query.trend(APP_ID, "pss", "hour", NOW.toString(),
                 NOW.plus(3, java.time.temporal.ChronoUnit.HOURS).toString(), MemoryQueryCommand.empty());
         assertThat(trend.points()).hasSize(3);
-        assertThat(trend.points().get(1).sampleCount()).isZero();
+        assertThat(trend.points().get(1).runCount()).isZero();
         assertThat(trend.points().get(1).p50Bytes()).isNull();
         assertThat(trend.points().get(0).p50Bytes()).isEqualTo(100D);
         assertThat(trend.points().get(2).p50Bytes()).isEqualTo(300D);
+    }
+
+    /** 峰值窗口独立于公共窗口，起点可以早于接收窗口。 */
+    @Test
+    void peakHistoryWindowUsesPersistedEndAndKeepsBoundaryExclusive() {
+        var properties = properties();
+        properties.setMaxFutureSkewMinutes(5);
+        var validator = new MemoryEventValidator(properties, new ObjectMapper(), Clock.fixed(NOW, ZoneOffset.UTC));
+        long boundary = NOW.minusSeconds(90L * 86400).toEpochMilli();
+        validator.validate(peakCommand(boundary + 1));
+        validator.validate(peakCommand(NOW.minusSeconds(8L * 86400).toEpochMilli()));
+        assertThatThrownBy(() -> validator.validate(peakCommand(boundary)))
+                .isInstanceOf(EventValidationException.class).hasMessageContaining("历史窗口");
+        assertThatThrownBy(() -> validator.validate(peakCommand(NOW.plusSeconds(86400).toEpochMilli())))
+                .isInstanceOf(EventValidationException.class).hasMessageContaining("未来窗口");
+        assertThat(properties.getMaxPastDays()).isNotEqualTo(properties.getMaxMemoryPeakPastDays());
+    }
+
+    /** 不同指标上下文筛选互不借用，时间统一按运行截止归属。 */
+    @Test
+    void filtersEachPeakContextAndRetainsOriginalVersion() {
+        var repository = new InMemoryMemoryMetricsRepository(CrashTestSupport.storageProperties());
+        var base = memory("contexts", 200L, 500L, 80L);
+        long end = base.occurredAt();
+        var payload = new MemoryPeakSummaryPayload("com.example.app", end - 86400000, end,
+                new com.shanshui.apmserver.memory.api.MemoryPeak(200L, end - 1000, true, "A"),
+                new com.shanshui.apmserver.memory.api.MemoryPeak(500L, end - 2000, false, null),
+                new com.shanshui.apmserver.memory.api.MemoryPeak(80L, end - 3000, true, "B"));
+        var event = new EventEnvelope(base.schemaVersion(), base.eventId(), base.eventType(), base.occurredAt(),
+                base.sessionId(), base.processId(), base.anonymousDeviceId(), base.packageName(), base.appVersion(),
+                base.versionCode(), base.buildId(), base.environment(), base.channel(), base.osVersion(), base.deviceModel(),
+                base.networkType(), null, null, null, null, null, null, payload);
+        ingestion(properties(), repository).ingest(APP_ID, CrashTestSupport.batch(List.of(event, event)));
+        var query = new MemoryMetricsQueryService(repository, CrashTestSupport.queryProperties(), Clock.fixed(NOW, ZoneOffset.UTC));
+        var response = query.summary(APP_ID, NOW.minusSeconds(60).toString(), NOW.toString(),
+                new MemoryQueryCommand(null, null, null, null, "A", true, null, null));
+        assertThat(response.pss().runCount()).isEqualTo(1);
+        assertThat(response.vss().runCount()).isZero();
+        assertThat(response.javaHeap().runCount()).isZero();
+        assertThat(repository.findByEventId(APP_ID, "contexts").orElseThrow().appVersion()).isEqualTo("1.0");
+    }
+
+    /** 构造长运行补报命令，峰值与起点均可早于历史窗口。 */
+    private com.shanshui.apmserver.memory.api.MemoryIngestCommand peakCommand(long end) {
+        long start = end - 100L * 86400000;
+        var payload = new MemoryPeakSummaryPayload("com.example.app", start, end,
+                new com.shanshui.apmserver.memory.api.MemoryPeak(0L, start, true, null), null, null);
+        return new com.shanshui.apmserver.memory.api.MemoryIngestCommand(2, "history", "memory_peak_summary", end,
+                "session", CrashTestSupport.PROCESS_ID, "device", "com.example.app", "1.0", 1, "build", "prod",
+                "official", "16", "Pixel", null, null, null, payload);
     }
 
     private BatchIngestionService ingestion(IngestConfigurationProperties properties,
@@ -205,9 +255,9 @@ class MemoryMetricsTests {
     }
 
     private EventEnvelope memoryAt(String id, Instant occurredAt, Long pss, Long vss, Long javaHeap) {
-        return new EventEnvelope(2, id, "memory_sample", occurredAt.toEpochMilli(), "session", CrashTestSupport.PROCESS_ID, "device-" + id,
+        return new EventEnvelope(2, id, "memory_peak_summary", occurredAt.toEpochMilli(), "session", CrashTestSupport.PROCESS_ID, "device-" + id,
                 "com.example.app", "1.0", 1, "build", "prod", "official", "16", "Pixel", "wifi", null, null,
-                null, null, null, null, new MemorySamplePayload(pss, vss, javaHeap, "com.example.app", true,
+                null, null, null, null, peakSummaryAt(occurredAt.toEpochMilli(), pss, vss, javaHeap, "com.example.app", true,
                         "com.example.HomeActivity"));
     }
 
@@ -217,12 +267,25 @@ class MemoryMetricsTests {
 
     private void assertStats(MemoryMetricStats value, long count, double average, double p50, double p90,
                              double p95, double p99) {
-        assertThat(value.sampleCount()).isEqualTo(count);
+        assertThat(value.runCount()).isEqualTo(count);
         assertThat(value.averageBytes()).isEqualTo(average);
         assertThat(value.p50Bytes()).isEqualTo(p50);
         assertThat(value.p90Bytes()).isEqualTo(p90);
         assertThat(value.p95Bytes()).isEqualTo(p95);
         assertThat(value.p99Bytes()).isEqualTo(p99);
         assertThat(value.status()).isEqualTo("ok");
+    }
+    /** 使用固定时钟创建单轮测试峰值，便于原有统计夹具复用。 */
+    private MemoryPeakSummaryPayload peakSummary(Long pss, Long vss, Long heap, String process, boolean foreground, String scene) {
+        return peakSummaryAt(NOW.toEpochMilli(), pss, vss, heap, process, foreground, scene);
+    }
+
+    /** 为每项峰值固定独立上下文，并保留测试运行的观测截止。 */
+    private MemoryPeakSummaryPayload peakSummaryAt(long time, Long pss, Long vss, Long heap,
+                                                    String process, boolean foreground, String scene) {
+        return new MemoryPeakSummaryPayload(process, time, time,
+                pss == null ? null : new com.shanshui.apmserver.memory.api.MemoryPeak(pss, time, foreground, scene),
+                vss == null ? null : new com.shanshui.apmserver.memory.api.MemoryPeak(vss, time, foreground, scene),
+                heap == null ? null : new com.shanshui.apmserver.memory.api.MemoryPeak(heap, time, foreground, scene));
     }
 }

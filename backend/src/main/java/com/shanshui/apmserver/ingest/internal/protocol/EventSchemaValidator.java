@@ -21,7 +21,7 @@ public class EventSchemaValidator {
             "schemaVersion", "eventId", "eventType", "occurredAt", "sessionId", "processId", "anonymousDeviceId",
             "packageName", "appVersion", "versionCode", "buildId", "environment", "channel", "osVersion",
             "deviceModel", "networkType", "measurements", "attributes", "crash", "jank",
-            "frameSceneSummary", "foregroundSuspensionSummary", "memorySample");
+            "frameSceneSummary", "foregroundSuspensionSummary", "memoryPeakSummary");
     private static final Set<String> CRASH_FIELDS = Set.of("kind", "fatal", "throwableChain");
     private static final Set<String> THROWABLE_FIELDS = Set.of("type", "message", "frames");
     private static final Set<String> FRAME_FIELDS = Set.of("className", "methodName", "fileName", "lineNumber", "applicationFrame");
@@ -29,8 +29,10 @@ public class EventSchemaValidator {
             "uiRefreshFrameCount", "refreshRateHz", "normalizedFps60", "frameDurationHistogram");
     private static final Set<String> SUSPENSION_FIELDS = Set.of("algorithmVersion", "foregroundDurationMs",
             "suspensionDurationMs", "suspensionCount", "thresholdMs");
-    private static final Set<String> MEMORY_FIELDS = Set.of("pssBytes", "vssBytes", "javaHeapUsedBytes",
-            "processName", "foreground", "scene");
+    /** 运行汇总与单项峰值各自使用严格字段白名单。 */
+    private static final Set<String> MEMORY_FIELDS = Set.of("processName", "collectionStartedAt", "lastSampledAt", "pss", "vss", "javaHeap");
+    /** 每项峰值不能借用其他指标的上下文。 */
+    private static final Set<String> PEAK_FIELDS = Set.of("bytes", "occurredAt", "foreground", "scene");
 
     public void validateBatch(JsonNode root) {
         requireObject(root, "批次");
@@ -69,7 +71,7 @@ public class EventSchemaValidator {
         validateCrash(event.get("crash"));
         validateFrameScene(event.get("frameSceneSummary"));
         validateSuspension(event.get("foregroundSuspensionSummary"));
-        validateMemory(event.get("memorySample"));
+        validateMemory(event.get("memoryPeakSummary"));
     }
 
     private void validateCrash(JsonNode payload) {
@@ -147,14 +149,21 @@ public class EventSchemaValidator {
         if (payload == null || payload.isNull()) {
             return;
         }
-        requireObject(payload, "memorySample");
-        rejectUnknown(payload, MEMORY_FIELDS, "memorySample");
-        requireInteger(payload, "pssBytes");
-        requireInteger(payload, "vssBytes");
-        requireInteger(payload, "javaHeapUsedBytes");
+        requireObject(payload, "memoryPeakSummary");
+        rejectUnknown(payload, MEMORY_FIELDS, "memoryPeakSummary");
         requirePresentText(payload, "processName");
-        requireBoolean(payload, "foreground");
-        requireText(payload, "scene");
+        requireInteger(payload, "collectionStartedAt");
+        requireInteger(payload, "lastSampledAt");
+        for (String metric : new String[]{"pss", "vss", "javaHeap"}) {
+            JsonNode peak = payload.get(metric);
+            if (peak == null || peak.isNull()) continue;
+            requireObject(peak, metric);
+            rejectUnknown(peak, PEAK_FIELDS, metric);
+            requireInteger(peak, "bytes");
+            requireInteger(peak, "occurredAt");
+            requireBoolean(peak, "foreground");
+            requireText(peak, "scene");
+        }
     }
 
     private void validateOptionalObject(JsonNode parent, String name) {

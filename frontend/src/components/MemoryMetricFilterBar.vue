@@ -31,10 +31,10 @@ function submit(): void {
       <div class="field"><label for="memory-os">Android 版本</label><input id="memory-os" v-model="draft.osVersion" /></div>
       <div class="field"><label for="memory-device">设备型号</label><input id="memory-device" v-model="draft.deviceModel" /></div>
       <div class="field"><label for="memory-process">进程名</label><input id="memory-process" v-model="draft.processName" placeholder="例如 com.example.app" /></div>
-      <div class="field"><label for="memory-scene">Activity 名称</label><input id="memory-scene" v-model="draft.scene" placeholder="例如 com.example.HomeActivity" /></div>
-      <div class="field"><label for="memory-foreground">前后台</label><select id="memory-foreground" v-model="draft.foreground"><option value="">全部</option><option value="true">前台</option><option value="false">后台</option></select></div>
+      <div class="field"><label for="memory-scene">峰值时 Activity</label><input id="memory-scene" v-model="draft.scene" placeholder="例如 com.example.HomeActivity" /></div>
+      <div class="field"><label for="memory-foreground">峰值时前后台</label><select id="memory-foreground" v-model="draft.foreground"><option value="">全部</option><option value="true">前台</option><option value="false">后台</option></select></div>
       <div class="field"><label for="memory-interval">趋势粒度</label><select id="memory-interval" v-model="draft.interval"><option value="hour">按小时（UTC）</option><option value="day">按天（UTC）</option></select></div>
     </div>
-    <div class="filter-actions"><span class="subtitle">PSS、VSS、Java 堆按采样字节统计，缺失值不补零</span><button class="button button-primary" type="submit" :disabled="loading">{{ loading ? '查询中…' : '应用筛选' }}</button></div>
+    <div class="filter-actions"><span class="subtitle">PSS、VSS、Java 堆按每轮观测峰值字节统计，缺失值不补零</span><button class="button button-primary" type="submit" :disabled="loading">{{ loading ? '查询中…' : '应用筛选' }}</button></div>
   </form>
 </template>

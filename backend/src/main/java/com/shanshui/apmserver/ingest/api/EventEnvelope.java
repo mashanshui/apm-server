@@ -4,7 +4,7 @@ import com.shanshui.apmserver.crash.api.CrashPayload;
 import com.shanshui.apmserver.jank.api.ForegroundSuspensionSummaryPayload;
 import com.shanshui.apmserver.jank.api.FrameSceneSummaryPayload;
 import com.shanshui.apmserver.jank.api.JankPayload;
-import com.shanshui.apmserver.memory.api.MemorySamplePayload;
+import com.shanshui.apmserver.memory.api.MemoryPeakSummaryPayload;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 
@@ -34,7 +34,7 @@ public record EventEnvelope(
         JankPayload jank,
         FrameSceneSummaryPayload frameSceneSummary,
         ForegroundSuspensionSummaryPayload foregroundSuspensionSummary,
-        MemorySamplePayload memorySample) {
+        MemoryPeakSummaryPayload memoryPeakSummary) {
 
     /**
      * 保留 JVM Crash/启动事件原有构造签名，避免已有客户端和测试因新增互斥载荷字段而破坏编译兼容性。

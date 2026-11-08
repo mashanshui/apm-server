@@ -54,7 +54,8 @@ $schemaFiles = @(
   "005_memory_metrics.sql",
   "006_memory_leak_reports.sql",
   "007_event_process_identity.sql",
-  "008_background_crash_symbolication.sql"
+  "008_background_crash_symbolication.sql",
+  "009_memory_runtime_peaks.sql"
 )
 
 # 任一步失败立即停止，不继续执行后续迁移。

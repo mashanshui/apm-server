@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { createDefaultMemoryMetricFilters, memoryMetricFiltersToQuery, memoryMetricQueryWarning, parseMemoryMetricFilters, toMemoryApiFilters } from './memoryQuery'
 
 describe('memoryQuery', () => {
-  it('从 URL 恢复指标、前后台和分位数，非法值回退默认值', () => {
+  it('从 URL 恢复指标、峰值时前后台和分位数，非法值回退默认值', () => {
     const filters = parseMemoryMetricFilters({ metric: 'invalid', interval: 'day', foreground: 'false', percentile: 'p95' })
     expect(filters.metric).toBe('pss')
     expect(filters.interval).toBe('day')
@@ -10,7 +10,7 @@ describe('memoryQuery', () => {
     expect(filters.percentile).toBe('p95')
   })
 
-  it('将前后台筛选转换为 API 布尔值且不生成 32/64 位参数', () => {
+  it('将峰值时前后台筛选转换为 API 布尔值且不生成 32/64 位参数', () => {
     const filters = { ...createDefaultMemoryMetricFilters(new Date('2026-01-02T00:00:00Z')), foreground: 'true' as const, processName: 'worker' }
     const query = memoryMetricFiltersToQuery(filters)
     const api = toMemoryApiFilters(filters)

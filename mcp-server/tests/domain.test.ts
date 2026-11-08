@@ -8,7 +8,8 @@ import { createProtocolHandler } from '../src/server.js';
 async function withClient(reply: (path: string) => unknown, run: (client: Client) => Promise<void>): Promise<void> {
   const backend = new ApmClient('http://backend.test', async (url) => {
     const path = new URL(url instanceof Request ? url.url : String(url)).pathname;
-    return new Response(JSON.stringify(reply(path)));
+    const result = reply(path);
+    return result instanceof Response ? result : new Response(JSON.stringify(result));
   });
   const handler = createProtocolHandler(backend);
   const transport = new StreamableHTTPClientTransport(new URL('http://test.local/mcp'), {
@@ -85,8 +86,8 @@ test('jank and memory metrics retain quality, units, versions and missing values
       { algorithmVersion: 'fps-v2', p50Fps: 58, p90Fps: 45, p99Fps: 30, status: 'ok' }] };
     if (path.endsWith('/suspension-rate')) return { appId: 'app-a', metrics: [
       { algorithmVersion: 'suspension-v1', suspensionSecondsPerForegroundHour: 120 }], status: 'ok' };
-    return { appId: 'app-a', pss: { sampleCount: 1, averageBytes: 0 },
-      vss: { sampleCount: 0, averageBytes: null }, javaHeap: { sampleCount: 1, averageBytes: 42 },
+    return { appId: 'app-a', pss: { runCount: 1, averageBytes: 0 },
+      vss: { runCount: 0, averageBytes: null }, javaHeap: { runCount: 1, averageBytes: 42 },
       status: 'ok' };
   }, async (client) => {
     const fps = (await client.callTool({ name: 'get_fps', arguments: {} })).structuredContent as
@@ -153,7 +154,7 @@ test('memory process filter is forwarded and unknown tool inputs are rejected', 
   const requests: URL[] = [];
   const backend = new ApmClient('http://backend.test', async (url) => {
     requests.push(new URL(url instanceof Request ? url.url : String(url)));
-    return new Response(JSON.stringify({ appId: 'app-a', status: 'no_data', pss: null }));
+    return new Response(JSON.stringify({ appId: 'app-a', status: 'no_data', pss: { runCount: 0 }, vss: { runCount: 0 }, javaHeap: { runCount: 0 } }));
   });
   const handler = createProtocolHandler(backend);
   const transport = new StreamableHTTPClientTransport(new URL('http://test.local/mcp'), {
@@ -209,4 +210,37 @@ test('crash chunks preserve unicode and reject pending-to-success continuation',
       }
     }
   });
+});
+
+/** 旧采样协议、缺失运行数与非法运行数均不能被投影成正常峰值。 */
+test('memory peak tools reject old and malformed counts without conversion', async () => {
+  for (const invalid of [{ sampleCount: 1 }, { runCount: -1 }, { runCount: 1.5 }, {}]) {
+    await withClient(path => path.endsWith('/summary')
+      ? { pss: invalid, vss: { runCount: 0 }, javaHeap: { runCount: 0 } }
+      : { points: [invalid] }, async client => {
+      for (const name of ['get_memory_summary', 'get_memory_trend']) {
+        const result = await client.callTool({ name, arguments: {} });
+        assert.equal(result.isError, true);
+        assert.match(JSON.stringify(result.content), /QUERY_BACKEND_INVALID_RESPONSE/);
+      }
+    });
+  }
+});
+
+/** 内存专属输入长度与错误语义沿用真实后端，不影响其他工具字段。 */
+test('memory tools preserve current input bounds and retryable errors', async () => {
+  await withClient(() => ({ pss: { runCount: 0 }, vss: { runCount: 0 }, javaHeap: { runCount: 0 } }), async client => {
+    const accepted = await client.callTool({ name: 'get_memory_summary', arguments: { scene: 'a'.repeat(128), processName: 'p'.repeat(256) } });
+    assert.notEqual(accepted.isError, true);
+    const rejected = await client.callTool({ name: 'get_memory_summary', arguments: { scene: 'a'.repeat(129) } });
+    assert.equal(rejected.isError, true);
+  });
+  for (const [status, code] of [[401, 'QUERY_TOKEN_INVALID'], [503, 'EVENT_STORE_UNAVAILABLE']]) {
+    await withClient(() => new Response(JSON.stringify({ code }), { status: Number(status) }), async client => {
+      const failure = await client.callTool({ name: 'get_memory_summary', arguments: {} });
+      assert.equal(failure.isError, true);
+      assert.match(JSON.stringify(failure.content), new RegExp(String(code)));
+      assert.equal(failure.structuredContent, undefined);
+    });
+  }
 });

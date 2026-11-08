@@ -158,7 +158,12 @@ public class BatchIngestionService implements EventIngestionService {
                 || "foreground_suspension_summary".equals(event.eventType()));
     }
 
+    /** 按事件类型分派，互斥载荷错误只拒绝对应事件。 */
     private SignalIngestResult processEvent(java.util.UUID appId, EventEnvelope event, Instant receivedAt) {
+        // 其他领域不能悄悄忽略运行峰值载荷，避免数据被错误归类。
+        if (event != null && event.memoryPeakSummary() != null && !"memory_peak_summary".equals(event.eventType())) {
+            throw new EventValidationException(List.of(new ValidationIssue("INVALID_MEMORY_PAYLOAD", "峰值载荷必须匹配事件类型")));
+        }
         if (event != null && "jank".equals(event.eventType())) {
             throw new EventValidationException(List.of(
                     new ValidationIssue("JANK_ARTIFACT_REQUIRED",
@@ -173,18 +178,18 @@ public class BatchIngestionService implements EventIngestionService {
                     event.deviceModel(), event.networkType(), event.measurements(), event.attributes(),
                     event.frameSceneSummary(), event.foregroundSuspensionSummary()), receivedAt);
         }
-        if (event != null && "memory_sample".equals(event.eventType())) {
-            if (event.memorySample() == null || event.crash() != null || event.jank() != null
+        if (event != null && "memory_peak_summary".equals(event.eventType())) {
+            if (event.memoryPeakSummary() == null || event.crash() != null || event.jank() != null
                     || event.frameSceneSummary() != null || event.foregroundSuspensionSummary() != null) {
                 throw new EventValidationException(List.of(
-                        new ValidationIssue("INVALID_MEMORY_PAYLOAD", "memory_sample 事件必须且只能携带 memorySample 载荷")));
+                        new ValidationIssue("INVALID_MEMORY_PAYLOAD", "memory_peak_summary 事件必须且只能携带 memoryPeakSummary 载荷")));
             }
             return memoryProcessor.ingest(appId, new MemoryIngestCommand(
                     event.schemaVersion(), event.eventId(), event.eventType(), event.occurredAt(),
                     event.sessionId(), event.processId(), event.anonymousDeviceId(), event.packageName(), event.appVersion(),
                     event.versionCode(), event.buildId(), event.environment(), event.channel(), event.osVersion(),
                     event.deviceModel(), event.networkType(), event.measurements(), event.attributes(),
-                    event.memorySample()), receivedAt);
+                    event.memoryPeakSummary()), receivedAt);
         }
         CrashIngestCommand command = event == null ? null : new CrashIngestCommand(
                 event.schemaVersion(), event.eventId(), event.eventType(), event.occurredAt(), event.sessionId(),

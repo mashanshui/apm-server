@@ -1,147 +1,60 @@
 # 内存指标上传与查询 API
 
-本文是 PSS、VSS、Java 堆首版服务端契约。客户端队列、采样实现和重试调度见[内存指标上传接入](../client-integration/memory-metrics.md)。
+本文维护当前服务端运行期观测峰值契约；Performance配套实现与用户指定Pixel_6模拟器联合验收已通过，范围见[统一验收](../validation/memory-runtime-peaks/README.md)。接入步骤见[客户端接入](../client-integration/memory-metrics.md)。旧 `memory_sample` 已停止接收，不转换旧样本或混入新统计；内存泄漏报告保持独立。
 
 ## 批量上传
 
-复用 `POST /ingest/v1/batches`，不新增内存专用上传路由。请求可以是 JSON 或 gzip 压缩的 JSON：
-
-```http
-POST /ingest/v1/batches
-Content-Type: application/json
-Content-Encoding: gzip       # 未压缩时省略或使用 identity
-X-App-Key: <应用上报 Key>
-X-Schema-Version: 2
-```
-
-请求体外层固定为 `{"requestId":"批次请求 ID","events":[...]}`；下面的对象放在 `events` 数组中，`measurements` 和 `attributes` 可为空对象或省略：
+复用 `POST /ingest/v1/batches`，`X-App-Key` 和 `X-Schema-Version: 2`，Content-Type 为 application/json，支持原有 gzip。外层 `requestId/events` 不变，事件格式如下（固定时间用于测试，实际请求应使用原运行真实时间）：
 
 ```json
 {
   "schemaVersion": 2,
-  "eventId": "memory-20260908-0001",
-  "eventType": "memory_sample",
-  "occurredAt": 1788854400000,
-  "sessionId": "session-01",
+  "eventId": "22222222-2222-4222-8222-222222222222",
+  "eventType": "memory_peak_summary",
+  "occurredAt": 1794013200000,
+  "sessionId": "11111111-1111-4111-8111-111111111111",
   "processId": "11111111-1111-4111-8111-111111111111",
-  "anonymousDeviceId": "device-hash-input",
-  "packageName": "com.example.app",
-  "appVersion": "3.2.0",
-  "versionCode": 320,
-  "buildId": "build-320",
-  "environment": "production",
-  "channel": "official",
-  "osVersion": "16",
-  "deviceModel": "Pixel-8",
-  "networkType": "wifi",
-  "measurements": {},
-  "attributes": {},
-  "memorySample": {
-    "pssBytes": 73400320,
-    "vssBytes": 157286400,
-    "javaHeapUsedBytes": 25165824,
-    "processName": "com.example.app",
-    "foreground": true,
-    "scene": "com.example.HomeActivity"
+  "anonymousDeviceId": "33333333-3333-4333-8333-333333333333",
+  "packageName": "com.shanshui.performance",
+  "appVersion": "1.0-test", "versionCode": 1, "buildId": "memory-peak-test-build",
+  "environment": "test", "channel": "local", "osVersion": "13", "deviceModel": "test-device",
+  "memoryPeakSummary": {
+    "processName": "com.shanshui.performance",
+    "collectionStartedAt": 1794009600000,
+    "lastSampledAt": 1794013200000,
+    "pss": {"bytes": 200, "occurredAt": 1794009610000, "foreground": true, "scene": "com.shanshui.performance.MainActivity"},
+    "vss": {"bytes": 500, "occurredAt": 1794009620000, "foreground": false},
+    "javaHeap": {"bytes": 80, "occurredAt": 1794009630000, "foreground": true, "scene": "com.shanshui.performance.MainActivity"}
   }
 }
 ```
 
-### 字段规则
+公共身份、版本、buildId、环境与渠道均来自原运行；processId 必须为标准连字符 UUID v4，不从上传进程推断。packageName 与 Key 不匹配仍整批拒绝。occurredAt 必须等于 lastSampledAt，二者都不是上传或退出时间。
 
-| 字段 | 类型 | 规则 |
-|---|---|---|
-| `eventType` | string | 固定为 `memory_sample` |
-| `occurredAt` | integer | 采样时刻 Unix 毫秒；查询按它过滤和分桶 |
-| `eventId` | string | 同一事件重试必须保持不变；服务端按 `appId + eventId` 去重 |
-| `processId` | string | 必填标准连字符 UUID v4；不能填 Android 数值 PID，重试和补传保持原值 |
-| `packageName` | string | 必须与 `X-App-Key` 绑定的应用包名一致；不一致整批拒绝 |
-| `pssBytes` | integer/null | 进程 PSS，0 至 `9007199254740991`；可缺失 |
-| `vssBytes` | integer/null | 进程虚拟地址空间，0 至 `9007199254740991`；可缺失 |
-| `javaHeapUsedBytes` | integer/null | Java 堆已使用字节，0 至 `9007199254740991`；可缺失 |
-| `processName` | string | 必填，1 至 256 字符；作为结构化进程标识符精确匹配，包名和进程名中的数字会原样保留 |
-| `foreground` | boolean | 必填，表示采样时前台状态 |
-| `scene` | string/null | 可选；采样时当前应用的 Activity 名称，提供时非空且最长 128 字符，作为结构化名称精确匹配 |
+## 峰值规则
 
-三项指标至少提供一项非 null。零是有效测量；缺失或 null 不会被改成零，也不参与该指标的统计。一个事件只能携带 `memorySample`，不能同时携带 `crash`、`jank`、`frameSceneSummary` 或 `foregroundSuspensionSummary`。服务端不接受客户端平均值、分位数或跨进程求和字段。
+- processName 必填，长度1..256；collectionStartedAt/lastSampledAt 为非负 Unix 毫秒，前者不晚于后者。
+- pss/vss/javaHeap 为独立峰值对象，至少一项非null。每项必填bytes、occurredAt、foreground，可选scene；不能借用另一项的上下文。
+- bytes 为0..9007199254740991整数。PSS/VSS转换为字节；Java堆为totalMemory-freeMemory。真实零保留，读取失败不补零。
+- 单项occurredAt必须位于采集区间内。scene为当时Activity名称，提供时非空且最长128字符。
+- 字段/类型边界严格，未知字段或类型错误沿用批次400；合法结构的业务校验错误沿用事件级永久拒绝；互斥专属载荷不得混用。
+- 历史窗口独立使用 `apm.ingest.max-memory-peak-past-days`，默认90天，接收时要求 `now-90d < lastSampledAt`；恰好90天/更早为EVENT_TIME_TOO_OLD。其他事件窗口不变。运行起点/单项峰值可早于窗口。
+- 未来容差沿用公共配置，超出为EVENT_TIME_IN_FUTURE。峰值时间不能超过截止。
 
-`javaHeapUsedBytes` 的客户端口径是 `Runtime.totalMemory() - Runtime.freeMemory()`；它不表示最大堆或累计分配量。PSS/VSS 在客户端转换为字节后上传，服务端不接收 KB、MiB 字符串或单位字段。
+## 确认和重试
 
-批次响应沿用既有部分接受格式：合法事件计入 `accepted`，重复事件计入 `duplicate`，单条永久校验错误计入 `rejected` 并在 `errors` 中返回 `retryable=false`。批内包名错误、无效 App Key 和批次结构错误不会写入任何内存事件。
+沿用批次HTTP200及accepted/rejected/duplicate/errors语义，eventId在封存及重试中不变。按appId/eventId去重，持久化完成后才能accepted；重复事件返回duplicate，不改写原记录。网络异常、408/429/5xx、存储503及可重试错误保留原事件退避；永久错误隔离，不能用修改ID/时间重传规避。
 
-缺失、空值、数值 PID 或非 v4 的 `processId` 属于事件级永久错误；服务端不随机补值。存量 ClickHouse 记录没有进程列时，查询只返回缺失值语义，不影响已有统计分母和聚合维度。
+## 概览和趋势
 
-## 概览
+保留 `/api/v1/apps/{appId}/memory-metrics/summary` 和 `/trend`，要求Session及应用查看权限；App Key不能查询。Agent沿用其独立Token授权。
 
-```http
-GET /api/v1/apps/{appId}/memory-metrics/summary?from=2026-09-08T00:00:00Z&to=2026-09-09T00:00:00Z&processName=com.example.app&foreground=true
-Cookie: SESSION=<登录会话>
-```
+默认最近24小时、最长31天，UTC `[from,to)` 按原lastSampledAt归属；一轮只落入一个截止小时/日桶，跨日运行不展开，上传时间不移动桶。metric仅pss/vss/java_heap，interval仅hour/day，默认pss/hour。筛选包含from/to、appVersion、osVersion、deviceModel、processName、scene、foreground及现有limit/timeoutMs资源参数；未知参数拒绝。
 
-查询需要登录 Session 和目标应用成员查看权限；`X-App-Key` 只用于上报，不能作为查询凭据。默认时间范围是最近 24 小时，最大 31 天；时间区间为 `[from,to)`。
+版本/设备/进程使用原元数据，scene/foreground分别匹配每项峰值。summary三个指标的有效运行数可能不同。各项响应使用 `runCount`（无sampleCount别名）、averageBytes、p50Bytes、p90Bytes、p95Bytes、p99Bytes、status；顶层保留appId/from/to/status/dataSource。趋势点保留bucketStart/bucketEnd及同样统计字段。
 
-响应示例：
+每轮每项只贡献一个峰值，算术平均与线性插值 `h=(n-1)*p` 不按设备/时长加权。四轮0/100/200/300得到runCount=4、平均/P50=150、P90=270、P95=285、P99=297。空项/空桶为runCount=0、统计null、status=no_data，真实0不变。前端按1048576换算MiB，不重算概览。
 
-```json
-{
-  "appId": "11111111-1111-1111-1111-111111111111",
-  "from": "2026-09-08T00:00:00Z",
-  "to": "2026-09-09T00:00:00Z",
-  "pss": {
-    "sampleCount": 4,
-    "averageBytes": 150,
-    "p50Bytes": 150,
-    "p90Bytes": 270,
-    "p95Bytes": 285,
-    "p99Bytes": 297,
-    "status": "ok"
-  },
-  "vss": { "sampleCount": 4, "averageBytes": 25, "p50Bytes": 25, "p90Bytes": 37, "p95Bytes": 38.5, "p99Bytes": 39.7, "status": "ok" },
-  "javaHeap": { "sampleCount": 4, "averageBytes": 6.5, "p50Bytes": 6.5, "p90Bytes": 7.7, "p95Bytes": 7.85, "p99Bytes": 7.97, "status": "ok" },
-  "status": "ok",
-  "dataSource": "clickhouse"
-}
-```
+## 存储与边界
 
-`pss`、`vss`、`javaHeap` 各自统计筛选后、去重后的非缺失样本。平均值为算术平均；升序样本 `x[0..n-1]` 的分位数使用 `h=(n-1)*p` 线性插值，`p` 分别为 0.50、0.90、0.95、0.99。没有有效值时 `sampleCount=0`、统计值为 null、该指标 `status=no_data`。不同进程不会被相加成应用总内存。
-
-## 趋势
-
-```http
-GET /api/v1/apps/{appId}/memory-metrics/trend?metric=pss&interval=hour&from=2026-09-08T00:30:00Z&to=2026-09-08T03:15:00Z
-```
-
-`metric` 只接受 `pss`、`vss`、`java_heap`；`interval` 只接受 `hour`、`day`，缺省分别为 `pss`、`hour`。响应一次返回全部分位数，页面切换 P50/P90/P95/P99 不需要重新上传数据：
-
-```json
-{
-  "appId": "11111111-1111-1111-1111-111111111111",
-  "from": "2026-09-08T00:30:00Z",
-  "to": "2026-09-08T03:15:00Z",
-  "metric": "pss",
-  "interval": "hour",
-  "points": [
-    { "bucketStart": "2026-09-08T00:00:00Z", "bucketEnd": "2026-09-08T01:00:00Z", "sampleCount": 1, "averageBytes": 100, "p50Bytes": 100, "p90Bytes": 100, "p95Bytes": 100, "p99Bytes": 100, "status": "ok" },
-    { "bucketStart": "2026-09-08T01:00:00Z", "bucketEnd": "2026-09-08T02:00:00Z", "sampleCount": 0, "averageBytes": null, "p50Bytes": null, "p90Bytes": null, "p95Bytes": null, "p99Bytes": null, "status": "no_data" }
-  ],
-  "status": "ok",
-  "dataSource": "memory"
-}
-```
-
-趋势按采样时间的 UTC 小时或 UTC 日边界分桶，返回与查询区间相交的桶；无样本桶补 `sampleCount=0` 和 null，前端折线断开。概览不由趋势桶再次聚合。
-
-概览和趋势共同支持 `from`、`to`、`appVersion`、`osVersion`、`deviceModel`、`processName`、`scene`、`foreground`。文本为精确匹配；`foreground` 只能是 `true` 或 `false`。服务端拒绝未知参数、非法 metric/interval、`from>=to`、超过 31 天、非法布尔值和超出超时上限的请求。内存没有多维下钻接口，也没有 32/64 位、FD 触顶率、对比列表或导出参数。
-
-## 错误和重试
-
-| HTTP/错误 | 是否重试 | 说明 |
-|---|---|---|
-| 200，事件级 `errors` | 否（`retryable=false`） | 单条字段、载荷或 Schema 错误；只移除对应永久失败事件 |
-| 400 | 否 | 批次结构、查询参数或 Schema 错误 |
-| 401/403 | 否 | App Key 无效、未登录或无应用成员权限 |
-| 413 | 否 | 请求或解压内容超过上限 |
-| 503 `EVENT_STORE_UNAVAILABLE` | 是 | 存储不可用，响应带 `Retry-After: 30`；不能当作 accepted 或 no_data |
-| 网络中断、408、429 或其他 5xx | 是 | 保留原批次和原 `eventId`，按退避重试 |
-
-服务端当前使用同步写入；`dataSource` 仅标识内存或 ClickHouse 适配器。内存模式重启会丢失数据，ClickHouse 模式依赖迁移脚本和 `FINAL` 查询获得最终去重视图。详见[内存固定数据集](../datasets/memory-fixed-dataset.md)。
+新表 `apm_memory_peak_summary` 使用009迁移，原表保留但不参与新统计；默认TTL为截止时间后90天。持久查询在数据库完成去重、筛选和聚合，并使用平台扫描/内存/时间/响应预算，资源失败明确报错，不伪装no_data。内存验证模式重启丢失数据；十万目标运行混合集及Pixel_6/真实HTTP联合验证见[验收入口](../validation/memory-runtime-peaks/README.md)，不代表生产容量或物理真机覆盖。

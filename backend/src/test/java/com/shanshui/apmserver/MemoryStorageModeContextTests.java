@@ -49,6 +49,13 @@ class MemoryStorageModeContextTests {
     @Configuration(proxyBeanMethods = false)
     static class TestDependencies {
 
+        /** 存储适配器使用与生产相同的资源预算配置。 */
+        @Bean
+        com.shanshui.apmserver.platform.api.QueryProperties queryProperties() {
+            return new com.shanshui.apmserver.platform.api.QueryProperties();
+        }
+
+
         @Bean
         ObjectMapper objectMapper() {
             return new ObjectMapper();

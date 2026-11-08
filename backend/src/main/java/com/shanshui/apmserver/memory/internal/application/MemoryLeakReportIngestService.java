@@ -14,7 +14,7 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantLock;
 
-/** 统一编排报告校验、附件持久化和事件幂等；报告不会进入 memory_sample。 */
+/** 统一编排报告校验、附件持久化和事件幂等；报告不会进入 memory_peak_summary。 */
 @Service
 public class MemoryLeakReportIngestService {
     private final MemoryLeakReportParser parser;

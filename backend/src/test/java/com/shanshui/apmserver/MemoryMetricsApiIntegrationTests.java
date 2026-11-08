@@ -70,11 +70,11 @@ class MemoryMetricsApiIntegrationTests extends AppIngestApiTestSupport {
                         .param("foreground", "true")
                         .session(session))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.pss.sampleCount").value(2))
+                .andExpect(jsonPath("$.pss.runCount").value(2))
                 .andExpect(jsonPath("$.pss.averageBytes").value(50.0))
                 .andExpect(jsonPath("$.pss.p50Bytes").value(50.0))
-                .andExpect(jsonPath("$.vss.sampleCount").value(2))
-                .andExpect(jsonPath("$.javaHeap.sampleCount").value(1));
+                .andExpect(jsonPath("$.vss.runCount").value(2))
+                .andExpect(jsonPath("$.javaHeap.runCount").value(1));
 
         mockMvc.perform(MockMvcRequestBuilders.get(path + "/trend")
                         .param("metric", "pss")
@@ -91,7 +91,7 @@ class MemoryMetricsApiIntegrationTests extends AppIngestApiTestSupport {
                 .andExpect(jsonPath("$.metric").value("pss"))
                 .andExpect(jsonPath("$.interval").value("hour"))
                 .andExpect(jsonPath("$.status").value("ok"))
-                .andExpect(jsonPath("$.points[0].sampleCount").value(2));
+                .andExpect(jsonPath("$.points[0].runCount").value(2));
     }
 
     @Test
@@ -183,6 +183,24 @@ class MemoryMetricsApiIntegrationTests extends AppIngestApiTestSupport {
         }
     }
 
+    /** 旧类型永久拒绝，未知字段/错误类型保持整批原子拒绝。 */
+    @Test
+    void rejectsOldSamplesAndMalformedPeakSchema() throws Exception {
+        String event = memoryJson("schema-check", System.currentTimeMillis(), 1, null, null, true);
+        mockMvc.perform(MockMvcRequestBuilders.post("/ingest/v1/batches").header("X-App-Key", appKey())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"requestId\":\"old\",\"events\":[" + event.replace("memory_peak_summary", "memory_sample") + "]}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.rejected").value(1));
+        for (String invalid : java.util.List.of(event.replace("\"bytes\":1", "\"bytes\":1.5"),
+                event.replace("\"bytes\":1", "\"unknown\":1,\"bytes\":1"))) {
+            mockMvc.perform(MockMvcRequestBuilders.post("/ingest/v1/batches").header("X-App-Key", appKey())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"requestId\":\"invalid\",\"events\":[" + invalid + "]}"))
+                    .andExpect(status().isBadRequest());
+        }
+        org.assertj.core.api.Assertions.assertThat(repository.findByEventId(appId(), "schema-check")).isEmpty();
+    }
+
     private MockHttpSession loginAndCreateDemoApp() throws Exception {
         MvcResult login = mockMvc.perform(MockMvcRequestBuilders.post("/api/v1/auth/login")
                         .with(SecurityMockMvcRequestPostProcessors.csrf())
@@ -197,14 +215,21 @@ class MemoryMetricsApiIntegrationTests extends AppIngestApiTestSupport {
         String pssValue = Long.toString(pss);
         String vssValue = vss == null ? "null" : vss.toString();
         String javaValue = javaHeap == null ? "null" : javaHeap.toString();
-        return "{\"schemaVersion\":2,\"eventId\":\"" + eventId + "\",\"eventType\":\"memory_sample\","
+        return "{\"schemaVersion\":2,\"eventId\":\"" + eventId + "\",\"eventType\":\"memory_peak_summary\","
                 + "\"occurredAt\":" + occurredAt + ",\"sessionId\":\"memory-session\",\"processId\":\"11111111-1111-4111-8111-111111111111\","
                 + "\"anonymousDeviceId\":\"memory-device\",\"packageName\":\"com.example.app\","
                 + "\"appVersion\":\"1.0\",\"versionCode\":1,\"buildId\":\"build\","
                 + "\"environment\":\"production\",\"channel\":\"official\",\"osVersion\":\"16\","
-                + "\"deviceModel\":\"Pixel\",\"networkType\":\"wifi\",\"memorySample\":{"
-                + "\"pssBytes\":" + pssValue + ",\"vssBytes\":" + vssValue
-                + ",\"javaHeapUsedBytes\":" + javaValue + ",\"processName\":\"com.example.app\","
-                + "\"foreground\":" + foreground + ",\"scene\":\"com.example.HomeActivity\"}}";
+                + "\"deviceModel\":\"Pixel\",\"networkType\":\"wifi\",\"memoryPeakSummary\":{"
+                + "\"processName\":\"com.example.app\",\"collectionStartedAt\":" + occurredAt
+                + ",\"lastSampledAt\":" + occurredAt
+                + ",\"pss\":" + peakJson(pss, occurredAt, foreground)
+                + ",\"vss\":" + peakJson(vss, occurredAt, foreground)
+                + ",\"javaHeap\":" + peakJson(javaHeap, occurredAt, foreground) + "}}";
+    }
+    /** 生成合法单项峰值，缺失指标不补零。 */
+    private String peakJson(Number bytes, long at, boolean foreground) {
+        return bytes == null ? "null" : "{\"bytes\":" + bytes + ",\"occurredAt\":" + at
+                + ",\"foreground\":" + foreground + ",\"scene\":\"com.example.HomeActivity\"}";
     }
 }

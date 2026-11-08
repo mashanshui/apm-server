@@ -21,7 +21,7 @@ class MemoryMetricsSqlTests {
     @Test
     void summaryUsesFinalAndIndependentNullableAggregates() {
         String sql = ClickHouseMemoryMetricsQuerySql.selectSummary(FILTER);
-        assertThat(sql).contains("FROM apm_memory_sample FINAL")
+        assertThat(sql).contains("FROM apm_memory_peak_summary FINAL")
                 .contains("event_time >= '2026-09-08 00:30:00.000'")
                 .contains("event_time < '2026-09-08 03:15:00.000'")
                 .contains("app_version = '3.2.0'")

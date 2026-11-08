@@ -1,5 +1,7 @@
 # APM 查询 MCP 工具 API
 
+内存指标查询返回运行期观测峰值分布和runCount，按最后持久化采样时间归属，scene/foreground分别匹配各指标峰值上下文；下次启动补报后才可见，不兼容sampleCount别名。客户端联合验收仍待完成。内存工具要求合法非负整数runCount，拒绝sampleCount旧结果及缺失/非法计数；scene最长128、processName/版本/系统/机型最长256字符，趋势metric只支持pss/vss/java_heap。实际HTTP一致性与错误验证见[独立验收](../validation/memory-runtime-peaks/README.md)。
+
 独立 TypeScript 服务在 /mcp 提供 Streamable HTTP，客户端需支持手工设置 Authorization: Bearer <应用查询Token>。每个 MCP HTTP 请求先调用固定 Java 后端的 /api/agent/v1/application 验证身份，工具查询再由后端重新验证。服务不接收客户端指定的后端 URL，不持有数据库账号，也不执行写入、SQL、HPROF 解析或任意网络访问。
 
 | 工具 | 对应 HTTP 路由 |

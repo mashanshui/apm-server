@@ -4,7 +4,7 @@ export type MemoryPercentile = 'p50' | 'p90' | 'p95' | 'p99'
 export type MemoryStatus = 'ok' | 'no_data' | string
 
 export interface MemoryMetricStats {
-  sampleCount: number
+  runCount: number
   averageBytes: number | null
   p50Bytes: number | null
   p90Bytes: number | null
@@ -27,7 +27,7 @@ export interface MemoryMetricsSummaryResponse {
 export interface MemoryTrendPoint {
   bucketStart: string
   bucketEnd: string
-  sampleCount: number
+  runCount: number
   averageBytes: number | null
   p50Bytes: number | null
   p90Bytes: number | null

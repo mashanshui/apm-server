@@ -6,7 +6,7 @@ import java.time.Instant;
 public record MemoryTrendPoint(
         Instant bucketStart,
         Instant bucketEnd,
-        long sampleCount,
+        long runCount,
         Double averageBytes,
         Double p50Bytes,
         Double p90Bytes,
@@ -15,7 +15,7 @@ public record MemoryTrendPoint(
         String status) {
 
     public static MemoryTrendPoint from(Instant bucketStart, Instant bucketEnd, MemoryMetricStats stats) {
-        return new MemoryTrendPoint(bucketStart, bucketEnd, stats.sampleCount(), stats.averageBytes(),
+        return new MemoryTrendPoint(bucketStart, bucketEnd, stats.runCount(), stats.averageBytes(),
                 stats.p50Bytes(), stats.p90Bytes(), stats.p95Bytes(), stats.p99Bytes(), stats.status());
     }
 }

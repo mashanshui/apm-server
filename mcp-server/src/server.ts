@@ -70,8 +70,14 @@ export function createProtocolHandler(client: ApmClient) {
     for (const [name, template, keys] of tools) {
       const shape: Record<string, z.ZodType> = {};
       for (const key of keys) shape[key] = fields[key];
+      // 内存查询字段边界与当前Java接口一致，不扩大其他领域的输入范围。
+      if (name === 'get_memory_summary' || name === 'get_memory_trend') {
+        for (const key of ['appVersion', 'osVersion', 'deviceModel', 'processName']) shape[key] = z.string().max(256).optional();
+        shape.scene = z.string().max(128).optional();
+        if (name === 'get_memory_trend') shape.metric = z.enum(['pss', 'vss', 'java_heap']).optional();
+      }
       server.registerTool(name, {
-        description: `只读 APM 查询；对应 ${template}。UTC 时间窗默认最近 24 小时、最长 31 天，返回后端原有统计单位及空值。`,
+        description: `只读 APM 查询；对应 ${template}。UTC 时间窗默认最近 24 小时、最长 31 天，返回后端原有统计单位及空值。` + (name === "get_memory_summary" || name === "get_memory_trend" ? "内存为每轮观测峰值分布，runCount表示有效运行数，下次启动补报，按最后持久化采样时间归属；scene/foreground分别匹配各项峰值。" : ""),
         inputSchema: z.strictObject(shape), outputSchema,
         annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true }
       }, async (input) => {
@@ -134,6 +140,7 @@ function prepare(template: string, args: Record<string, unknown>): { path: strin
 /** 详情按 UTF-8 字节进行可重建分片，续读绑定当前内容 SHA-256。 */
 function project(name: string, body: unknown, query: Record<string, string>, args: Record<string, unknown>) {
   if (name === 'get_crash_event') requireCurrentCrash(body);
+  if (name === 'get_memory_summary' || name === 'get_memory_trend') requireRuntimePeaks(name, body);
   // 列表只支持当前归组与状态，不隐式接受旧后端。
   if (name === 'list_crash_issues' || name === 'list_crash_events') {
     const rows = isRecord(body) ? body[name === 'list_crash_issues' ? 'issues' : 'events'] : undefined;
@@ -200,4 +207,16 @@ function requireCurrentCrash(body: unknown): void {
       || !Array.isArray(stack.content.throwableChain) || !stack.content.throwableChain.length
       || stack.content.throwableChain.some((node) => !isRecord(node) || typeof node.type !== 'string'
         || !Array.isArray(node.frames) || !node.frames.length)) return invalid();
+}
+
+/** 内存运行数属于当前协议，旧采样结果或缺失数量必须明确拒绝。 */
+function requireRuntimePeaks(name: string, body: unknown): void {
+  /** 单项只检验计数边界，字节/null与状态保持后端原值。 */
+  const valid = (value: unknown): boolean => isRecord(value) && !('sampleCount' in value)
+    && Number.isSafeInteger(value.runCount) && Number(value.runCount) >= 0;
+  if (!isRecord(body) || (name === 'get_memory_summary'
+      ? !['pss', 'vss', 'javaHeap'].every(key => valid(body[key]))
+      : !Array.isArray(body.points) || !body.points.every(valid))) {
+    throw new ApmError('QUERY_BACKEND_INVALID_RESPONSE', 503, false);
+  }
 }

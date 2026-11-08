@@ -156,3 +156,13 @@ Aggregating
 | 网页/Agent 一致、页上限、400/408/422/503、MCP 显式续页 | AgentQueryApiIntegrationTests、AgentJankQueryErrorTests、AuthenticationHttpPostgresTests、mcp-server/tests/tools.test.ts |
 
 这些测试共同覆盖本变更六份规格；独立生产质量及容量没有据此提升为已验收。
+
+## 内存运行峰值查询边界
+
+`MemoryPeakQueryBudgetTests` 使用独立ClickHouse 26.7.3.19，写入十万目标运行和其他应用/历史月份共二十万噪声记录。目标PSS峰值为0..99999，runCount=100000，平均/P50=49999.5，P90=89999.1；VSS/Java堆缺失保持0运行/null统计。应用SQL在数据库聚合，概览仅返回一行，最长31天非整点小时窗填充745桶。
+
+FINAL查询必须显式限定相交月份，并启用`do_not_merge_across_partitions_select_final=1`，因为合法eventId的截止时间不会随补报变化。缺少该设置时本固定集读取二十万行；启用后只读取目标十万行。EXPLAIN确认月份与应用裁剪；测试把计划和system.query_log测量写入build目录，复验不依赖手抄SQL。一次测量耗时约7ms、峰值查询内存约10MiB，仅描述本合成分布，不能外推生产并发。
+
+扫描行数=1、内存=1024字节、响应=1字节时均明确返回QUERY_RESOURCE_LIMIT；1ms预算返回QUERY_TIMEOUT。SQL使用毫秒精度预算，不再向上取整到一秒。真实Servlet专项进一步验证HTTP 422/503，不把错误包装成空统计。持久化测试停止后台合并并写入物理重复行验证FINAL去重。
+
+复验命令与HTTP/MCP/网页证据只维护在[服务端独立验收](../../../docs/validation/memory-runtime-peaks/README.md)。这些结果不证明数据库服务器重启、灾难恢复、多实例写入原子性、完整生产容量或真实Android链路。

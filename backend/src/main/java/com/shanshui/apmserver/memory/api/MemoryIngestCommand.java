@@ -22,5 +22,5 @@ public record MemoryIngestCommand(
         String networkType,
         Map<String, Object> measurements,
         Map<String, Object> attributes,
-        MemorySamplePayload memorySample) {
+        MemoryPeakSummaryPayload memoryPeakSummary) {
 }
