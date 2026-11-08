@@ -2,7 +2,7 @@
 
 ## 项目与规则入口
 
-本文件适用于全仓库。后端遵循 [backend/AGENTS.md](backend/AGENTS.md)，前端遵循 [frontend/AGENTS.md](frontend/AGENTS.md)；跨端任务同时遵循两者，构建与测试命令见对应规则。共享脚本、跨端文档和部署材料保留在根目录，架构参考见 [Android APM 技术方案](Android_APM服务端与Dashboard技术方案.md)。
+本文件适用于全仓库。后端遵循 [backend/AGENTS.md](backend/AGENTS.md)，前端遵循 [frontend/AGENTS.md](frontend/AGENTS.md)，Android 遵循 [android/AGENTS.md](android/AGENTS.md)；跨端任务遵循涉及工程的规则，构建与测试命令见对应入口。各工程独立构建，统一使用根 OpenSpec 与根技能。共享脚本、跨端文档和部署材料保留在根目录，架构参考见 [Android APM 技术方案](Android_APM服务端与Dashboard技术方案.md)。
 
 ## 共用开发原则
 
@@ -23,6 +23,7 @@
 | [根知识库](docs/knowledge-base/README.md) | 平台目标、架构、跨端约定、领域模型、可靠性、安全、测试、路线图与决策 |
 | [后端知识库](backend/docs/knowledge-base/README.md) | 后端内部实现、构建、存储、安全、测试与专项性能、数据库证据 |
 | [前端知识库](frontend/docs/knowledge-base/README.md) | 页面、路由、状态管理、联调、测试与部署边界 |
+| [Android 知识库](android/docs/knowledge-base/README.md) | SDK 内部实现、示例应用、独立构建、测试与发布验证 |
 | [API 文档](docs/api/README.md) | 已发布 HTTP 契约、字段、错误语义与统计口径 |
 | [客户端接入](docs/client-integration/README.md) | Android 事件构造、持久化、批量上传、重试与接入 |
 | [文档导航](docs/README.md) | 分类入口；不重复维护平台状态或完整契约 |

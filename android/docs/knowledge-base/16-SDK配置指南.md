@@ -9,6 +9,8 @@ Crash 默认使用服务端要求的 schema v2 和 `packageName` 字段，详见
 [服务端协议](09-服务端对接与数据协议.md)。上传事件的 `packageName`
 始终来自 Application 包名；`applicationPackage` 只用于异常堆栈中的应用帧判断。
 
+示例应用和独立消费者的构建签名使用本机 `performance.signing.*` 属性或未跟踪的 `.signing/signing.properties`，四个字段及证书保留方式见[本地签名](11-构建测试与本地发布.md#当前工程入口与本地签名)。这些构建参数不属于 SDK 运行配置，不进入 `PerformanceConfig`。
+
 ## 1. 最小初始化
 
 > 统一初始化入口位于 `performance-sdk`，精简接入可直接依赖对应功能模块。
@@ -442,5 +444,4 @@ KOOM 的 `mHasDumped` 是进程级状态：第一次 `dumpAndAnalysis()` 设置�
 监控循环或手动触发都会被跳过，最多执行一次 HPROF dump/analysis 尝试。SDK 的 stop、close
 和初始化回滚不会重置该标记。当前工程只上传 `metadata` 和 report JSON，不上传或解析 HPROF。
 report 使用独立持久队列，服务端返回 `accepted`/`duplicate` 后删除队列项；队列默认 2 MiB
-report 上限、20 MiB 配额、7 天保留和 10 次重试。字段和错误语义以外部检出仓库
-`F:/IdeaProjects/apm-server/docs/api/memory-leak-reports-api.md` 为准。
+report 上限、20 MiB 配额、7 天保留和 10 次重试。字段和错误语义以[平台内存报告 API](../../../docs/api/memory-leak-reports-api.md)为准。

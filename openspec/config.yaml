@@ -1,4 +1,13 @@
 schema: spec-driven
+context: |
+  本仓库管理 Android APM 平台：backend/ 是 Java 21 / Spring Boot 独立工程，
+  frontend/ 是 Vue/TypeScript，mcp-server/ 是独立 TypeScript 工程，android/ 是
+  Android Performance 工程。各工程保留各自构建配置，根目录没有聚合 Gradle settings。
+  Android Studio 打开 android/；平台根执行 Android 命令使用
+  bash android/gradlew -p android，后端使用 bash backend/gradlew -p backend。
+  OpenSpec 与 .agents/skills/ 只维护根目录一套。平台架构与共同样例归根 docs/，
+  Android 内部实现与测试说明归 android/docs/knowledge-base/；公开契约归 docs/api/，
+  客户端接入步骤归 docs/client-integration/。遵守根与所涉工程 AGENTS.md，文档使用中文。
 
 # Project context (optional)
 # This is shown to AI when creating artifacts.

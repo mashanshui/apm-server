@@ -75,11 +75,11 @@ Run `a7c41ebf-0916-4b1e-a15b-c23102678e5c` 第一次执行成功，结论 ROOT_C
 
 ## 新增样本入口（2026-10-01）
 
-Performance 独立测试页增加主动异常、空指针、数组越界、运行时状态异常和异步外部输入异常。后两项由人工输入模拟状态/响应，同一异常分支不包含实际输入；它们用于检验分析是否承认实际输入及上游来源缺失。完整堆栈保持原 SDK 采集规则，不人为截断。该页面在 Debug/Release 中可用，签名和 SDK 上传契约不变。源码与操作说明见外部检出的 [Performance 示例应用](../../../../../AndroidStudioProjects/Performance/docs/knowledge-base/10-示例应用与调试路径.md)；该链接依赖同级外部仓库。
+Performance 独立测试页增加主动异常、空指针、数组越界、运行时状态异常和异步外部输入异常。后两项由人工输入模拟状态/响应，同一异常分支不包含实际输入；它们用于检验分析是否承认实际输入及上游来源缺失。完整堆栈保持原 SDK 采集规则，不人为截断。该页面在 Debug/Release 中可用，签名和 SDK 上传契约不变。源码与操作说明见外部检出的 [Performance 示例应用](../../../android/docs/knowledge-base/10-示例应用与调试路径.md)；该链接依赖同级外部仓库。
 
 新增页面、构建及设备烟测与五例模型质量验收分别记录。当前未把新增源码登记为已有固定提交，不以旧 HEAD 指代尚未提交的改动；未将新测试的存在计为质量样本通过。
 
-页面增量验证：Performance 应用 JVM 测试 6/6、Crash 页面 Release 仪器测试 3/3 通过；Android 10 设备上五类未捕获异常分别触发成功，其中外部输入异常发生在命名后台线程。Release APK 已沿用现有签名更新安装。此次新增样本尚未逐例核验服务端 eventId，也未执行正式模型质量评估；具体构建身份和截图见外部检出的 [Performance 构建测试](../../../../../AndroidStudioProjects/Performance/docs/knowledge-base/11-构建测试与本地发布.md)。
+页面增量验证：Performance 应用 JVM 测试 6/6、Crash 页面 Release 仪器测试 3/3 通过；Android 10 设备上五类未捕获异常分别触发成功，其中外部输入异常发生在命名后台线程。Release APK 已沿用现有签名更新安装。此次新增样本尚未逐例核验服务端 eventId，也未执行正式模型质量评估；具体构建身份和截图见外部检出的 [Performance 构建测试](../../../android/docs/knowledge-base/11-构建测试与本地发布.md)。
 
 ## 五例续跑首次阻塞记录（后续已解除）
 

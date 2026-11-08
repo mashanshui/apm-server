@@ -2,7 +2,7 @@
 
 执行顺序：**服务端阶段 S → 本文件阶段 C（1..5）→ 两边共同阶段 J（第6组）**。按实际实现与验证逐项勾选；本仓库独立阶段只操作 Performance，不代勾服务端或提前归档。
 
-开始前读取 [服务端共同协议和J1..J7矩阵](../../../../../../IdeaProjects/apm-server/openspec/changes/archive/2026-11-08-report-memory-runtime-peaks/design.md) 与 [服务端任务](../../../../../../IdeaProjects/apm-server/openspec/changes/archive/2026-11-08-report-memory-runtime-peaks/tasks.md)（外部检出依赖）。服务端阶段S交接后再切换客户端协议；本仓库只维护本地实现与测试，不重复定义共同字段表。
+开始前读取 [服务端共同协议和J1..J7矩阵](../2026-11-08-report-memory-runtime-peaks/design.md) 与 [服务端任务](../2026-11-08-report-memory-runtime-peaks/tasks.md)（原为外部检出，现为仓库内引用）。服务端阶段S交接后再切换客户端协议；本仓库只维护本地实现与测试，不重复定义共同字段表。
 
 ## 1. 阶段 C：峰值模型与累计
 

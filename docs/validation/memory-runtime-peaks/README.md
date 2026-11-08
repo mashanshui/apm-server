@@ -4,7 +4,7 @@
 
 源码基线为 `031686fac9a8486e0e1dcb967130e4c0c75f3d89` 加本工作区 `report-memory-runtime-peaks` 未提交变更；规划入口为[服务端任务](../../../openspec/changes/archive/2026-11-08-report-memory-runtime-peaks/tasks.md)。后续复验应记录实际提交版本，不能只沿用此处基线。
 
-两端已于2026-11-08完成verify和归档，正式规格已同步。核验报告：[服务端](../../../openspec/changes/archive/2026-11-08-report-memory-runtime-peaks/verification.md)、[客户端](../../../../../AndroidStudioProjects/Performance/openspec/changes/archive/2026-11-08-report-memory-runtime-peaks/verification.md)（外部检出依赖）。服务端无阻塞问题，有1项增强页签专门自动化覆盖的建议；客户端无问题。归档仅整理规格和证据，没有重新执行设备实验、提交Git或部署。
+两端已于2026-11-08完成verify和归档，正式规格已同步。核验报告：[服务端](../../../openspec/changes/archive/2026-11-08-report-memory-runtime-peaks/verification.md)、[客户端](../../../openspec/changes/archive/2026-11-08-report-memory-runtime-peaks-android/verification.md)（仓库内引用）。服务端无阻塞问题，有1项增强页签专门自动化覆盖的建议；客户端无问题。归档仅整理规格和证据，没有重新执行设备实验、提交Git或部署。
 
 ## 协议与共享样例
 
@@ -74,7 +74,7 @@ Vitest的模拟响应只作为组件/状态测试；以上三个视口截图没�
 | J4 升级归属 | A2 在封存中断后覆盖安装 B/code2，实际上传和入库仍是 A/code1 的 buildId/sessionId/processId。B 的 current 为新 ID，始终无请求且未入库 |
 | J5 一致查询 | 原 A1/A2 的三项峰值逐字段对齐 ClickHouse；按各自前后台/场景独立计算均值、P50/P90/P95/P99和 UTC 桶，与 HTTP/Agent/官方 MCP 一致。共同五轮固定集仍证明 PSS=4、平均150、P95=285及旧表隔离。网页三指标均为2轮，P95切换、后台无数据和恢复全部筛选均通过 |
 | J6 契约/故障 | HTTP 复验8天接受、90天过期和未来拒绝、部分指标及真实0、非法身份400、错误包名403/Key401、旧类型400；其他事件仍按7天拒绝。真实存储失败上报/查询503，恢复后accepted/duplicate；恰好90天及前1毫秒的精确边界由固定时钟单元测试证明 |
-| J7 采样开销 | 复核客户端已完成的八段各10分钟实验和完整采集/比较/可靠写盘路径，确定前台10秒/后台30秒；唯一性能结果与原始实验入口见[客户端测试页](../../../../../AndroidStudioProjects/Performance/docs/knowledge-base/11-构建测试与本地发布.md#运行期内存峰值验证) |
+| J7 采样开销 | 复核客户端已完成的八段各10分钟实验和完整采集/比较/可靠写盘路径，确定前台10秒/后台30秒；唯一性能结果与原始实验入口见[客户端测试页](../../../android/docs/knowledge-base/11-构建测试与本地发布.md#运行期内存峰值验证) |
 
 ![真实 SDK 与隔离后端页面](../../../frontend/docs/knowledge-base/evidence/memory-runtime-peaks-joint.jpg)
 
@@ -84,7 +84,7 @@ Vitest的模拟响应只作为组件/状态测试；以上三个视口截图没�
 
 ## 联合验收复验工具
 
-[联合工具](../../../scripts/verify-memory-runtime-peaks.py)由真实 HTTP 专项通过标准输入传入临时应用授权，配合 Performance 的 `MemoryJointPreparationTest` 与 Debug 专属 `MemoryJointStartupFault` 驱动用户指定的 Pixel_6 模拟器。需提前启动该 AVD，并保证 `emulator-5554` 对应它，两个仓库位于当前相邻检出位置，且 `android`、`adb` 在 PATH 中。
+[联合工具](../../../scripts/verify-memory-runtime-peaks.py)由真实 HTTP 专项通过标准输入传入临时应用授权，配合 Performance 的 `MemoryJointPreparationTest` 与 Debug 专属 `MemoryJointStartupFault` 驱动用户指定的 Pixel_6 模拟器。需提前启动该 AVD，并保证 `emulator-5554` 对应它，客户端位于平台仓库 `android/`（默认）；显式其他检出可设置 `PERFORMANCE_PROJECT_DIR`，且 `android`、`adb` 在 PATH 中。
 
 ```bash
 npm --prefix mcp-server run build

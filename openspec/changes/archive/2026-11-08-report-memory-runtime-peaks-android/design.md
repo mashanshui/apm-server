@@ -4,7 +4,7 @@
 
 动机见 [proposal.md](proposal.md)。当前 `MemoryReporter.captureAndPersist()` 每次生成一个样本并调用 `flushAsync()`；`MemoryEventStore` 只有不可变 events/dead-letter，TTL 按入队时间；`RuntimeIdentityProvider` 在 SDK close 后仍保留同一进程身份。采样已有独立串行线程，上传另有线程，前后台默认 60 秒/5 分钟，读取与生命周期代码可复用。
 
-共同协议、90 天边界、固定样例、执行阶段和 J1..J7 验收矩阵只维护在 [服务端 design.md](../../../../../../IdeaProjects/apm-server/openspec/changes/archive/2026-11-08-report-memory-runtime-peaks/design.md)（外部检出依赖）。本仓库只实现客户端职责，不替服务端勾选任务。与已有知识库“每次采样立即上传”的差异是本次目标，不代表已实现。
+共同协议、90 天边界、固定样例、执行阶段和 J1..J7 验收矩阵只维护在 [服务端 design.md](../2026-11-08-report-memory-runtime-peaks/design.md)（原为外部检出，现为仓库内引用）。本仓库只实现客户端职责，不替服务端勾选任务。与已有知识库“每次采样立即上传”的差异是本次目标，不代表已实现。
 
 ## Goals / Non-Goals
 
@@ -78,7 +78,7 @@ current 是一份可更新的完整快照，events 是已封存的不可变事�
 
 ### 8. 已采用的默认频率与独立验证结论
 
-客户端阶段 C 根据 Pixel_6/API 35/arm64-v8a 的八段各 10 分钟实验，采用前台 10 秒、后台 30 秒。完整结果、构建与中断补测条件只维护于[知识库11](../../../../docs/knowledge-base/11-构建测试与本地发布.md#运行期内存峰值验证)，不复制表格。93项JVM、4项设备独立回归及Debug/Release构建已通过；主线程心跳是顺序实验分位数，功耗、真实绘制帧因果及跨ROM未验证。用户指定Pixel6模拟器的共同J1..J7已通过，实际启动中断、升级、故障网络和三类查询入口证据仅维护于[统一验收](../../../../../../IdeaProjects/apm-server/docs/validation/memory-runtime-peaks/README.md)。两端已于2026-11-08完成核验、正式规格同步与归档，见[核验报告](verification.md)。
+客户端阶段 C 根据 Pixel_6/API 35/arm64-v8a 的八段各 10 分钟实验，采用前台 10 秒、后台 30 秒。完整结果、构建与中断补测条件只维护于[知识库11](../../../../android/docs/knowledge-base/11-构建测试与本地发布.md#运行期内存峰值验证)，不复制表格。93项JVM、4项设备独立回归及Debug/Release构建已通过；主线程心跳是顺序实验分位数，功耗、真实绘制帧因果及跨ROM未验证。用户指定Pixel6模拟器的共同J1..J7已通过，实际启动中断、升级、故障网络和三类查询入口证据仅维护于[统一验收](../../../../docs/validation/memory-runtime-peaks/README.md)。两端已于2026-11-08完成核验、正式规格同步与归档，见[核验报告](verification.md)。
 
 ## Risks / Trade-offs
 

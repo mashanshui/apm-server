@@ -2,7 +2,7 @@
 
 执行顺序：**阶段 S（本文件1..5）→ 阶段 C（Performance 同名变更1..5）→ 阶段 J（两边第6组）**。按实际实现和验证逐项勾选；未满足全部验证条件的任务保持未完成。每次 apply 只执行本仓库已满足前置条件的项；完成S即可交接，不能自动跨仓库实施或提前归档。
 
-共同协议、固定样例和J1..J7见 [design.md](design.md)；[客户端任务](../../../../../../AndroidStudioProjects/Performance/openspec/changes/archive/2026-11-08-report-memory-runtime-peaks/tasks.md) 为外部检出依赖。协议变化须同步两边规划及样例，不能单边修改字段后继续实现。
+共同协议、固定样例和J1..J7见 [design.md](design.md)；[客户端任务](../2026-11-08-report-memory-runtime-peaks-android/tasks.md) 为原跨仓库依赖，现已迁入同一仓库。协议变化须同步两边规划及样例，不能单边修改字段后继续实现。
 
 ## 1. 阶段 S：批量峰值协议与校验
 

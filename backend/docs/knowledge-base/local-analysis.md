@@ -16,6 +16,8 @@ Run 使用稳定 requestId；报告版本 4 绑定 evidenceId/runId，不返回 
 
 宿主从当前目录或明确 --project 选择 Git 项目，直接搜索/读取，用户明确要求修复时编辑和测试。Python 0.5.0 不遍历或复制源码，只管理配置、冻结证据、租约、报告核对和回传。源码片段由宿主提供，提交时有界检查当前位置，CURRENT_MATCH/CURRENT_DIFFERENT/UNAVAILABLE 不证明实际读取或历史 APK 对应关系。repair/verification 均为 HOST_REPORTED，SUCCEEDED 只表示报告保存，不能证明修复或测试成功。
 
+Android 合仓后，从 `android/` 启动工具仍定位平台 Git 根；宿主对 Android 任务限定在该工程搜索、修改和测试，报告源码引用使用 `android/performance-.../...` 的根相对路径。构建在 Android 工程目录执行，或从平台根使用 `bash android/gradlew -p android ...`。统一使用根技能，内层不保留旧 Python search/read/apply 工具；Git 根定位语义和证据/报告契约不变。
+
 localToolsStopped 与 hostStopState 分开；UNKNOWN 继续阻止重试/领取。管理员必须实际核验本次宿主分析结束再确认，不能以模型回答代替。工具停止不回退工作区，不执行 reset/clean。配置、看护与恢复见[Worker](../../../agent-skills/apm-crash-analyze/worker/README.md)。
 
 ## 内容保留与协调切换

@@ -28,9 +28,9 @@ import urllib.parse
 import urllib.request
 import uuid
 
-# 当前仓库、相邻 Android 检出和固定测试包，不访问业务环境。
+# 当前仓库、内置 Android 工程和固定测试包，不访问业务环境。
 ROOT = Path(__file__).resolve().parents[1]
-CLIENT = Path(os.environ.get('PERFORMANCE_PROJECT_DIR', ROOT.parents[1] / 'AndroidStudioProjects' / 'Performance'))
+CLIENT = Path(os.environ.get('PERFORMANCE_PROJECT_DIR', ROOT / 'android'))
 PACKAGE = 'com.shanshui.performance'
 MEMORY = 'no_backup/performance-memory-reporter'
 BUILD = ROOT / 'backend/build'

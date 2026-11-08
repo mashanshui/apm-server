@@ -33,5 +33,5 @@
 - 前端：内存 API/类型、筛选、卡片、趋势与测试；MCP 内存工具说明、结果校验及测试。
 - 文档：平台知识库、后端知识库、前端知识库、`docs/api/memory-metrics-api.md`、`docs/client-integration/memory-metrics.md` 及固定数据集。
 - 来源：[梳理内存信息上报逻辑](codex://threads/01a1b4cb-05cf-7280-b105-3285b76c59b7)。上述为目标设计，当前代码仍是普通采样，历史测试不构成本变更验收。
-- 客户端配套：[Performance 同名变更](../../../../../../AndroidStudioProjects/Performance/openspec/changes/archive/2026-11-08-report-memory-runtime-peaks/proposal.md)（外部检出依赖）。共同协议与联合验收唯一正文放在本变更 [design.md](design.md)，客户端引用；各自只执行本仓库任务。
+- 客户端配套：[Performance 同名变更](../2026-11-08-report-memory-runtime-peaks-android/proposal.md)（原为外部检出，现为仓库内引用）。共同协议与联合验收唯一正文放在本变更 [design.md](design.md)，客户端引用；各自只执行本仓库任务。
 - 顺序：先完成本仓库独立实现与自动化，再完成客户端独立实现与自动化，最后联合测试；联合测试前两边均不归档，详见 [tasks.md](tasks.md)。

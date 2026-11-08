@@ -8,13 +8,13 @@
 
 | 当前位置 | 已核对的问题 | 处理方向 |
 | --- | --- | --- |
-| [PerformanceSdk](../../../../performance-sdk/src/main/java/com/shanshui/performance/PerformanceSdk.kt) | 直接引用 Rhea 类型、判断 KOOM 分析进程、编排所有 Reporter | 通用运行时下沉，入口仅负责默认装配 |
-| [PerformanceComponentFactory](../../../../performance-core/src/main/java/com/shanshui/performance/core/PerformanceComponent.kt) | 从 CrashReporter 获取设备 ID，从 MemoryReporter 借用进程判断 | 公共工具移入 Core，各功能公开小型装配入口 |
-| [FileCrashQueue](../../../../performance-crash/src/main/java/com/shanshui/performance/crash/FileCrashQueue.kt) | 定义的 AtomicFileWriter 被 Jank、FPS、Memory、Leak 复用 | 原子文件操作移入 Core，队列保留在功能模块 |
-| [FpsReporter](../../../../performance-metrics/src/main/java/com/shanshui/performance/fps/FpsReporter.kt) 与 [MemoryReporter](../../../../performance-metrics/src/main/java/com/shanshui/performance/memory/MemoryReporter.kt) | 依赖 Crash 包中的 AndroidNetworkTypeProvider | 网络类型判断移入 Core |
-| [NetworkClientFactory](../../../../performance-transport/src/main/java/com/shanshui/performance/network/TransportSession.kt) | 集中持有并创建所有业务客户端 | Transport 仅持有共享 HTTP 设施 |
-| [NativeServiceConfig](../../../../performance-sdk/src/main/java/com/shanshui/performance/PerformanceConfig.kt) | 汇集各功能开关、间隔、配额并引用总配置 | 拆成共享配置和各功能配置 |
-| [构建脚本](../../../../performance-sdk/build.gradle.kts) | 同时声明 Rhea、KOOM、ShadowHook、CMake 和 ABI | 三类原生依赖分归功能所有者 |
+| [PerformanceSdk](../../../../android/performance-sdk/src/main/java/com/shanshui/performance/PerformanceSdk.kt) | 直接引用 Rhea 类型、判断 KOOM 分析进程、编排所有 Reporter | 通用运行时下沉，入口仅负责默认装配 |
+| [PerformanceComponentFactory](../../../../android/performance-core/src/main/java/com/shanshui/performance/core/PerformanceComponent.kt) | 从 CrashReporter 获取设备 ID，从 MemoryReporter 借用进程判断 | 公共工具移入 Core，各功能公开小型装配入口 |
+| [FileCrashQueue](../../../../android/performance-crash/src/main/java/com/shanshui/performance/crash/FileCrashQueue.kt) | 定义的 AtomicFileWriter 被 Jank、FPS、Memory、Leak 复用 | 原子文件操作移入 Core，队列保留在功能模块 |
+| [FpsReporter](../../../../android/performance-metrics/src/main/java/com/shanshui/performance/fps/FpsReporter.kt) 与 [MemoryReporter](../../../../android/performance-metrics/src/main/java/com/shanshui/performance/memory/MemoryReporter.kt) | 依赖 Crash 包中的 AndroidNetworkTypeProvider | 网络类型判断移入 Core |
+| [NetworkClientFactory](../../../../android/performance-transport/src/main/java/com/shanshui/performance/network/TransportSession.kt) | 集中持有并创建所有业务客户端 | Transport 仅持有共享 HTTP 设施 |
+| [NativeServiceConfig](../../../../android/performance-sdk/src/main/java/com/shanshui/performance/PerformanceConfig.kt) | 汇集各功能开关、间隔、配额并引用总配置 | 拆成共享配置和各功能配置 |
+| [构建脚本](../../../../android/performance-sdk/build.gradle.kts) | 同时声明 Rhea、KOOM、ShadowHook、CMake 和 ABI | 三类原生依赖分归功能所有者 |
 
 当前 Rhea 已由 `implementation` 引入，示例 App 显式声明 Rhea 依赖；知识库 01 中仍有旧 `api` 表述。实施时以源码为基准更新文档，不能把旧表述当成现状。当前示例 `testBuildType` 为 `release`，且 Release 开启混淆；仪器验证应使用实际生成的 Release 测试任务。
 

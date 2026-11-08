@@ -11,6 +11,7 @@
 | 页面、路由、状态管理、联调和测试 | [前端知识库](../frontend/docs/knowledge-base/README.md) |
 | HTTP 请求响应、错误语义和统计口径 | [服务端 API](api/README.md) |
 | Android 事件构造、上传、持久队列和重试 | [客户端接入](client-integration/README.md) |
+| Android SDK 源码、模块、构建与本地发布 | [Android 知识库](../android/docs/knowledge-base/README.md) |
 | 启停、部署、SSH、ClickHouse 和 Grafana | [部署与运维资料](operations/README.md) |
 | 固定样本及人工计算的统计期望 | [固定数据集](datasets/README.md) |
 | 带日期、环境与限制的跨端验收证据 | [验收资料](validation/README.md) |

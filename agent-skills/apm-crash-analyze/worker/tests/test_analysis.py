@@ -27,6 +27,25 @@ def model_result():
             'unknowns': [], 'risks': [], 'fixSuggestions': [], 'validationSuggestions': []}
 
 
+@pytest.mark.parametrize('current,expected', [('fun current() = 7', 'CURRENT_MATCH'), ('fun current() = 8', 'CURRENT_DIFFERENT')])
+def test_android_prefixed_reference_uses_current_report_and_preserves_workspace(tmp_path, current, expected):
+    """报告以平台根相对 Android 路径核对当前引用，保持文件与索引原样。"""
+    from test_source import workspace
+    root = workspace(tmp_path)  # 实际 Git 根；假证据不访问平台。
+    source = root / 'android/performance-metrics/src/main/Current.kt'  # 当前未提交源码。
+    source.parent.mkdir(parents=True)
+    source.write_text(current + '\n')
+    index = (root / '.git/index').read_bytes()  # 回传核对不得修改索引。
+    result = model_result()  # 现有版本 4 的合成报告。
+    result['sourceRefs'] = [{'path': 'android/performance-metrics/src/main/Current.kt', 'startLine': 1, 'endLine': 1, 'snippet': 'fun current() = 7'}]
+    checked = validated(json.dumps(result), EVIDENCE, root, RUN)  # 只核对当前片段。
+    assert checked['schemaVersion'] == 4
+    assert checked['sourceRefs'][0]['path'] == result['sourceRefs'][0]['path']
+    assert checked['sourceRefs'][0]['currentCheck'] == expected
+    assert source.read_text() == current + '\n'
+    assert (root / '.git/index').read_bytes() == index
+
+
 @pytest.mark.parametrize('format', ['raw_chain', 'retrace_text'])
 def test_only_current_single_stack_evidence_is_supported(tmp_path, format):
     """原始与固定还原材料均支持，同一任务只有 crash-stack 一个片段。"""

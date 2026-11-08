@@ -93,7 +93,7 @@
 
 ## 工程与知识库边界
 
-仓库根目录负责平台架构、跨端约定、共同数据集与统一开发入口。`backend/` 和 `frontend/` 是并列独立工程。
+仓库根目录负责平台架构、跨端约定、共同数据集与统一开发入口。`backend/`、`frontend/`、`mcp-server/` 和 `android/` 是并列独立工程；Android 内部实现、构建及设备验证见 [Android 知识库](../../android/docs/knowledge-base/README.md)。各端统一使用根 OpenSpec 与根 `.agents/skills/`，Android Studio 单独打开 `android/`。
 
 | 入口 | 唯一维护范围 |
 |---|---|

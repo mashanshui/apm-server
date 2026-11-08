@@ -21,7 +21,7 @@ Android 上报 X-App-Key 只用于接收入口，不能调用 [Agent 查询 HTTP
 
 客户端首次安装生成并持久化安装级 UUID v4 `anonymousDeviceId`，所有进程共用；每次应用启动生成新的 UUID v4 `sessionId`。主进程的 `processId` 使用本次 `sessionId`，子进程每次创建生成新的 UUID v4，不能使用 Android 数值 PID 或进程名称。事件、ZIP 和报告进入本地队列时必须冻结这三个字段；跨启动补传沿用原字段，不能按上传时进程重写。
 
-服务端会永久拒绝缺失、空值、数值 PID 和非 v4 `processId`，不会随机补值。内存泄漏报告的 `sessionId` 继续可选，其他现有入口的 `sessionId` 规则不变。当前 Android SDK 尚未在本仓库实现，生命周期和持久队列须由外部 producer/SDK 交付并用真实设备验收。
+服务端会永久拒绝缺失、空值、数值 PID 和非 v4 `processId`，不会随机补值。内存泄漏报告的 `sessionId` 继续可选，其他现有入口的 `sessionId` 规则不变。Android SDK 源码现位于本仓库 `android/`，内部生命周期、持久队列和测试边界见 [Android 知识库](../../android/docs/knowledge-base/README.md)；源码归入仓库不扩大现有真机或端到端验收范围。
 
 ## 应用 Key 获取与绑定
 

@@ -1,5 +1,9 @@
 # 项目协作指南
 
+本文件适用于平台仓库 `android/`，与[平台根规则](../AGENTS.md)共同生效。Android Studio 打开本目录，以下未特别说明的工程路径相对本目录；平台根执行命令使用 `bash android/gradlew -p android ...`。OpenSpec 和技能统一由平台根目录维护，不在 Android 内创建第二套入口。
+
+Android 崩溃分析沿用根当前技能：从本目录启动仍以平台 Git 根为项目根，报告源码引用带 `android/` 前缀；宿主只在用户指定的 Android 范围内修改，验证命令明确选择本工程目录。参考[当前分析边界](../backend/docs/knowledge-base/local-analysis.md)。
+
 ## 知识库入口
 
 - [知识库导航与阅读路径](docs/knowledge-base/README.md)

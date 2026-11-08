@@ -4,7 +4,7 @@
 
 动机及跨仓库范围见 [proposal.md](proposal.md)。当前 `EventSchemaValidator`、`BatchIngestionService` 和 `MemoryEventValidator` 只识别 `memory_sample`；`005_memory_metrics.sql`、双存储适配器和 `ClickHouseMemoryMetricsQuerySql` 保存并统计单次样本。现有概览/趋势、前端类型及 MCP 仍使用 `sampleCount`，历史接收窗口默认 7 天。本设计与当前实现存在上述有意差异，实施前不将目标写成已实现事实。
 
-配套客户端：[设计](../../../../../../AndroidStudioProjects/Performance/openspec/changes/archive/2026-11-08-report-memory-runtime-peaks/design.md)、[任务](../../../../../../AndroidStudioProjects/Performance/openspec/changes/archive/2026-11-08-report-memory-runtime-peaks/tasks.md)（外部检出依赖）。本文件是本次共同协议、固定样例和联合验收的唯一正文；客户端不维护第二份协议表。未来归档时必须更新两端互链到实际归档路径。
+配套客户端：[设计](../2026-11-08-report-memory-runtime-peaks-android/design.md)、[任务](../2026-11-08-report-memory-runtime-peaks-android/tasks.md)（原为外部检出，现为仓库内引用）。本文件是本次共同协议、固定样例和联合验收的唯一正文；客户端不维护第二份协议表。未来归档时必须更新两端互链到实际归档路径。
 
 ## Goals / Non-Goals
 
@@ -94,7 +94,7 @@ Agent HTTP 共用业务查询；MCP `get_memory_summary/get_memory_trend` 保留
 }
 ```
 
-共用固定数据在实施阶段更新到 `docs/datasets/memory-fixed-dataset.md` 及关联 fixture，客户端从同一规范构造契约测试，引用需标明外部检出依赖：
+共用固定数据在实施阶段更新到 `docs/datasets/memory-fixed-dataset.md` 及关联 fixture，客户端从同一规范构造契约测试，引用按归档时的跨仓库关系标注，当前链接已迁入本仓库：
 
 | 用例 | 输入/预期 |
 |---|---|
@@ -139,4 +139,4 @@ Agent HTTP 共用业务查询；MCP `get_memory_summary/get_memory_trend` 保留
 
 ## Open Questions
 
-客户端阶段 C 已通过八段各十分钟的候选/基线实验，选定前台 10 秒、后台 30 秒，完整路径及频率结果唯一入口为[客户端测试页](../../../../../../AndroidStudioProjects/Performance/docs/knowledge-base/11-构建测试与本地发布.md#运行期内存峰值验证)。此选择不改变 wire 契约；模拟器主线程心跳为顺序实验，未测真机功耗和绘制帧因果。
+客户端阶段 C 已通过八段各十分钟的候选/基线实验，选定前台 10 秒、后台 30 秒，完整路径及频率结果唯一入口为[客户端测试页](../../../../android/docs/knowledge-base/11-构建测试与本地发布.md#运行期内存峰值验证)。此选择不改变 wire 契约；模拟器主线程心跳为顺序实验，未测真机功耗和绘制帧因果。

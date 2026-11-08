@@ -122,8 +122,8 @@ internal class MemoryEventStore(
         val protectedId = currentEvent()?.eventId
         /** 与原批次一致的稳定入队顺序。 */
         val order = compareBy<MemoryQueueItem> { it.record.createdAtMillis }.thenBy { it.record.event.eventId }
-        /** 最大堆淘汰最晚候选，内存中始终最多一批完整事件。 */
-        val selected = PriorityQueue(limit, order.reversed())
+        /** 交换比较参数形成最大堆，兼容 API 21，最多保留一批完整事件。 */
+        val selected = PriorityQueue(limit, Comparator<MemoryQueueItem> { first, second -> order.compare(second, first) })
         listEvents().forEach { file ->
             /** 逐个读取，未被选中的完整 JSON 对象不留在列表中。 */
             val item = readRecord(file) ?: return@forEach

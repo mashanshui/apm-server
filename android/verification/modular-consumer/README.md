@@ -4,7 +4,7 @@
 
 ## 执行方式
 
-在仓库根目录先执行 `.\gradlew.bat publishToMavenLocal`，将本次新坐标制品写入验证仓库，再构建消费者：
+从平台根执行 `bash android/gradlew -p android publishToMavenLocal`，将本次制品写入 Maven Local。进入 Android 目录后可继续使用以下 Windows 入口：
 
 ```powershell
 $env:GRADLE_USER_HOME = (Join-Path (Get-Location) '.gradle-local')
@@ -13,7 +13,9 @@ $env:GRADLE_USER_HOME = (Join-Path (Get-Location) '.gradle-local')
   --no-daemon --console=plain --system-prop=kotlin.daemon.enabled=false
 ```
 
-`performance.repo` 指向本轮 `publishToMavenLocal` 的验证仓库；Rhea 和 KOOM 等本地第三方传递依赖从用户 Maven Local 只读解析。Release 变体启用 R8，消费者工程仅为本地验证复用 `app/sign` 测试签名，不包含发布凭据。
+`performance.repo` 指向本轮 `publishToMavenLocal` 的验证仓库；Rhea 和 KOOM 等本地第三方传递依赖从用户 Maven Local 只读解析。可用 `-Pperformance.version=<独立验证版本>` 同时指定发布与消费者版本，默认仍为 `1.0.0`。消费者使用已发布 Maven 制品，不引用 SDK 源码。
+
+Release 变体启用 R8。Debug/Release 消费者签名读取与示例 App 相同的四个 `performance.signing.*` Gradle 属性，回退到 Android 工程未跟踪的 `.signing/signing.properties`；证书路径必须为绝对路径，完整配置缺失时签名任务失败。仅复用原测试证书，本地配置与证书不进入版本控制，配置占位示例见[构建指南](../../docs/knowledge-base/11-构建测试与本地发布.md#当前工程入口与本地签名)。
 
 ## 验证边界
 

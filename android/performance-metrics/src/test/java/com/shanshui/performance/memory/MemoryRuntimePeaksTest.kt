@@ -14,13 +14,13 @@ import org.junit.Test
 
 /** 共同契约、独立累计、可靠替换、跨轮封存及确认的确定性回归。 */
 class MemoryRuntimePeaksTest {
-    /** 共同样例直接读取外部检出唯一源，字段漂移即使客户端往返自洽也会失败。 */
+    /** 共同样例直接读取平台唯一源，字段漂移即使客户端往返自洽也会失败。 */
     @Test fun sharedFixtureRoundTripHasOnlyPeakPayload() {
-        /** 共同契约在外部配套检出中的首选路径。 */
-        val fixture = File("../../IdeaProjects/apm-server/docs/fixtures/memory-runtime-peaks.json")
-        /** 当前工作目录下可读取的唯一共同样例。 */
-        val source = if (fixture.exists()) fixture else File("../../../IdeaProjects/apm-server/docs/fixtures/memory-runtime-peaks.json")
-        assertTrue("需要配套 apm-server 检出", source.isFile)
+        /** Gradle 从 Android 工程位置注入平台共同样例，不猜测外部仓库布局。 */
+        val source = File(checkNotNull(System.getProperty("performance.sharedMemoryFixture")) {
+            "需要 Gradle 注入平台共同内存样例位置"
+        })
+        assertTrue("平台共同内存样例不存在", source.isFile)
         /** 用于检查字段类型的 JSON 树。 */
         val json = JsonParser.parseString(source.readText())
         /** 本轮原身份及独立峰值的完整信封。 */

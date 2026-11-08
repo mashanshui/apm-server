@@ -63,3 +63,19 @@ def test_project_missing_or_relative_fails(tmp_path):
         project_root(Path('relative'))
     with pytest.raises(SourceBlocked, match='PROJECT_NOT_FOUND'):
         project_root(tmp_path)
+
+
+def test_android_subdirectory_keeps_monorepo_root_and_uncommitted_source(tmp_path, monkeypatch):
+    """Android 子目录仍定位平台 Git 根，并读取未提交文件而不修改索引。"""
+    root = workspace(tmp_path)  # 真实 Git 根与已暂存的原文件。
+    nested = root / 'android/performance-metrics/src/main'  # 独立工程的嵌套目录。
+    nested.mkdir(parents=True)
+    source = nested / 'Current.kt'  # 未跟踪但属于当前用户工作区的源码。
+    source.write_text('fun current() = 7\n')
+    index = (root / '.git/index').read_bytes()  # 工具运行前索引原字节。
+    monkeypatch.chdir(nested)
+    assert project_root() == root
+    assert project_root(nested) == root
+    assert current_snippet(root, 'android/performance-metrics/src/main/Current.kt', 1, 1) == 'fun current() = 7'
+    assert source.read_text() == 'fun current() = 7\n'
+    assert (root / '.git/index').read_bytes() == index

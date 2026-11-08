@@ -1,5 +1,7 @@
 # 运行期内存峰值上报：客户端变更提案
 
+> 来源：原 Performance 仓库；迁移前客户端提交 `b6c4de327fd39c12b8e549e8d60b383512a2222a`。本目录保留原任务和验证状态，导航按合仓后位置修正。
+
 ## Why
 
 现有内存 Reporter 每次采样即入队上传，无法满足“一次主进程运行分别保存三项峰值，下次启动后再上报”。用户已确认 PSS、VSS、Java 堆各自取最大值，并要求缩短采样间隔，具体频率结合设备开销确定。
@@ -31,5 +33,5 @@
 - `performance-sdk`：仅核对配置透传、初始化/关闭及 flush 边界；`app` 补设备验收与性能测量入口。
 - 知识库：00、08、09、11、12、13、16 及相关导航；内存泄漏/HPROF、Crash、FPS、Jank 业务行为不变。
 - 来源：[梳理内存信息上报逻辑](codex://threads/01a1b4cb-05cf-7280-b105-3285b76c59b7)。本提案是目标，未实施或执行设备测试。
-- 服务端配套：[apm-server 同名变更](../../../../../../IdeaProjects/apm-server/openspec/changes/archive/2026-11-08-report-memory-runtime-peaks/proposal.md)（外部检出依赖）。[服务端 design.md](../../../../../../IdeaProjects/apm-server/openspec/changes/archive/2026-11-08-report-memory-runtime-peaks/design.md) 是共同协议及联合验收唯一正文，客户端设计只补充本地实现。
+- 服务端配套：[apm-server 同名变更](../2026-11-08-report-memory-runtime-peaks/proposal.md)（原为外部检出，现为仓库内引用）。[服务端 design.md](../2026-11-08-report-memory-runtime-peaks/design.md) 是共同协议及联合验收唯一正文，客户端设计只补充本地实现。
 - 顺序：先执行服务端独立阶段，再执行本仓库独立阶段，最后一起测试；本仓库不代勾服务端任务，联合测试前不归档。

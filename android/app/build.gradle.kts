@@ -6,11 +6,46 @@ import java.time.ZoneOffset
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 import java.util.UUID
+import java.util.Properties
 
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
 }
+
+/** 未跟踪的签名配置；Gradle 属性可显式覆盖同名字段。 */
+val localSigningProperties = providers.fileContents(
+    rootProject.layout.projectDirectory.file(".signing/signing.properties"),
+).asText.orElse("").map { content -> Properties().apply { load(content.reader()) } }
+
+/**
+ * 读取本地签名参数，不在配置或任务日志中输出值。
+ * @param name 完整 Gradle 属性名。
+ * @return 非空参数，缺少时返回 null。
+ */
+fun signingValue(name: String): String? = providers.gradleProperty(name)
+    .orElse(localSigningProperties.map { it.getProperty(name, "") })
+    .get().takeIf { it.isNotBlank() }
+
+/** App 与独立消费者共用的四个签名参数。 */
+val signingValues = listOf("storeFile", "storePassword", "keyAlias", "keyPassword")
+    .associateWith { signingValue("performance.signing.$it") }
+/** 只有完整且使用绝对证书路径的配置才允许显式签名。 */
+val signingReady = signingValues.values.all { it != null } && File(signingValues["storeFile"].orEmpty()).isAbsolute
+
+/** AGP 在配置缺失时可能不注册签名任务，因此始终提供独立门禁。 */
+val validateLocalReleaseSigning = tasks.register("validateLocalReleaseSigning") {
+    group = "verification"
+    description = "核验本机 Release 签名配置，不输出参数值。"
+    doLast {
+        check(signingReady) { "Release 签名需要完整 performance.signing.* 本地配置和绝对 storeFile 路径" }
+        logger.lifecycle("已核验示例 App 的本地签名配置")
+    }
+}
+// 缺少 Release 配置不影响 Debug；任何 Release 打包必须通过独立门禁。
+tasks.matching {
+    it.name in setOf("validateSigningRelease", "packageRelease", "packageReleaseAndroidTest", "bundleRelease")
+}.configureEach { dependsOn(validateLocalReleaseSigning) }
 
 /** APK 打包后导出同次构建的标识，便于与 APK、R8 mapping 一起归档。 */
 @CacheableTask
@@ -118,22 +153,18 @@ android {
     }
 
     signingConfigs {
-        // Release 构建使用 app 模块下的本地签名文件。
+        // Release 使用本地原证书，缺少配置时不回退为另一张证书。
         create("release") {
-            // 签名文件路径相对于 app 模块目录解析。
-            storeFile = file("sign")
-            // 签名文件密码。
-            storePassword = "123456"
-            // 签名条目别名。
-            keyAlias = "key0"
-            // 签名条目密码与签名文件密码一致。
-            keyPassword = "123456"
+            storeFile = signingValues["storeFile"]?.let(::File)
+            storePassword = signingValues["storePassword"]
+            keyAlias = signingValues["keyAlias"]
+            keyPassword = signingValues["keyPassword"]
         }
     }
 
     buildTypes {
         release {
-            // 将 release 构建绑定到 app/sign 中的 key0 签名条目。
+            // 保持既有 Release 证书身份，由未跟踪配置指定。
             signingConfig = signingConfigs.getByName("release")
             isMinifyEnabled = true
             isShrinkResources = true
