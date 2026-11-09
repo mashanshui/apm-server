@@ -47,8 +47,10 @@ public class InMemoryCrashRepository implements CrashWritePort, CrashQueryPort {
         int accepted = 0;
         int duplicate = 0;
         for (CrashStoredSignal event : newEvents) {
+            var crash = event instanceof com.shanshui.apmserver.crash.internal.domain.CrashEvent item ? item : null;
             if (store.accept(new com.shanshui.apmserver.crash.internal.domain.CrashFact(event.metadata(),
-                    event.crashKind(), Boolean.TRUE.equals(event.crashFatal())), event instanceof com.shanshui.apmserver.crash.internal.domain.CrashEvent crash ? crash.state() : null)) {
+                    event.crashKind(), Boolean.TRUE.equals(event.crashFatal()), crash == null ? "" : crash.diagnosticsPayload(),
+                    crash == null ? "" : crash.state().captureSha256()), crash == null ? null : crash.state())) {
                 accepted++;
             } else {
                 duplicate++;
@@ -66,7 +68,8 @@ public class InMemoryCrashRepository implements CrashWritePort, CrashQueryPort {
                 result.add(new com.shanshui.apmserver.crash.internal.domain.AppStartEvent(fact.metadata()));
             } else {
                 store.current(appId, fact.metadata().eventId()).ifPresent(state -> result.add(
-                        new com.shanshui.apmserver.crash.internal.domain.CrashEvent(fact.metadata(), fact.crashKind(), fact.fatal(), state)));
+                        new com.shanshui.apmserver.crash.internal.domain.CrashEvent(fact.metadata(), fact.crashKind(), fact.fatal(), state,
+                                fact.diagnosticsPayload())));
             }
         }
         result.sort(Comparator.comparing(CrashStoredSignal::occurredAt).thenComparing(CrashStoredSignal::eventId));

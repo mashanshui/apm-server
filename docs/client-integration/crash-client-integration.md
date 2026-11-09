@@ -13,8 +13,9 @@
 ```mermaid
 flowchart TD
     A["捕获 JVM 未处理异常"] --> B["冻结 eventId、原身份、版本和异常链"]
-    B --> C["原子写入本地队列"]
-    C --> D["后台批量上传"]
+    B --> C["核心原子写入 capturing"]
+    C --> I["有界采集诊断并冻结到 events"]
+    I --> D["处理器同步尝试或后台批量上传"]
     D --> E{"校验 HTTP 与批次响应"}
     E -->|"accepted 或 duplicate"| F["确认删除对应事件"]
     E -->|"可定位的永久错误"| G["隔离对应事件"]
@@ -23,9 +24,9 @@ flowchart TD
 
 直接实现采集端时遵守以下边界：
 
-1. `UncaughtExceptionHandler` 只做有大小与耗时上限的必要工作；事件包含当前构建元数据、UUID v4 `processId`、绑定的 `packageName` 和脱敏后的异常链。
-2. 临时文件写入、刷盘和原子替换完成后才算本地保存成功；网络请求在线程池执行，不能依赖崩溃进程继续存活。
-3. 处理结束交回此前的系统异常 Handler，保持 Android 原有进程终止语义。文件恢复和下次启动补传不能重建原事件身份。
+1. `UncaughtExceptionHandler` 保留异常线程和系统 TID，先将已脱敏的核心异常及线程/进程身份原子写入 `capturing`，再等待预建工作者采集其他线程、日志、内存、FD 和设备环境，冻结到可上传的 `events`。主异常与各分区的 JSON 契约、状态和字节限额见 [Crash API](../api/crash-api.md#批量上报)。
+2. 处理器最多等待辅助采集 1500ms；logcat 共享最多 500ms。等待结束后冻结一次，不接纳迟到快照。原子写入完成后，处理器可同步尝试上传最多一批、等待最多 3500ms；正常启动和网络恢复也会触发后台上传。等待预算不是 ART 栈采集、文件系统或进程终止的硬中断保证。
+3. 处理结束交回此前的系统异常 Handler，保持 Android 原有进程终止语义。下次启动先恢复未冻结核心，再安排上传；保留原事件身份和发生时间，未完成分区标记 interrupted，不把新进程现场冒充旧现场。
 4. 当前只接收 `crash.kind=jvm`、`fatal=true`；NDK/native Crash、完整 ANR 和非致命异常各有独立能力边界，不包装成 JVM 致命 Crash。
 
 事件身份、App Key 和隐私规则统一见[接入公共规则](README.md#事件身份生命周期)。不要把原始硬件标识、账号、令牌、业务请求正文或完整 URL 放入设备标识、异常消息和属性中。
@@ -38,11 +39,11 @@ flowchart TD
 
 ## 上传与队列确认
 
-请求发送到 `POST /ingest/v1/batches`，使用 JSON v2、`X-App-Key` 和相应的 `X-Schema-Version`。服务端支持 gzip；当前 SDK 默认发送普通 JSON，手动发送 gzip 时才设置 `Content-Encoding: gzip`。请求和大小上限按 [Crash API](../api/crash-api.md#批量上报)、[错误码](../api/crash-error-codes.md)及实际环境配置核对。
+请求发送到 `POST /ingest/v1/batches`，正文为 UTF-8 JSON v2 批次；诊断现场放在每条事件的 `crash.diagnostics` 中。完整字段和[合成请求样例](../examples/crash-diagnostics-batch.json)见 [Crash API](../api/crash-api.md#批量上报)。当前 SDK 默认发送普通 JSON；服务端支持 gzip，手动压缩时才设置 `Content-Encoding: gzip`。SDK 冻结前同时按事件 240 KiB 目标和实际批次大小校验，服务端另按 256 KiB 单事件及分区限制校验。
 
 发送后执行[批量响应与队列确认](README.md#批量响应与队列确认)，再更新本地事件状态。Crash 必须核对返回 `requestId`；一条事件可以有多个字段错误，拒绝数量按不同事件归并，不按错误数组长度计算。非预期成功响应、计数不一致或无法定位的错误保留整批进入有上限的重试，不凭 HTTP 200 删除数据。
 
-批次级永久错误没有逐事件定位时，隔离受影响批次并修复配置或内容；不清空其他正常队列。网络不确定结果保留原 `eventId`、版本、发生时间和载荷。离线队列的保留时间必须结合服务端接收窗口配置，超期事件不反复重传。
+批次级永久错误没有逐事件定位时，隔离受影响批次并修复配置或内容；不清空其他正常队列。网络不确定结果保留原 `eventId`、版本、发生时间及完整冻结载荷；不能用同一事件 ID 补充新的诊断现场，否则返回永久 `CRASH_CONTENT_CONFLICT`。离线队列的保留时间必须结合服务端接收窗口配置，超期事件不反复重传。
 
 accepted 只表示 Crash 事实和初始 pending 原始链已持久化；mapping 已存在也不代表本次接收同步完成还原。客户端不因后台排队、等待 mapping 或处理失败重新生成事件。构建归属和首次成功固定规则见 [mapping 接入](symbol-mapping.md)。
 

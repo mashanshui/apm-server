@@ -15,6 +15,7 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.time.Duration;
 
 /** 供 Crash 和卡顿模块使用的统一符号表注册表实现。 */
 @Service
@@ -30,6 +31,8 @@ public class SymbolRegistryService implements SymbolRegistry {
     private final SymbolOperationLimiter operationLimiter;
     /** 单次还原输出上限。 */
     private final long maxOutputBytes;
+    /** 辅助线程专用单工作者，不增加共享解析许可。 */
+    private final AuxiliaryRetraceExecutor auxiliary;
 
     /** 初始化共享资源许可。 */
     public SymbolRegistryService(SymbolManagementService managementService,
@@ -42,6 +45,7 @@ public class SymbolRegistryService implements SymbolRegistry {
         this.retraceEngine = retraceEngine;
         this.operationLimiter = operationLimiter;
         this.maxOutputBytes = properties.getMaxOutputBytes();
+        this.auxiliary = new AuxiliaryRetraceExecutor(operationLimiter, retraceEngine::retrace);
     }
 
     /** 应用启动后清理数据库未引用的内部文件。 */
@@ -65,6 +69,16 @@ public class SymbolRegistryService implements SymbolRegistry {
             return SymbolicationResult.busy();
         }
     }
+
+    /** 以同一固定来源执行辅助栈还原，调用方仅等待其剩余预算。 */
+    @Override
+    public SymbolicationResult retraceAuxiliary(SymbolFileLease lease, List<String> stackLines, long maxBytes, Duration wait) {
+        return auxiliary.retrace(lease, stackLines, Math.min(maxBytes, Math.min(maxOutputBytes, 32 * 1024L)), wait);
+    }
+
+    /** 停止接收辅助任务，已运行的 R8 退出时再释放其引用。 */
+    @jakarta.annotation.PreDestroy
+    public void stopAuxiliary() { auxiliary.close(); }
 
     /** 关闭一个租约，不让 API 调用方接触内部存储实现。 */
     public void closeQuietly(SymbolFileLease lease) {

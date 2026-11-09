@@ -5,6 +5,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.espresso.Espresso.onView
 import androidx.test.espresso.action.ViewActions.click
 import androidx.test.espresso.action.ViewActions.scrollTo
+import androidx.test.espresso.action.ViewActions.swipeUp
 import androidx.test.espresso.assertion.ViewAssertions.matches
 import androidx.test.espresso.matcher.ViewMatchers.isDisplayed
 import androidx.test.espresso.matcher.ViewMatchers.withId
@@ -43,7 +44,13 @@ class CrashPageInstrumentedTest {
         onView(withId(R.id.stateCrashButton)).perform(scrollTo()).check(matches(isDisplayed()))
         onView(withId(R.id.asyncCrashButton)).perform(scrollTo()).check(matches(isDisplayed()))
         onView(withId(R.id.wrappedCrashButton)).perform(scrollTo()).check(matches(isDisplayed()))
-        onView(withId(R.id.closeCrashPageButton)).perform(scrollTo(), click())
+        // 对滚动容器执行手势，避免部分露出的按钮触发 scrollTo 的可见性误判。
+        onView(withId(R.id.main)).perform(swipeUp())
+        onView(withId(R.id.closeCrashPageButton)).check(matches(isDisplayed()))
+        onView(withId(R.id.prepareDiagnosticsButton)).check(matches(isDisplayed()))
+        onView(withId(R.id.diagnosticsMainCrashButton)).check(matches(isDisplayed()))
+        onView(withId(R.id.diagnosticsBackgroundCrashButton)).check(matches(isDisplayed()))
+        onView(withId(R.id.closeCrashPageButton)).perform(click())
         onView(withId(R.id.crashCasesPageButton)).check(matches(isDisplayed()))
     }
 }

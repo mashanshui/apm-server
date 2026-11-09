@@ -1,6 +1,7 @@
 package com.shanshui.performance
 
 import android.os.Bundle
+import android.util.Log
 import android.widget.Button
 import android.widget.EditText
 import android.widget.Toast
@@ -11,6 +12,9 @@ import androidx.core.view.WindowInsetsCompat
 
 /** 独立崩溃测试页；每次触发致命异常后需重新启动应用。 */
 class TestCrashActivity : AppCompatActivity() {
+    /** 已准备的合成线程与文件在触发崩溃前保持存活。 */
+    private var diagnosticsScenario: CrashDiagnosticsScenario? = null
+
     /** 初始化可滚动页面，绑定主线程与后台线程的真实未捕获异常。 */
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -48,6 +52,45 @@ class TestCrashActivity : AppCompatActivity() {
         findViewById<Button>(R.id.wrappedCrashButton).setOnClickListener {
             CrashTestCases.wrappedNumber()
         }
+        findViewById<Button>(R.id.prepareDiagnosticsButton).setOnClickListener {
+            // 重复准备前释放旧资源，避免示例页累积线程与文件。
+            diagnosticsScenario?.close()
+            diagnosticsScenario = null
+            runCatching { CrashDiagnosticsScenario.prepare(cacheDir) }
+                .onSuccess {
+                    diagnosticsScenario = it
+                    Log.i("CrashDiagnosticsDemo", "synthetic diagnostic resources ready")
+                    Log.i("CrashDiagnosticsDemo", "synthetic log line 1")
+                    Log.i("CrashDiagnosticsDemo", "synthetic log line 2")
+                    Toast.makeText(this, R.string.crash_diagnostics_ready, Toast.LENGTH_SHORT).show()
+                }.onFailure {
+                    Log.w("CrashDiagnosticsDemo", "synthetic diagnostic preparation failed")
+                    Toast.makeText(this, R.string.crash_diagnostics_failed, Toast.LENGTH_SHORT).show()
+                }
+        }
+        findViewById<Button>(R.id.diagnosticsMainCrashButton).setOnClickListener {
+            if (diagnosticsScenario == null) {
+                Toast.makeText(this, R.string.crash_diagnostics_prepare_first, Toast.LENGTH_SHORT).show()
+            } else {
+                Log.i("CrashDiagnosticsDemo", "triggering synthetic main-thread crash")
+                CrashTestCases.explicitException()
+            }
+        }
+        findViewById<Button>(R.id.diagnosticsBackgroundCrashButton).setOnClickListener {
+            if (diagnosticsScenario == null) {
+                Toast.makeText(this, R.string.crash_diagnostics_prepare_first, Toast.LENGTH_SHORT).show()
+            } else {
+                Log.i("CrashDiagnosticsDemo", "triggering synthetic background-thread crash")
+                Thread({ CrashTestCases.explicitException() }, "crash-diagnostic-background").start()
+            }
+        }
+    }
+
+    /** 离开示例页面时释放尚未用于崩溃的线程和文件。 */
+    override fun onDestroy() {
+        diagnosticsScenario?.close()
+        diagnosticsScenario = null
+        super.onDestroy()
     }
 
     /** 拒绝空输入；清除首尾空白后作为当前测试的运行时值。 */

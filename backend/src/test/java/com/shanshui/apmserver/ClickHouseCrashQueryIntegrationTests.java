@@ -56,6 +56,8 @@ class ClickHouseCrashQueryIntegrationTests {
         // 使用当前实际 DDL，不建立旧 Crash 数据集。
         String ddl = new String(getClass().getResourceAsStream("/db/clickhouse/008_background_crash_symbolication.sql").readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
         for (String statement : ddl.split(";")) if (!statement.isBlank()) client.execute(statement);
+        String diagnosticsDdl = new String(getClass().getResourceAsStream("/db/clickhouse/010_crash_diagnostics.sql").readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+        for (String statement : diagnosticsDdl.split(";")) if (!statement.isBlank()) client.execute(statement);
         properties.setDatabase("apm");
         UUID appId = UUID.fromString("11111111-1111-4111-8111-111111111111");
         UUID other = UUID.fromString("22222222-2222-4222-8222-222222222222");

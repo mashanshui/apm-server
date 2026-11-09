@@ -2,10 +2,37 @@ package com.shanshui.performance
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
+import org.junit.Assert.assertTrue
+import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.TemporaryFolder
 
 /** 核验异常类型及运行时输入缺失边界，异常在 JVM 测试中由断言捕获。 */
 class CrashTestCasesTest {
+    /** 合成诊断文件只写入临时目录。 */
+    @get:Rule val temporaryFolder = TemporaryFolder()
+
+    /** 同名线程和阻塞线程可被观察，离开场景后资源会释放。 */
+    @Test fun diagnosticScenarioKeepsAndReleasesResources() {
+        val directory = temporaryFolder.newFolder("diagnostic-scenario")
+        val scenario = CrashDiagnosticsScenario.prepare(directory)
+        try {
+            val deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(2)
+            var threads = Thread.getAllStackTraces().keys.filter { it.name == "crash-same-name" }
+            while (threads.none { it.state == Thread.State.BLOCKED } && System.nanoTime() < deadline) {
+                Thread.sleep(5)
+                threads = Thread.getAllStackTraces().keys.filter { it.name == "crash-same-name" }
+            }
+            assertEquals(2, threads.size)
+            assertTrue(threads.any { it.state == Thread.State.BLOCKED })
+            assertEquals(1, directory.listFiles()!!.size)
+        } finally {
+            scenario.close()
+        }
+        assertTrue(Thread.getAllStackTraces().keys.none { it.name == "crash-same-name" })
+        assertTrue(directory.listFiles()!!.isEmpty())
+    }
+
     /** 外层业务异常必须保留底层解析异常，避免只看到包装层。 */
     @Test fun wrappedNumberPreservesCause() {
         // 对应设备按钮的同一固定损坏数据路径。

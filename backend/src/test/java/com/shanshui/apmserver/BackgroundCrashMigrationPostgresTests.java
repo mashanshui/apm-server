@@ -42,7 +42,7 @@ class BackgroundCrashMigrationPostgresTests {
         // 完整迁移重复执行不会再次修改数据或结构。
         Flyway flyway = Flyway.configure().dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
                 .schemas(schema).defaultSchema(schema).load();
-        assertEquals(1, flyway.migrate().migrationsExecuted);
+        assertEquals(2, flyway.migrate().migrationsExecuted);
         assertEquals(0, flyway.migrate().migrationsExecuted);
         assertNull(jdbc.queryForObject("SELECT contract_version FROM crash_analysis_task WHERE task_id=?", Integer.class, task));
         assertEquals("{\"schemaVersion\":2}", jdbc.queryForObject("SELECT evidence_text FROM crash_analysis_task WHERE task_id=?", String.class, task));
@@ -58,6 +58,9 @@ class BackgroundCrashMigrationPostgresTests {
         jdbc.update("INSERT INTO crash_symbolication_job(app_id,build_id) VALUES (?,'build')", app);
         assertThrows(RuntimeException.class, () -> jdbc.update("INSERT INTO crash_symbolication_job(app_id,build_id) VALUES (?,'build')", app));
         jdbc.update("INSERT INTO crash_symbolication_publication(app_id,event_id,build_id,event_time,expires_at,state_version,symbol_id,symbol_revision,symbol_sha256,result_sha256,pending_payload) VALUES (?,'event','build',clock_timestamp(),clock_timestamp()+interval '30 days',nextval('crash_symbolication_state_version'),?,1,?,?,'{}')", app, oldSymbol, "a".repeat(64), "b".repeat(64));
+        // 新单份上限严格按 UTF-8 字节生效，超限仍被数据库拒绝。
+        jdbc.update("UPDATE crash_symbolication_publication SET pending_payload=repeat('x',4194304)");
+        assertThrows(RuntimeException.class, () -> jdbc.update("UPDATE crash_symbolication_publication SET pending_payload=repeat('x',4194305)"));
         assertThrows(RuntimeException.class, () -> jdbc.update("INSERT INTO crash_symbolication_publication SELECT * FROM crash_symbolication_publication"));
         assertThrows(RuntimeException.class, () -> jdbc.update("UPDATE crash_symbolication_publication SET pending_payload=NULL"));
         jdbc.update("UPDATE crash_symbolication_publication SET pending_payload=NULL,published_at=clock_timestamp()");

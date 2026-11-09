@@ -32,16 +32,19 @@ class App : Application() {
 
 不传第三个参数时，Crash、线上卡顿（Jank）、主进程内存指标以及 Activity 泄漏检测都会启用，并使用本文的默认值。
 
-### 1.1 从本地 Gradle 属性注入 App Key
+### 1.1 为示例应用注入 App Key
 
-示例应用的构建脚本使用 `performance.appKey` 生成 `BuildConfig.PERFORMANCE_APP_KEY`。本地构建时
-可以通过 Gradle 属性传入：
+示例应用从服务端对应包名的应用设置页获取 App Key，使用 `performance.appKey` 生成
+`BuildConfig.PERFORMANCE_APP_KEY`。可在 `android/.performance.local.properties` 中配置：
 
-```powershell
-.\gradlew.bat :app:assembleDebug -Pperformance.appKey="<your-app-key>"
+```properties
+performance.appKey=<应用的完整 App Key>
 ```
 
-示例 App 当前会读取 `BuildConfig.PERFORMANCE_APP_KEY` 和 `BuildConfig.PERFORMANCE_BUILD_ID`；本地构建可通过 Gradle 属性覆盖，属性值不会写入文档或日志。
+该文件不纳入版本控制，应限制本机访问权限；`android/local.properties` 仍只保存 SDK 路径。
+命令行、环境变量或 Gradle 用户属性指定的 `performance.appKey` 优先于该文件。未配置时使用公开占位值
+`local-demo-app-key`，构建会给出警告，使用它上报会收到 HTTP 401。修改凭据后需要重新构建并覆盖安装 APK。
+示例 App 同时读取 `BuildConfig.PERFORMANCE_BUILD_ID`；真实属性值不得写入文档或日志。
 
 不要把真实 App Key 提交到源码、版本控制或文档中。SDK 只在运行期将 App Key 放到
 请求认证头中，不会将它写入持久队列，也不会在网络日志中输出明文。
@@ -124,6 +127,8 @@ val performance = PerformanceSdk.initialize(
 | `batchSize` | `20` | 每批最多事件数，范围 `1..50` |
 | `maxBatchBytes` | `512 KiB` | 单批请求大小，范围 `16 KiB..1 MiB` |
 | `uploadIntervalMillis` | `30000` | 周期上传间隔，必须为正数 |
+
+`enabled=true` 时同时启用受限 Crash 诊断采集，目前没有单独的线程、logcat 或内存分区开关。单事件在冻结前还受 240 KiB 目标与各分区预算约束，并须装入实际 `maxBatchBytes`；开启成本、失败状态和时间边界见 [Crash 专题](03-Crash采集与上报.md)。
 
 应用元数据默认自动解析。上传的 `packageName` 必须与 App Key 绑定的 Application ID
 一致，不单独提供覆盖项。只有需要替换版本信息或堆栈包名判断规则时，才需要覆盖

@@ -24,6 +24,8 @@ public class CrashEventValidator {
 
     private final CrashIngestConfiguration properties;
     private final ObjectMapper objectMapper;
+    /** 诊断资源和字段校验，独立于主异常帧配额。 */
+    private final CrashDiagnosticsValidator diagnosticsValidator;
     private final Clock clock;
 
     @Autowired
@@ -34,6 +36,7 @@ public class CrashEventValidator {
     CrashEventValidator(CrashIngestConfiguration properties, ObjectMapper objectMapper, Clock clock) {
         this.properties = properties;
         this.objectMapper = objectMapper;
+        this.diagnosticsValidator = new CrashDiagnosticsValidator(objectMapper);
         this.clock = clock;
     }
 
@@ -119,6 +122,7 @@ public class CrashEventValidator {
         if (!Boolean.TRUE.equals(crash.fatal())) {
             issues.add(issue("NON_FATAL_CRASH", "首期仅支持 fatal JVM Crash"));
         }
+        diagnosticsValidator.validate(crash.diagnostics(), issues);
         if (crash.throwableChain() == null || crash.throwableChain().isEmpty()) {
             issues.add(issue("MISSING_THROWABLE_CHAIN", "throwableChain 不能为空"));
             return;

@@ -154,6 +154,33 @@ class AnalysisTaskPostgresTests {
         assertEquals(evidence, jdbc.queryForObject("SELECT evidence_text FROM crash_analysis_task WHERE task_id=?", String.class, ready.taskId()));
     }
 
+    /** 新增网页诊断不会进入版本 3 冻结材料或扩展分析片段。 */
+    @Test
+    void diagnosticsDoNotExpandFrozenAnalysisEvidence() {
+        var base = detail("diagnostic-evidence", "main-only", "jvm", true);
+        var diagnostics = mapper.readValue("""
+                {"logcat":{"status":"ok","truncated":false,
+                  "main":{"status":"ok","truncated":false,"lines":["diagnostic-sentinel"]}}}
+                """, com.shanshui.apmserver.crash.api.CrashDiagnosticsResponse.class);
+        var enriched = new CrashEventDetailResponse(base.appId(), base.eventId(), base.packageName(), base.occurredAt(), base.receivedAt(),
+                base.sessionId(), base.processId(), base.anonymousDeviceId(), base.appVersion(), base.versionCode(), base.buildId(),
+                base.channel(), base.environment(), base.osVersion(), base.deviceModel(), base.networkType(), base.exceptionType(),
+                base.fingerprint(), base.fingerprintVersion(), base.symbolicationStatus(), base.stack(), base.symbolFileId(),
+                base.symbolFileRevision(), base.symbolicationReason(), base.crashKind(), base.fatal(), base.groupingKind(),
+                base.symbolFileSha256(), base.processedAt(), diagnostics);
+        when(crashes.event(appId, "diagnostic-evidence")).thenReturn(enriched);
+        when(crashes.analysisSnapshot(appId, "diagnostic-evidence")).thenReturn(new CrashAnalysisSnapshot(enriched));
+        var task = tasks.create(appId, "diagnostic-evidence", UUID.randomUUID(), owner);
+        String json = jdbc.queryForObject("SELECT evidence_text FROM crash_analysis_task WHERE task_id=?", String.class, task.taskId());
+        var evidence = mapper.readTree(json);
+        assertEquals(3, evidence.path("schemaVersion").asInt());
+        assertEquals(1, evidence.path("fragments").size());
+        assertEquals("crash-stack", evidence.path("fragments").get(0).path("kind").asText());
+        assertTrue(json.contains("main-only"));
+        assertFalse(json.contains("diagnostic-sentinel"));
+        assertFalse(json.contains("diagnostics"));
+    }
+
     /** 缺少或失败的符号化是材料局限，不阻断原始堆栈分析。 */
     @Test
     void acceptsRawEvidenceAndExplicitlyRechecksPreparationFailure() {
@@ -262,7 +289,7 @@ class AnalysisTaskPostgresTests {
                 raw.sessionId(), raw.processId(), raw.anonymousDeviceId(), raw.appVersion(), raw.versionCode(), raw.buildId(),
                 raw.channel(), raw.environment(), raw.osVersion(), raw.deviceModel(), raw.networkType(), raw.exceptionType(),
                 raw.fingerprint(), raw.fingerprintVersion(), "symbolicated", new com.shanshui.apmserver.crash.api.CrashStack("retrace_text", "Example.crash(Example.kt:2)"),
-                symbolId, 1, null, "jvm", true, "resolved", "7".repeat(64), raw.occurredAt());
+                symbolId, 1, null, "jvm", true, "resolved", "7".repeat(64), raw.occurredAt(), raw.diagnostics());
     }
 
     /** 完整值只在创建返回；到期、撤销、Session、查询 Token 都不能冒充 Worker。 */
@@ -663,7 +690,7 @@ class AnalysisTaskPostgresTests {
                 "probe-build", "test", "debug", "13", "synthetic", "wifi", "java.lang.IllegalStateException", "fingerprint", "1",
                 "pending", new com.shanshui.apmserver.crash.api.CrashStack("raw_chain", new CrashPayload(kind, fatal,
                 List.of(new ThrowableNode("java.lang.IllegalStateException", message,
-                        List.of(new StackFrame("Example", "crash", "Example.kt", 2, true)))))), null, null, "mapping_missing", kind, fatal, "temporary", null, null);
+                        List.of(new StackFrame("Example", "crash", "Example.kt", 2, true)))))), null, null, "mapping_missing", kind, fatal, "temporary", null, null, null);
     }
 
     /** 每次创建都使用一个新的稳定输入键。 */

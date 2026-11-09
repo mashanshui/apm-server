@@ -1,3 +1,5 @@
+import type { CrashDiagnostics } from './crashDiagnostics'
+
 // 持久化状态与归组类别仅支持当前契约。
 export type SymbolicationStatus = 'pending' | 'failed' | 'symbolicated'
 export type GroupingKind = 'temporary' | 'resolved'
@@ -92,9 +94,9 @@ export interface CrashEventListResponse {
 export interface StackFrame {
   className: string
   methodName: string
-  fileName: string
-  lineNumber: number | null
-  applicationFrame: boolean | null
+  fileName?: string | null
+  lineNumber?: number | null
+  applicationFrame?: boolean | null
 }
 
 export interface ThrowableNode {
@@ -140,6 +142,8 @@ export interface CrashEventDetailResponse {
   symbolFileId: string | null
   symbolFileRevision: number | null
   symbolicationReason: string | null
+  /** 现场未采集时为 null。 */
+  diagnostics: CrashDiagnostics | null
 }
 
 export interface CrashQueryFilters {

@@ -286,6 +286,16 @@ public class SymbolFileStore {
         @Override
         public Path path() { return path; }
 
+        /** 在原租约仍有效时增加同一不可变文件的独立引用。 */
+        @Override
+        public synchronized SymbolFileLease retain() {
+            if (closed) throw new IllegalStateException("已关闭的符号表租约不能再次保活");
+            AtomicInteger count = leases.get(storageKey);
+            if (count == null || count.get() <= 0) throw new IllegalStateException("符号表租约计数不存在");
+            count.incrementAndGet();
+            return new Lease(symbolId, revision, storageKey, path, sha256);
+        }
+
         /** 释放当前文件的读取计数。 */
         @Override
         public synchronized void close() {

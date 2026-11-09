@@ -45,6 +45,6 @@ Inspector CLI 2.8.0 可用 --transport http --protocol-era modern --header "Auth
 
 ## 当前 Crash 堆栈契约
 
-Crash 详情仅返回 `stack:{format,content}`：pending/failed 为 raw_chain 原始异常链，symbolicated 为 retrace_text 完整固定结果；同时保留 crashKind/fatal、groupingKind 和实际 symbolFileId/revision/sha256/processedAt。首次成功固定，mapping 删除重传不改写旧结果。Issue 显示 temporary 与 buildId 或 resolved；旧临时指纹可能变为空列表，分页不是快照。
+Crash 详情包含独立主 `stack:{format,content}` 和 `diagnostics`，未采集诊断为 null；其他线程各有当前栈与独立状态。主异常首次成功固定，mapping 删除重传不改写旧结果。Issue 显示 temporary 与 buildId 或 resolved；旧临时指纹可能变为空列表，分页不是快照。
 
-MCP 的 Crash 大片段名称只有 `stack`，摘要不夹带堆栈正文。续读摘要绑定 format 和 content，后台由原始链变为还原文本时返回 EVIDENCE_CHANGED，须重新开始。旧片段名返回 INVALID_SECTION；旧双份详情或旧状态返回 QUERY_BACKEND_INVALID_RESPONSE，不转换或降级。19 个工具和应用授权不变。协调切换时须同时更新后端、网页、MCP 与 Worker，旧分析任务不进入当前接口。
+MCP 的 Crash 大片段名称为 `stack` 和 `diagnostics`，摘要不夹带两者正文。续读绑定对应 JSON 字节摘要，内容变化返回 EVIDENCE_CHANGED。未知状态或格式返回 QUERY_BACKEND_INVALID_RESPONSE。冻结分析证据版本 3 仍只包含主异常片段，报告版本 4 未扩展；授权查询现场与冻结证据不是同一份材料。

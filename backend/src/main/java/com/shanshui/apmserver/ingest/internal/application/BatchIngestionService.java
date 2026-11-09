@@ -34,6 +34,8 @@ import java.util.UUID;
 @Service
 public class BatchIngestionService implements EventIngestionService {
 
+    /** 接收失败只记录安全类别和数量。 */
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(BatchIngestionService.class);
     private final CrashEventProcessing crashProcessor;
     private final JankMetricEventProcessing jankMetricProcessor;
     private final MemoryEventProcessing memoryProcessor;
@@ -106,6 +108,9 @@ public class BatchIngestionService implements EventIngestionService {
                 }
             } catch (EventValidationException ex) {
                 rejectedEvents++;
+                if (event != null && "crash".equals(event.eventType())) {
+                    log.warn("Crash 接收校验失败：问题数量={}", ex.getIssues().size());
+                }
                 boolean metricEvent = event != null && isJankMetricEvent(event);
                 if (event != null && "jank".equals(event.eventType())) {
                     jankMetrics.jankRejected();
@@ -160,6 +165,11 @@ public class BatchIngestionService implements EventIngestionService {
 
     /** 按事件类型分派，互斥载荷错误只拒绝对应事件。 */
     private SignalIngestResult processEvent(java.util.UUID appId, EventEnvelope event, Instant receivedAt) {
+        // 其他领域不能在分派时悄悄忽略 Crash 及其诊断载荷。
+        if (event != null && event.crash() != null && !"crash".equals(event.eventType())
+                && !"app_start".equals(event.eventType()) && !"memory_peak_summary".equals(event.eventType())) {
+            throw new EventValidationException(List.of(new ValidationIssue("INVALID_CRASH_PAYLOAD", "Crash 载荷必须匹配事件类型")));
+        }
         // 其他领域不能悄悄忽略运行峰值载荷，避免数据被错误归类。
         if (event != null && event.memoryPeakSummary() != null && !"memory_peak_summary".equals(event.eventType())) {
             throw new EventValidationException(List.of(new ValidationIssue("INVALID_MEMORY_PAYLOAD", "峰值载荷必须匹配事件类型")));

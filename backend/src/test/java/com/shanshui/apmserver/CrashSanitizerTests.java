@@ -45,4 +45,37 @@ class CrashSanitizerTests {
         assertNotEquals("device-001", sanitizer.hashDeviceId("device-001"));
         assertTrue(sanitizer.hashDeviceId("device-001").matches("[0-9a-f]{64}"));
     }
+
+    /** 诊断文本二次脱敏，Java ID、PID 和字节数保持原值。 */
+    @Test
+    void redactsDiagnosticsWithoutChangingStructuredIdentities() {
+        /** 使用合成凭据和私有文件名，不引入真实设备信息。 */
+        String input = """
+                {"crashedThread":{"status":"ok","truncated":false,"javaId":"123456789",
+                  "name":"token=secret-one","state":"RUNNABLE","systemTid":42},
+                 "otherThreads":{"status":"ok","truncated":false,"threads":[]},
+                 "logcat":{"status":"ok","truncated":false,
+                    "main":{"status":"ok","truncated":false,"lines":[
+                      "Authorization: Bearer secret-two","Cookie: x=secret-three; y=secret-four",
+                      "path=/data/user/0/com.example/files/sentinel file"]}},
+                 "memory":{"status":"ok","truncated":false,"javaHeapUsedBytes":0},
+                 "openFiles":{"status":"ok","truncated":false,"count":1,
+                    "entries":[{"fd":3,"target":"/data/user/0/com.example/sentinel"}]},
+                 "process":{"status":"ok","truncated":false,"pid":123456789},
+                 "device":{"status":"ok","truncated":false,"abis":[]}}
+                """;
+        /** 模拟绕过 SDK 的直接客户端请求。 */
+        var mapper = CrashTestSupport.objectMapper();
+        var diagnostics = mapper.readValue(input, com.shanshui.apmserver.crash.api.CrashDiagnostics.class);
+        var sanitized = new CrashSanitizer(CrashTestSupport.ingestProperties()).sanitizeDiagnostics(diagnostics);
+        String output = mapper.writeValueAsString(sanitized);
+        assertFalse(output.contains("secret-one"));
+        assertFalse(output.contains("secret-two"));
+        assertFalse(output.contains("secret-three"));
+        assertFalse(output.contains("secret-four"));
+        assertFalse(output.contains("sentinel"));
+        assertEquals("123456789", sanitized.crashedThread().javaId());
+        assertEquals(123456789, sanitized.process().pid());
+        assertEquals(0L, sanitized.memory().javaHeapUsedBytes());
+    }
 }

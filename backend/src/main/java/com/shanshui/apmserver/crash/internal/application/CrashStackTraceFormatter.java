@@ -34,6 +34,11 @@ final class CrashStackTraceFormatter {
         return result;
     }
 
+    /** 保持单个辅助线程的帧顺序，不添加虚假的异常头。 */
+    static List<String> threadLines(List<StackFrame> frames) {
+        return frames.stream().map(CrashStackTraceFormatter::frame).toList();
+    }
+
     /** 生成异常类型和消息行。 */
     private static String header(ThrowableNode node) {
         String type = node.type() == null ? "java.lang.Throwable" : node.type();

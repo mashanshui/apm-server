@@ -80,7 +80,7 @@ public class CrashSymbolicationPublications {
             CrashState fixed = versioned(computed, version);
             String payload = codec.encode(fixed);
             int payloadBytes = payload.getBytes(StandardCharsets.UTF_8).length;
-            if (payloadBytes > 2097152) throw new CrashResultTooLargeException();
+            if (payloadBytes > 4194304) throw new CrashResultTooLargeException();
             if (count >= maxPending || bytes + payloadBytes > maxPendingBytes) {
                 throw new EventStoreUnavailableException("后台发布积压达到上限");
             }
@@ -126,7 +126,7 @@ public class CrashSymbolicationPublications {
         // 同一读取返回完整最新状态，不能把新指纹和旧堆栈拼成成功。
         Optional<CrashState> current = states.current(publication.appId(), publication.eventId());
         if (current.isEmpty() || current.get().stateVersion() != publication.version()
-                || !digest(codec.encode(current.get())).equals(publication.sha256())) {
+                || !codec.matches(publication.payload(), current.get())) {
             throw new EventStoreUnavailableException("后台发布尚未读回确认");
         }
         return Boolean.TRUE.equals(transaction.execute(status -> {
@@ -157,7 +157,8 @@ public class CrashSymbolicationPublications {
     public static CrashState versioned(CrashState state, long version) {
         return new CrashState(state.appId(), state.eventId(), state.buildId(), state.eventTime(), version,
                 state.status(), state.reason(), state.stackFormat(), state.stackPayload(), state.exceptionType(), state.fingerprint(),
-                state.fingerprintVersion(), state.groupingKind(), state.symbolId(), state.symbolRevision(), state.symbolSha256(), state.processedAt(), state.retryAt());
+                state.fingerprintVersion(), state.groupingKind(), state.symbolId(), state.symbolRevision(), state.symbolSha256(), state.processedAt(), state.retryAt(),
+                state.captureSha256(), state.threadStacksPayload());
     }
 
     /** 读取发布投影，已确认记录不再包含完整堆栈。 */

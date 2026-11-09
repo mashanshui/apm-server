@@ -19,6 +19,9 @@ public interface SymbolFileLease extends AutoCloseable {
     /** 返回受控目录内的不可变文件路径。 */
     Path path();
 
+    /** 独立保活同一文件版本，调用方必须分别关闭两个租约。 */
+    SymbolFileLease retain();
+
     /** 释放读取租约。 */
     @Override
     void close() throws IOException;

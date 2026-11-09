@@ -40,13 +40,18 @@ class BackgroundCrashQueryPerformanceTests {
         RecordingClient client = new RecordingClient(properties);
         String ddl = new String(getClass().getResourceAsStream("/db/clickhouse/008_background_crash_symbolication.sql").readAllBytes(), StandardCharsets.UTF_8);
         for (String statement : ddl.split(";")) if (!statement.isBlank()) client.execute(statement);
+        String diagnosticsDdl = new String(getClass().getResourceAsStream("/db/clickhouse/010_crash_diagnostics.sql").readAllBytes(), StandardCharsets.UTF_8);
+        for (String statement : diagnosticsDdl.split(";")) if (!statement.isBlank()) client.execute(statement);
         properties.setDatabase("apm");
         UUID app = UUID.randomUUID();
         UUID symbol = UUID.randomUUID();
         // 写入发生时间横跨十天，旧构建和高待处理比例都位于当前新数据集。
         client.execute("INSERT INTO apm_crash_fact(app_id,event_id,event_type,package_name,build_id,event_time,received_time,schema_version,crash_kind,crash_fatal) SELECT '" + app
                 + "',concat('event-',toString(number)),'crash','com.example',concat('build-',toString(number%10)),now64(3)-toIntervalSecond(number%864000+1),now64(3),2,'jvm',1 FROM numbers(1000000)");
-        client.execute("INSERT INTO apm_crash_state(app_id,event_id,build_id,event_time,state_version,symbolication_status,symbolication_reason,stack_format,stack_payload,exception_type,fingerprint,fingerprint_version,grouping_kind) SELECT app_id,event_id,build_id,event_time,0,'pending','mapping_missing','raw_chain',concat('{\"kind\":\"jvm\",\"fatal\":true,\"throwableChain\":[{\"type\":\"java.lang.RuntimeException\",\"message\":\"',repeat('x',2048),'\",\"frames\":[{\"className\":\"a\",\"methodName\":\"b\",\"fileName\":\"SourceFile\",\"lineNumber\":1,\"applicationFrame\":true}]}]}'),'java.lang.RuntimeException','tmp','tmp-v1','temporary' FROM apm_crash_fact");
+        // 先筛出百条再附加大字符串，避免条件表达式为百万行物化整列大载荷。
+        client.execute("INSERT INTO apm_crash_fact(app_id,event_id,event_type,package_name,build_id,event_time,received_time,schema_version,crash_kind,crash_fatal,diagnostics_payload) SELECT app_id,event_id,event_type,package_name,build_id,event_time,received_time,schema_version,crash_kind,crash_fatal,repeat('D',131072) FROM apm_crash_fact FINAL WHERE toUInt64(substring(event_id,7))%10000=0");
+        client.execute("INSERT INTO apm_crash_state(app_id,event_id,build_id,event_time,state_version,symbolication_status,symbolication_reason,stack_format,stack_payload,exception_type,fingerprint,fingerprint_version,grouping_kind) SELECT app_id,event_id,build_id,event_time,0,'pending','mapping_missing','raw_chain',concat('{\"kind\":\"jvm\",\"fatal\":true,\"throwableChain\":[{\"type\":\"java.lang.RuntimeException\",\"message\":\"',repeat('x',2048),'\",\"frames\":[{\"className\":\"a\",\"methodName\":\"b\",\"fileName\":\"SourceFile\",\"lineNumber\":1,\"applicationFrame\":true}]}]}'),'java.lang.RuntimeException','tmp','tmp-v1','temporary' FROM apm_crash_fact FINAL");
+        client.execute("INSERT INTO apm_crash_state(app_id,event_id,build_id,event_time,state_version,symbolication_status,symbolication_reason,stack_format,stack_payload,exception_type,fingerprint,fingerprint_version,grouping_kind,thread_stacks_payload) SELECT app_id,event_id,build_id,event_time,state_version,symbolication_status,symbolication_reason,stack_format,stack_payload,exception_type,fingerprint,fingerprint_version,grouping_kind,repeat('T',262144) FROM apm_crash_state FINAL WHERE toUInt64(substring(event_id,7))%10000=0");
         QueryProperties limits = new QueryProperties();
         ClickHouseCrashStateStore store = new ClickHouseCrashStateStore(client, new ObjectMapper(), limits);
         Instant now = Instant.now().truncatedTo(ChronoUnit.MILLIS);
@@ -78,7 +83,11 @@ class BackgroundCrashQueryPerformanceTests {
         assertFalse(query.trend(app, from, to, "hour", command).points().isEmpty());
         String foregroundSql = client.lastQuery;
         assertFalse(foregroundSql.contains("stack_payload"));
+        assertFalse(foregroundSql.contains("diagnostics_payload"));
+        assertFalse(foregroundSql.contains("thread_stacks_payload"));
         String foregroundPlan = client.execute("EXPLAIN indexes=1 " + foregroundSql.replace(" FORMAT JSONEachRow", ""));
+        assertFalse(foregroundPlan.contains("diagnostics_payload"));
+        assertFalse(foregroundPlan.contains("thread_stacks_payload"));
         var mixedOutcomes = new java.util.ArrayList<String>();
         try (var executor = java.util.concurrent.Executors.newFixedThreadPool(2)) {
             for (int round = 0; round < 5; round++) {
@@ -90,6 +99,10 @@ class BackgroundCrashQueryPerformanceTests {
             }
         }
         client.execute("SYSTEM FLUSH LOGS");
+        String foregroundColumns = client.execute("SELECT read_bytes,columns FROM system.query_log WHERE type='QueryFinish' AND startsWith(query,'SELECT toStartOfHour') AND position(query,'apm_crash_fact')>0 ORDER BY event_time_microseconds DESC LIMIT 1 FORMAT JSONEachRow");
+        assertFalse(foregroundColumns.isBlank());
+        assertFalse(foregroundColumns.contains("diagnostics_payload"), foregroundColumns);
+        assertFalse(foregroundColumns.contains("thread_stacks_payload"), foregroundColumns);
         String mixedMetrics = client.execute("SELECT query_duration_ms,read_rows,read_bytes,memory_usage,result_rows,result_bytes FROM system.query_log WHERE type='QueryFinish' AND startsWith(query,'SELECT ') AND position(query,'apm_crash_')>0 AND position(query,'system.query_log')=0 ORDER BY event_time_microseconds DESC LIMIT 14 FORMAT JSONEachRow");
         for (String line : mixedMetrics.lines().toList()) {
             var measured = new ObjectMapper().readTree(line);
@@ -101,7 +114,7 @@ class BackgroundCrashQueryPerformanceTests {
         assertEquals("QUERY_RESOURCE_LIMIT", assertThrows(QueryValidationException.class,
                 () -> store.candidates(app, "build-0", symbol, 1, now.minus(Duration.ofDays(30)), now, 100)).getCode());
         Files.createDirectories(Path.of("build/query-evidence"));
-        Files.writeString(Path.of("build/query-evidence/background-crash.txt"), "ClickHouse 26.7.3.19\n规模：1000000 事件，10 构建，全部 pending，约 2 KiB/堆栈\n预算：5000000 行、512 MiB 读取、256 MiB 内存、8 MiB 响应、2 秒\n" + measurements + "\n" + plan + "\n" + sql + "\n前台一天窗口和后台候选并行五轮：" + mixedOutcomes + "\n" + mixedMetrics + "\n" + foregroundPlan + "\n" + foregroundSql);
+        Files.writeString(Path.of("build/query-evidence/background-crash.txt"), "ClickHouse 26.7.3.19\n规模：1000000 事件，10 构建，全部 pending，约 2 KiB/堆栈；每万条含 128 KiB 诊断与 256 KiB 辅助载荷\n预算：5000000 行、512 MiB 读取、256 MiB 内存、8 MiB 响应、2 秒\n" + measurements + "\n" + plan + "\n" + sql + "\n前台一天窗口和后台候选并行五轮：" + mixedOutcomes + "\n" + mixedMetrics + "\n" + foregroundColumns + "\n" + foregroundPlan + "\n" + foregroundSql);
     }
 
     /** 仅记录合成查询计划入口，不捕获正文或凭据。 */

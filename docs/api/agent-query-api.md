@@ -44,6 +44,6 @@ Jank 的 limit 仅影响 Issue/事件页，默认 20/最大 100 保持；相同�
 
 ## 当前 Crash 堆栈契约
 
-Crash 详情仅返回 `stack:{format,content}`：pending/failed 为 raw_chain 原始异常链，symbolicated 为 retrace_text 完整固定结果；同时保留 crashKind/fatal、groupingKind 和实际 symbolFileId/revision/sha256/processedAt。首次成功固定，mapping 删除重传不改写旧结果。Issue 显示 temporary 与 buildId 或 resolved；旧临时指纹可能变为空列表，分页不是快照。
+Crash 详情返回单份主 `stack:{format,content}` 及独立 `diagnostics`：pending/failed 主栈为 raw_chain，symbolicated 为 retrace_text；诊断的其他线程各有独立当前栈与状态，未采集时 diagnostics 为 null。实际字段和限制见 [Crash API](crash-api.md#查询接口)。首次成功固定，mapping 删除重传不改写旧结果。Issue 显示 temporary 与 buildId 或 resolved；旧临时指纹可能变为空列表，分页不是快照。
 
-MCP 的 Crash 大片段名称只有 `stack`，摘要不夹带堆栈正文。续读摘要绑定 format 和 content，后台由原始链变为还原文本时返回 EVIDENCE_CHANGED，须重新开始。旧片段名返回 INVALID_SECTION；旧双份详情或旧状态返回 QUERY_BACKEND_INVALID_RESPONSE，不转换或降级。19 个工具和应用授权不变。协调切换时须同时更新后端、网页、MCP 与 Worker，旧分析任务不进入当前接口。
+MCP 的 Crash 大片段为 `stack` 与 `diagnostics`，摘要不夹带堆栈或诊断正文。续读摘要绑定对应片段的完整 JSON 字节；后台内容变化时返回 EVIDENCE_CHANGED，须重新开始。未知状态或堆栈格式返回 QUERY_BACKEND_INVALID_RESPONSE。网页和 Agent 查询可见授权诊断；分析任务的版本 3 冻结证据仍只含主异常片段，版本 4 报告未扩展。19 个工具和应用授权不变。

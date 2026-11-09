@@ -116,10 +116,19 @@ val performanceBuildId = generatePerformanceBuildId(
     versionCode = performanceVersionCode,
 )
 
-/** 上报凭据只从本机属性注入，不能硬编码真实值。 */
+/** 示例应用的本机配置，不纳入版本控制。 */
+val localPerformanceProperties = providers.fileContents(
+    rootProject.layout.projectDirectory.file(".performance.local.properties"),
+).asText.orElse("").map { content -> Properties().apply { load(content.reader()) } }
+
+/** Gradle 属性优先，其次读取本机配置；不硬编码真实上报凭据。 */
 val performanceAppKey = providers.gradleProperty("performance.appKey")
-    .orElse("local-demo-app-key")
+    .orElse(localPerformanceProperties.map { it.getProperty("performance.appKey", "local-demo-app-key") })
     .get()
+
+if (performanceAppKey == "local-demo-app-key") {
+    logger.warn("示例应用未配置有效 App Key，上报到服务端将无法通过认证。")
+}
 
 /** 联调入口仅供本机测试，空值继续使用 SDK 默认地址。 */
 val performanceBaseUrl = providers.gradleProperty("performance.baseUrl").getOrElse("")

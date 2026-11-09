@@ -169,9 +169,15 @@ internal class ThrowableMapper(
 }
 
 internal object CrashSanitizer {
+    /** 覆盖 Android 私有目录、共享存储和开发机用户目录；整行尾部可能含空格或私有文件名。 */
+    private val privatePathPattern = Regex(
+        "(?i)(?:[A-Z]:\\\\Users\\\\|/data/(?:user(?:_de)?/\\d+|data)/|/storage/emulated/\\d+/|/sdcard/|/mnt/user/\\d+/|/Users/|/home/)[^\\r\\n]*",
+    )
+    /** 请求头可能包含多个以分号或空格分隔的凭据，应整体移除。 */
+    private val sensitiveHeaderPattern = Regex("(?i)\\b(?:authorization|cookie|set-cookie)\\s*[:=]\\s*[^\\r\\n]*")
     private val emailPattern = Regex("(?i)\\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\\.[A-Z]{2,}\\b")
     private val phonePattern = Regex("(?<!\\d)\\+?\\d[\\d ()-]{7,}\\d(?!\\d)")
-    private val urlPattern = Regex("(?i)\\bhttps?://[^\\s?#]+(?:\\?[^\\s#]*)?")
+    private val urlPattern = Regex("(?i)\\bhttps?://[^\\s]+")
     private val uuidPattern = Regex("(?i)\\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\\b")
     private val bearerPattern = Regex("(?i)\\bBearer\\s+[A-Za-z0-9._~+/=-]+")
     private val secretAssignmentPattern = Regex(
@@ -179,7 +185,11 @@ internal object CrashSanitizer {
     )
 
     fun sanitize(value: String, maxLength: Int): String {
-        return value
+        // 先限制参与规则匹配的输入，避免恶意长线程名或异常消息在核心落盘前无界分配。
+        val input = value.take((maxLength.toLong() * 4).coerceIn(0, Int.MAX_VALUE.toLong()).toInt())
+        return input
+            .replace(privatePathPattern, "<redacted-private-path>")
+            .replace(sensitiveHeaderPattern, "<redacted-header>")
             .replace(emailPattern, "<redacted-email>")
             .replace(phonePattern, "<redacted-phone>")
             .replace(urlPattern, "<redacted-url>")

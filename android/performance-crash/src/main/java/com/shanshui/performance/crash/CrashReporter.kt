@@ -1,6 +1,7 @@
 package com.shanshui.performance.crash
 
 import android.content.Context
+import android.app.Application
 import android.net.ConnectivityManager
 import android.net.Network
 import android.os.Build
@@ -12,9 +13,10 @@ import com.shanshui.performance.network.CrashNetworkClientFactory
 import java.io.Closeable
 import java.io.File
 import java.util.concurrent.Executors
+import java.util.concurrent.ArrayBlockingQueue
+import java.util.concurrent.ThreadPoolExecutor
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 
@@ -26,21 +28,26 @@ internal class CrashReporter private constructor(
     private val eventFactory: CrashEventFactory,
     private val uploader: CrashUploader,
     private val scheduler: ScheduledExecutorService,
+    /** 核心持久化与有界辅助采集协调器。 */
+    private val captureCoordinator: CrashCaptureCoordinator,
+    /** 预建的唯一诊断工作线程。 */
+    private val diagnosticWorker: ThreadPoolExecutor,
+    /** 日志子进程的生命周期。 */
+    private val logcatCollector: LogcatDiagnosticsCollector,
+    /** 可选前后台状态监听。 */
+    private val foregroundTracker: CrashForegroundTracker?,
     private val previousExceptionHandler: Thread.UncaughtExceptionHandler?,
 ) : Closeable {
-    private val flushInProgress = AtomicBoolean(false)
+    /** 后台和处理器上传复用同一个非等待互斥门。 */
+    private val flushGate = CrashFlushGate()
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
 
-    private val uncaughtExceptionHandler = object : Thread.UncaughtExceptionHandler {
-        private val handling = AtomicBoolean(false)
-
-        override fun uncaughtException(thread: Thread, throwable: Throwable) {
-            if (handling.compareAndSet(false, true)) {
-                captureAndFlush(throwable)
-            }
-            delegateToPreviousHandler(thread, throwable)
-        }
-    }
+    /** 只在发生异常的线程取得系统 TID，不能用 Java 线程 ID 代替。 */
+    private val uncaughtExceptionHandler = CrashExceptionHandler(
+        capture = ::captureAndFlush,
+        delegate = ::delegateToPreviousHandler,
+        currentTid = { android.os.Process.myTid() },
+    )
 
     init {
         start()
@@ -57,6 +64,9 @@ internal class CrashReporter private constructor(
 
     override fun close() {
         unregisterNetworkCallback()
+        runCatching { foregroundTracker?.close() }
+        diagnosticWorker.shutdownNow()
+        logcatCollector.close()
         scheduler.shutdownNow()
         if (Thread.getDefaultUncaughtExceptionHandler() === uncaughtExceptionHandler) {
             Thread.setDefaultUncaughtExceptionHandler(previousExceptionHandler)
@@ -64,6 +74,14 @@ internal class CrashReporter private constructor(
     }
 
     private fun start() {
+        // 必须先恢复上一进程尚未冻结的核心记录，再安排任何上传。
+        val recovered = try {
+            queue.recoverCaptures()
+        } catch (failure: Throwable) {
+            Log.w(TAG, "crash capture recovery failed")
+            throw failure
+        }
+        Log.i(TAG, "crash capture recovery complete: count=$recovered")
         runCatching {
             queue.enqueue(eventFactory.appStart())
         }.onFailure {
@@ -80,43 +98,35 @@ internal class CrashReporter private constructor(
         )
     }
 
-    private fun captureAndFlush(throwable: Throwable) {
+    /** 冻结的事件才能交给现有同步上传流程；失败时保留已持久化核心。 */
+    private fun captureAndFlush(thread: Thread, systemTid: Int?, throwable: Throwable) {
         runCatching {
             val event = eventFactory.crash(throwable)
-            queue.enqueue(event)
-            flushSynchronously()
+            if (captureCoordinator.capture(event, thread, systemTid, throwable)) flushSynchronously()
         }.onFailure {
-            log("unable to persist or upload crash: ${it.javaClass.simpleName}")
+            log("unable to persist or upload crash")
         }
     }
 
     private fun flushInBackground() {
-        if (!flushInProgress.compareAndSet(false, true)) {
-            return
-        }
-        try {
-            runBlocking {
-                uploader.flush()
+        flushGate.runIfAvailable {
+            try {
+                runBlocking {
+                    uploader.flush()
+                }
+            } catch (throwable: Throwable) {
+                log("background crash upload failed: ${throwable.javaClass.simpleName}")
             }
-        } catch (throwable: Throwable) {
-            log("background crash upload failed: ${throwable.javaClass.simpleName}")
-        } finally {
-            flushInProgress.set(false)
         }
     }
 
     private fun flushSynchronously() {
-        if (!flushInProgress.compareAndSet(false, true)) {
-            return
-        }
-        try {
+        flushGate.runIfAvailable {
             runBlocking {
                 withTimeout(CRASH_HANDLER_FLUSH_TIMEOUT_MILLIS) {
                     uploader.flush(maxBatches = 1)
                 }
             }
-        } finally {
-            flushInProgress.set(false)
         }
     }
 
@@ -201,7 +211,28 @@ internal class CrashReporter private constructor(
                 Thread(runnable, "crash-upload").apply { isDaemon = true }
             }
             val previousExceptionHandler = Thread.getDefaultUncaughtExceptionHandler()
+            var diagnosticWorker: ThreadPoolExecutor? = null
+            var logcatCollector: LogcatDiagnosticsCollector? = null
+            var foregroundTracker: CrashForegroundTracker? = null
             return try {
+                // 诊断工作者在初始化阶段启动；崩溃期间不反复创建替代线程。
+                val worker = ThreadPoolExecutor(1, 1, 0, TimeUnit.MILLISECONDS, ArrayBlockingQueue(1)) { runnable ->
+                    Thread(runnable, "crash-diagnostics").apply { isDaemon = true }
+                }.apply { prestartCoreThread() }
+                diagnosticWorker = worker
+                val logs = LogcatDiagnosticsCollector()
+                logcatCollector = logs
+                val tracker = (applicationContext as? Application)?.let { application ->
+                    runCatching { CrashForegroundTracker(application) }
+                        .onFailure { Log.w(TAG, "crash foreground tracking unavailable") }.getOrNull()
+                }
+                foregroundTracker = tracker
+                val cached = AndroidCrashEnvironmentSource.cache(System.currentTimeMillis())
+                val environment = EnvironmentDiagnosticsCollector(AndroidCrashEnvironmentSource(), cached, { tracker?.current() })
+                val collector = CrashDiagnosticsCollector(ThreadDiagnosticsCollector(config.applicationPackage), environment, logs,
+                    cached.pid, cached.apiLevel)
+                val coordinator = CrashCaptureCoordinator(queue, CrashEventBudget(serviceConfig.crashMaxBatchBytes), collector,
+                    worker, logger = { message -> Log.i(TAG, message) })
                 CrashReporter(
                     context = applicationContext,
                     config = config,
@@ -210,9 +241,16 @@ internal class CrashReporter private constructor(
                     eventFactory = eventFactory,
                     uploader = uploader,
                     scheduler = scheduler,
+                    captureCoordinator = coordinator,
+                    diagnosticWorker = worker,
+                    logcatCollector = logs,
+                    foregroundTracker = tracker,
                     previousExceptionHandler = previousExceptionHandler,
                 )
             } catch (throwable: Throwable) {
+                runCatching { foregroundTracker?.close() }
+                diagnosticWorker?.shutdownNow()
+                logcatCollector?.close()
                 scheduler.shutdownNow()
                 if (Thread.getDefaultUncaughtExceptionHandler() !== previousExceptionHandler) {
                     Thread.setDefaultUncaughtExceptionHandler(previousExceptionHandler)

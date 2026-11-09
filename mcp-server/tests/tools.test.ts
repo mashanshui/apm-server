@@ -43,7 +43,7 @@ test('19 tools keep per-request identity and fixed backend routes', async () => 
 test('detail sections can be reconstructed and stale continuation fails', async () => {
   let content = { kind: 'jvm', fatal: true, throwableChain: [{ type: 'Exception', frames: Array.from({ length: 1000 }, (_, index) => ({ className: 'Example', methodName: `frame-${index}` })) }] };
   const backend = new ApmClient('http://backend.test', async () =>
-    new Response(JSON.stringify({ appId: 'app-a', eventId: 'event-1', crashKind: 'jvm', fatal: true, symbolicationStatus: 'pending', groupingKind: 'temporary', stack: { format: 'raw_chain', content } })));
+    new Response(JSON.stringify({ appId: 'app-a', eventId: 'event-1', crashKind: 'jvm', fatal: true, symbolicationStatus: 'pending', groupingKind: 'temporary', stack: { format: 'raw_chain', content }, diagnostics: null })));
   const handler = createProtocolHandler(backend);
   const transport = new StreamableHTTPClientTransport(new URL('http://test.local/mcp'), {
     fetch: (url, init) => handler.fetch(new Request(url, init), {
@@ -112,7 +112,7 @@ test('all tools map to existing GET routes and preserve domain evidence', async 
         analysis: { exactMessageDurationNs: 0, estimatedDurationNs: null,
           expectedSampleCount: 2, parsedSampleCount: 1, missingSampleCount: 1,
           stackDictionary: { '1': [{ className: 'A' }] } } }
-      : crash ? { appId: 'app-a', eventId: 'e1', crashKind: 'jvm', fatal: true, symbolicationStatus: 'pending', groupingKind: 'temporary', stack: { format: 'raw_chain', content: { kind: 'jvm', fatal: true, throwableChain: [{ type: 'Exception', frames: [{ className: 'A', methodName: 'run' }] }] } }, value: 0, denominator: null }
+      : crash ? { appId: 'app-a', eventId: 'e1', crashKind: 'jvm', fatal: true, symbolicationStatus: 'pending', groupingKind: 'temporary', stack: { format: 'raw_chain', content: { kind: 'jvm', fatal: true, throwableChain: [{ type: 'Exception', frames: [{ className: 'A', methodName: 'run' }] }] } }, diagnostics: null, value: 0, denominator: null }
       : { appId: 'app-a', issues: [], events: [], status: 'no_data', value: 0, denominator: null, pss: { runCount: 0 }, vss: { runCount: 0 }, javaHeap: { runCount: 0 }, points: [] }));
   });
   const handler = createProtocolHandler(backend);

@@ -7,6 +7,7 @@ import type {
   CrashTrendResponse,
 } from '../types/crash'
 import { ApiError, errorMessage as sharedErrorMessage, isAbortError as sharedIsAbortError, pathSegment, requestJson as request } from './http'
+import { validDiagnostics } from './crashDiagnostics'
 
 export { ApiError as CrashApiError }
 
@@ -136,6 +137,8 @@ export function requireCurrentCrash(value: CrashEventDetailResponse): CrashEvent
         || !value.symbolFileId || !Number.isInteger(value.symbolFileRevision) || (value.symbolFileRevision ?? 0) < 1
         || !/^[a-f0-9]{64}$/.test(value.symbolFileSha256 ?? '') || !value.processedAt) throw protocolError()
   } else if (value.groupingKind !== 'temporary' || value.stack?.format !== 'raw_chain'
-      || !Array.isArray(value.stack.content?.throwableChain) || !value.stack.content.throwableChain.length) throw protocolError()
+      || !Array.isArray(value.stack.content?.throwableChain) || !value.stack.content.throwableChain.length
+      || 'diagnostics' in value.stack.content) throw protocolError()
+  if (!validDiagnostics(value.diagnostics)) throw protocolError()
   return value
 }

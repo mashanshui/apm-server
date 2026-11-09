@@ -3,7 +3,8 @@ import type { CrashPayload } from '../types/crash'
 
 defineProps<{ crash: CrashPayload | null }>()
 
-function frameLocation(fileName: string, lineNumber: number | null): string {
+/** 保留缺失文件名和行号的可读占位。 */
+function frameLocation(fileName: string | null | undefined, lineNumber: number | null | undefined): string {
   return `${fileName || '未知文件'}:${lineNumber ?? '?'}`
 }
 </script>

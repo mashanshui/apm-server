@@ -68,9 +68,11 @@ public class ClickHouseCrashRepository implements CrashWritePort, CrashQueryPort
         int accepted = 0;
         for (CrashStoredSignal event : events) {
             if (!appId.equals(event.appId())) throw new IllegalArgumentException("事件应用不一致");
+            var crash = event instanceof CrashEvent item ? item : null;
             boolean fresh = newStore().accept(new com.shanshui.apmserver.crash.internal.domain.CrashFact(
-                    event.metadata(), event.crashKind(), Boolean.TRUE.equals(event.crashFatal())),
-                    event instanceof CrashEvent crash ? crash.state() : null);
+                    event.metadata(), event.crashKind(), Boolean.TRUE.equals(event.crashFatal()),
+                    crash == null ? "" : crash.diagnosticsPayload(), crash == null ? "" : crash.state().captureSha256()),
+                    crash == null ? null : crash.state());
             if (fresh) accepted++;
         }
         return new AppendResult(accepted, events.size() - accepted);
@@ -192,13 +194,17 @@ public class ClickHouseCrashRepository implements CrashWritePort, CrashQueryPort
         // 状态侧只投影轻量列，摘要和统计 SQL 根本不引用 stack_payload。
         String state = "SELECT app_id,build_id,event_time,event_id,fingerprint,fingerprint_version,exception_type,symbolication_status,grouping_kind"
                 + " FROM apm_crash_state FINAL WHERE " + scope;
+        // 显式投影事实列，不能依赖优化器从 SELECT * 中裁掉大诊断载荷。
+        String fact = "SELECT app_id,build_id,event_time,event_id,event_type,session_id,anonymous_device_id,"
+                + "app_version,version_code,channel,environment,os_version,device_model"
+                + " FROM apm_crash_fact FINAL WHERE " + factWhere;
         String sql = "SELECT f.event_id AS event_id,f.event_type AS event_type,f.event_time AS event_time,"
                 + "f.session_id AS session_id,f.anonymous_device_id AS anonymous_device_id,f.app_version AS app_version,"
                 + "f.version_code AS version_code,f.build_id AS build_id,f.channel AS channel,f.environment AS environment,"
                 + "f.os_version AS os_version,f.device_model AS device_model,s.fingerprint AS crash_fingerprint,"
                 + "s.fingerprint_version AS fingerprint_version,s.exception_type AS crash_exception_type,"
                 + "s.symbolication_status AS symbolication_status,s.grouping_kind AS grouping_kind"
-                + " FROM (SELECT * FROM apm_crash_fact FINAL WHERE " + factWhere + ") AS f LEFT ANY JOIN (" + state + ") AS s"
+                + " FROM (" + fact + ") AS f LEFT ANY JOIN (" + state + ") AS s"
                 + " ON f.app_id=s.app_id AND f.build_id=s.build_id AND f.event_time=s.event_time AND f.event_id=s.event_id"
                 + " WHERE (f.event_type='app_start' OR (f.event_type='crash' AND s.event_id!=''))";
         if (filter.fingerprint() != null) sql += " AND (f.event_type='app_start' OR s.fingerprint='" + escape(filter.fingerprint()) + "')";
@@ -254,7 +260,8 @@ public class ClickHouseCrashRepository implements CrashWritePort, CrashQueryPort
         EventMetadata metadata = metadata(row);
         if ("app_start".equals(metadata.eventType())) return Optional.of(new AppStartEvent(metadata));
         var state = newStore().current(appId, eventId).orElseThrow(EventStoreUnavailableException::new);
-        return Optional.of(new CrashEvent(metadata, text(row, "crash_kind"), row.path("crash_fatal").asInt() == 1, state));
+        return Optional.of(new CrashEvent(metadata, text(row, "crash_kind"), row.path("crash_fatal").asInt() == 1, state,
+                text(row, "diagnostics_payload")));
     }
 
     private EventMetadata metadata(JsonNode row) {

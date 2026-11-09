@@ -23,36 +23,116 @@
     "crash"
   ],
   "properties": {
-    "schemaVersion": { "const": 2 },
-    "eventId": { "type": "string", "minLength": 1, "maxLength": 128 },
-    "eventType": { "const": "crash" },
-    "occurredAt": { "type": "integer", "minimum": 0 },
-    "sessionId": { "type": "string", "minLength": 1, "maxLength": 128 },
-    "processId": { "type": "string", "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$" },
-    "anonymousDeviceId": { "type": "string", "minLength": 1, "maxLength": 256 },
-    "packageName": { "type": "string", "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$", "maxLength": 255 },
-    "appVersion": { "type": "string", "minLength": 1, "maxLength": 128 },
-    "versionCode": { "type": "integer", "minimum": 0 },
-    "buildId": { "type": "string", "minLength": 1, "maxLength": 256 },
-    "environment": { "type": "string", "minLength": 1, "maxLength": 64 },
-    "channel": { "type": "string", "minLength": 1, "maxLength": 128 },
-    "osVersion": { "type": "string", "minLength": 1, "maxLength": 64 },
-    "deviceModel": { "type": "string", "minLength": 1, "maxLength": 256 },
-    "networkType": { "type": "string", "maxLength": 32 },
-    "measurements": { "type": "object" },
-    "attributes": { "type": "object" },
+    "schemaVersion": {
+      "const": 2
+    },
+    "eventId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "eventType": {
+      "const": "crash"
+    },
+    "occurredAt": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "sessionId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "processId": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$"
+    },
+    "anonymousDeviceId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "packageName": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$",
+      "maxLength": 255
+    },
+    "appVersion": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "versionCode": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "buildId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "environment": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "channel": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "osVersion": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "deviceModel": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "networkType": {
+      "type": "string",
+      "maxLength": 32
+    },
+    "measurements": {
+      "type": "object"
+    },
+    "attributes": {
+      "type": "object"
+    },
     "crash": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind", "fatal", "throwableChain"],
+      "required": [
+        "kind",
+        "fatal",
+        "throwableChain"
+      ],
       "properties": {
-        "kind": { "const": "jvm" },
-        "fatal": { "const": true },
+        "kind": {
+          "const": "jvm"
+        },
+        "fatal": {
+          "const": true
+        },
         "throwableChain": {
           "type": "array",
           "minItems": 1,
           "maxItems": 16,
-          "items": { "$ref": "#/$defs/throwable" }
+          "items": {
+            "$ref": "#/$defs/throwable"
+          }
+        },
+        "diagnostics": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/diagnostics"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       }
     }
@@ -61,28 +141,903 @@
     "throwable": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["type", "frames"],
+      "required": [
+        "type",
+        "frames"
+      ],
       "properties": {
-        "type": { "type": "string", "minLength": 1, "maxLength": 512 },
-        "message": { "type": "string", "maxLength": 4096 },
+        "type": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "message": {
+          "type": "string",
+          "maxLength": 4096
+        },
         "frames": {
           "type": "array",
           "minItems": 1,
           "maxItems": 200,
-          "items": { "$ref": "#/$defs/frame" }
+          "items": {
+            "$ref": "#/$defs/frame"
+          }
         }
       }
     },
     "frame": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["className", "methodName"],
+      "required": [
+        "className",
+        "methodName"
+      ],
       "properties": {
-        "className": { "type": "string", "minLength": 1, "maxLength": 512 },
-        "methodName": { "type": "string", "minLength": 1, "maxLength": 512 },
-        "fileName": { "type": "string", "maxLength": 512 },
-        "lineNumber": { "type": "integer", "minimum": -1, "maximum": 1000000000 },
-        "applicationFrame": { "type": "boolean" }
+        "className": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "methodName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "fileName": {
+          "type": "string",
+          "maxLength": 512
+        },
+        "lineNumber": {
+          "type": "integer",
+          "minimum": -1,
+          "maximum": 1000000000
+        },
+        "applicationFrame": {
+          "type": "boolean"
+        }
+      }
+    },
+    "diagnostics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [],
+      "properties": {
+        "coreTruncation": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/coreTruncation"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "crashedThread": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/crashedThread"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "otherThreads": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/otherThreads"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "logcat": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/logcat"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "memory": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/crashMemory"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "openFiles": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/openFiles"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "process": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/crashProcess"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "device": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/crashDevice"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "coreTruncation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "truncated"
+      ],
+      "properties": {
+        "truncated": {
+          "type": "boolean"
+        },
+        "reason": {
+          "enum": [
+            "size_limit",
+            null
+          ]
+        }
+      }
+    },
+    "crashedThread": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "truncated"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "ok",
+            "partial",
+            "unavailable",
+            "skipped"
+          ]
+        },
+        "reason": {
+          "enum": [
+            "permission_denied",
+            "unsupported",
+            "timeout",
+            "io_error",
+            "memory_pressure",
+            "interrupted",
+            "size_limit",
+            "count_limit",
+            null
+          ]
+        },
+        "truncated": {
+          "type": "boolean"
+        },
+        "capturedAt": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "javaId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[1-9][0-9]{0,18}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "name": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 512
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "state": {
+          "anyOf": [
+            {
+              "enum": [
+                "NEW",
+                "RUNNABLE",
+                "BLOCKED",
+                "WAITING",
+                "TIMED_WAITING",
+                "TERMINATED"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "priority": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 10
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "daemon": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "mainThread": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "systemTid": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1,
+          "maximum": 2147483647
+        }
+      }
+    },
+    "otherThread": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "javaId",
+        "name",
+        "state",
+        "priority",
+        "daemon",
+        "mainThread",
+        "truncated",
+        "frames"
+      ],
+      "properties": {
+        "javaId": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]{0,18}$"
+        },
+        "name": {
+          "type": "string",
+          "maxLength": 512
+        },
+        "state": {
+          "enum": [
+            "NEW",
+            "RUNNABLE",
+            "BLOCKED",
+            "WAITING",
+            "TIMED_WAITING",
+            "TERMINATED"
+          ]
+        },
+        "priority": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10
+        },
+        "daemon": {
+          "type": "boolean"
+        },
+        "mainThread": {
+          "type": "boolean"
+        },
+        "truncated": {
+          "type": "boolean"
+        },
+        "frames": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "$ref": "#/$defs/frame"
+          }
+        }
+      }
+    },
+    "otherThreads": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "truncated",
+        "threads"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "ok",
+            "partial",
+            "unavailable",
+            "skipped"
+          ]
+        },
+        "reason": {
+          "enum": [
+            "permission_denied",
+            "unsupported",
+            "timeout",
+            "io_error",
+            "memory_pressure",
+            "interrupted",
+            "size_limit",
+            "count_limit",
+            null
+          ]
+        },
+        "truncated": {
+          "type": "boolean"
+        },
+        "capturedAt": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "observedCount": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 2147483647
+        },
+        "omittedCount": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 2147483647
+        },
+        "threads": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "$ref": "#/$defs/otherThread"
+          }
+        }
+      }
+    },
+    "logcatBuffer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "truncated",
+        "lines"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "ok",
+            "partial",
+            "unavailable",
+            "skipped"
+          ]
+        },
+        "reason": {
+          "enum": [
+            "permission_denied",
+            "unsupported",
+            "timeout",
+            "io_error",
+            "memory_pressure",
+            "interrupted",
+            "size_limit",
+            "count_limit",
+            null
+          ]
+        },
+        "truncated": {
+          "type": "boolean"
+        },
+        "capturedAt": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "lines": {
+          "type": "array",
+          "maxItems": 200,
+          "items": {
+            "type": "string",
+            "maxLength": 2048
+          }
+        }
+      }
+    },
+    "logcat": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "truncated"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "ok",
+            "partial",
+            "unavailable",
+            "skipped"
+          ]
+        },
+        "reason": {
+          "enum": [
+            "permission_denied",
+            "unsupported",
+            "timeout",
+            "io_error",
+            "memory_pressure",
+            "interrupted",
+            "size_limit",
+            "count_limit",
+            null
+          ]
+        },
+        "truncated": {
+          "type": "boolean"
+        },
+        "capturedAt": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "main": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/logcatBuffer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "system": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/logcatBuffer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "events": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/logcatBuffer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "crashMemory": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "truncated"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "ok",
+            "partial",
+            "unavailable",
+            "skipped"
+          ]
+        },
+        "reason": {
+          "enum": [
+            "permission_denied",
+            "unsupported",
+            "timeout",
+            "io_error",
+            "memory_pressure",
+            "interrupted",
+            "size_limit",
+            "count_limit",
+            null
+          ]
+        },
+        "truncated": {
+          "type": "boolean"
+        },
+        "capturedAt": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "javaHeapUsedBytes": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "javaHeapMaxBytes": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "javaHeapPssBytes": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "nativeHeapPssBytes": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "nativeHeapAllocatedBytes": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "totalPssBytes": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "rssBytes": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "vssBytes": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "swapBytes": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "meminfo": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 16384
+        },
+        "statusText": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 16384
+        },
+        "limits": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 16384
+        }
+      }
+    },
+    "openFile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "fd"
+      ],
+      "properties": {
+        "fd": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647
+        },
+        "target": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 2048
+        }
+      }
+    },
+    "openFiles": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "truncated",
+        "entries"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "ok",
+            "partial",
+            "unavailable",
+            "skipped"
+          ]
+        },
+        "reason": {
+          "enum": [
+            "permission_denied",
+            "unsupported",
+            "timeout",
+            "io_error",
+            "memory_pressure",
+            "interrupted",
+            "size_limit",
+            "count_limit",
+            null
+          ]
+        },
+        "truncated": {
+          "type": "boolean"
+        },
+        "capturedAt": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "count": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 2147483647
+        },
+        "entries": {
+          "type": "array",
+          "maxItems": 128,
+          "items": {
+            "$ref": "#/$defs/openFile"
+          }
+        }
+      }
+    },
+    "crashProcess": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "truncated"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "ok",
+            "partial",
+            "unavailable",
+            "skipped"
+          ]
+        },
+        "reason": {
+          "enum": [
+            "permission_denied",
+            "unsupported",
+            "timeout",
+            "io_error",
+            "memory_pressure",
+            "interrupted",
+            "size_limit",
+            "count_limit",
+            null
+          ]
+        },
+        "truncated": {
+          "type": "boolean"
+        },
+        "capturedAt": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "pid": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1,
+          "maximum": 2147483647
+        },
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 512
+        },
+        "foreground": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "startedAt": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "sdkInitializedAt": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      }
+    },
+    "crashDevice": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "truncated",
+        "abis"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "ok",
+            "partial",
+            "unavailable",
+            "skipped"
+          ]
+        },
+        "reason": {
+          "enum": [
+            "permission_denied",
+            "unsupported",
+            "timeout",
+            "io_error",
+            "memory_pressure",
+            "interrupted",
+            "size_limit",
+            "count_limit",
+            null
+          ]
+        },
+        "truncated": {
+          "type": "boolean"
+        },
+        "capturedAt": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "apiLevel": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1,
+          "maximum": 10000
+        },
+        "abis": {
+          "type": "array",
+          "maxItems": 16,
+          "items": {
+            "type": "string",
+            "maxLength": 128
+          }
+        },
+        "manufacturer": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 256
+        },
+        "brand": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 256
+        },
+        "buildFingerprint": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 1024
+        }
       }
     }
   }

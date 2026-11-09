@@ -35,7 +35,7 @@ test('crash stats, pagination and symbolication fields survive projection', asyn
     if (path.endsWith('/issues')) return { appId: 'app-a',
       issues: [{ fingerprint: 'fp', eventCount: 2, groupingKind: 'temporary', buildId: 'build-1' }], nextCursor: 'opaque-next' };
     return { appId: 'app-a', eventId: 'e1', symbolicationStatus: 'symbolicated', crashKind: 'jvm', fatal: true, groupingKind: 'resolved',
-      symbolFileId: 'original-symbol', symbolFileRevision: 3, symbolFileSha256: 'a'.repeat(64), processedAt: '2026-11-05T00:00:00Z', stack: { format: 'retrace_text', content: 'mapped stack' } };
+      symbolFileId: 'original-symbol', symbolFileRevision: 3, symbolFileSha256: 'a'.repeat(64), processedAt: '2026-11-05T00:00:00Z', stack: { format: 'retrace_text', content: 'mapped stack' }, diagnostics: null };
   }, async (client) => {
     const overview = await client.callTool({ name: 'get_crash_overview', arguments: {} });
     assert.deepEqual((overview.structuredContent as { data: { stats: unknown } }).data.stats,
@@ -74,6 +74,52 @@ test('crash rejects removed sections and unsupported backend contracts', async (
       assert.equal(result.isError, true);
       assert.match(JSON.stringify(result.content), /QUERY_BACKEND_INVALID_RESPONSE/);
       assert.equal(result.structuredContent, undefined);
+    });
+  }
+});
+
+/** 诊断现场只通过有界片段读取，未知状态或堆栈格式不能冒充当前协议。 */
+test('crash diagnostics are chunked and validated independently', async () => {
+  const diagnostics = {
+    otherThreads: { status: 'ok', truncated: false, threads: [{ javaId: '2', name: 'worker', state: 'WAITING',
+      priority: 5, daemon: false, mainThread: true, truncated: false, symbolicationStatus: 'not_applicable',
+      stack: { format: 'raw_frames', content: [] } }] },
+    logcat: { status: 'ok', truncated: false, main: { status: 'ok', truncated: false,
+      lines: Array.from({ length: 45 }, (_, index) => `合成日志${index} ${'x'.repeat(900)}`) } },
+    memory: { status: 'ok', truncated: false, javaHeapUsedBytes: 0 },
+  };
+  const base = { appId: 'app-a', eventId: 'e1', crashKind: 'jvm', fatal: true, symbolicationStatus: 'pending',
+    groupingKind: 'temporary', stack: { format: 'raw_chain', content: { kind: 'jvm', fatal: true,
+      throwableChain: [{ type: 'E', frames: [{ className: 'A', methodName: 'run' }] }] } } };
+  await withClient(() => ({ ...base, diagnostics }), async client => {
+    const summary = await client.callTool({ name: 'get_crash_event', arguments: { eventId: 'e1' } });
+    const data = (summary.structuredContent as { data: Record<string, unknown> }).data;
+    assert.deepEqual(data.availableSections, ['stack', 'diagnostics']);
+    assert.equal('diagnostics' in data, false);
+    assert.doesNotMatch(JSON.stringify(summary), /合成日志/);
+    const chunks: Buffer[] = [];
+    let offset = 0;
+    let contentDigest: string | undefined;
+    while (true) {
+      const result = await client.callTool({ name: 'get_crash_event', arguments: {
+        eventId: 'e1', section: 'diagnostics', chunkBytes: 4096, offset, ...(contentDigest ? { contentDigest } : {}),
+      } });
+      assert.notEqual(result.isError, true);
+      const page = result.structuredContent as { data: { content: string; contentDigest: string }; continuation?: { offset: number } };
+      chunks.push(Buffer.from(page.data.content, 'base64'));
+      contentDigest = page.data.contentDigest;
+      if (!page.continuation) break;
+      offset = page.continuation.offset;
+    }
+    assert.deepEqual(JSON.parse(Buffer.concat(chunks).toString('utf8')), diagnostics);
+  });
+  for (const invalid of [undefined, { memory: { status: 'future', truncated: false } },
+    { otherThreads: { status: 'ok', truncated: false, threads: [{ ...diagnostics.otherThreads.threads[0],
+      stack: { format: 'future', content: [] } }] } }]) {
+    await withClient(() => ({ ...base, diagnostics: invalid }), async client => {
+      const result = await client.callTool({ name: 'get_crash_event', arguments: { eventId: 'e1' } });
+      assert.equal(result.isError, true);
+      assert.match(JSON.stringify(result.content), /QUERY_BACKEND_INVALID_RESPONSE/);
     });
   }
 });
@@ -186,7 +232,7 @@ test('crash chunks preserve unicode and reject pending-to-success continuation',
   const raw = {format:'raw_chain',content:{kind:'jvm',fatal:true,throwableChain:[{type:'Exception',message:'完整中文🌧️',frames:[{className:'a',methodName:'b',fileName:'源.java',lineNumber:1,applicationFrame:true}]}]}};
   const mapped = {format:'retrace_text',content:'Exception: 完整中文🌧️\n at com.example.Main.first(Main.java:1)\n <OR> at com.example.Main.second(Main.java:2)'};
   let stack: unknown = raw;
-  await withClient(() => ({appId:'app-a',eventId:'e1',crashKind:'jvm',fatal:true,stack,
+  await withClient(() => ({appId:'app-a',eventId:'e1',crashKind:'jvm',fatal:true,stack,diagnostics:null,
     symbolicationStatus:stack===raw?'pending':'symbolicated',groupingKind:stack===raw?'temporary':'resolved',
     symbolFileId:stack===raw?null:'fixed',symbolFileRevision:stack===raw?null:1,symbolFileSha256:stack===raw?null:'a'.repeat(64),processedAt:stack===raw?null:'2026-11-05T00:00:00Z'}), async client => {
     for (const value of [raw,mapped]) {

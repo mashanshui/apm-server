@@ -44,6 +44,8 @@ public class CrashStateJson {
         row.put("symbol_sha256", empty(state.symbolSha256()));
         row.put("processed_at", state.processedAt() == null ? null : time(state.processedAt()));
         row.put("retry_at", state.retryAt() == null ? null : time(state.retryAt()));
+        row.put("capture_sha256", state.captureSha256());
+        row.put("thread_stacks_payload", state.threadStacksPayload());
         return mapper.writeValueAsString(row);
     }
 
@@ -56,7 +58,13 @@ public class CrashStateJson {
                 row.path("fingerprint").asText(), row.path("fingerprint_version").asText(), row.path("grouping_kind").asText(),
                 row.path("symbol_id").isNull() ? null : UUID.fromString(row.path("symbol_id").asText()),
                 row.path("symbol_revision").isNull() ? null : row.path("symbol_revision").asInt(),
-                nullableText(row, "symbol_sha256"), nullableTime(row, "processed_at"), nullableTime(row, "retry_at"));
+                nullableText(row, "symbol_sha256"), nullableTime(row, "processed_at"), nullableTime(row, "retry_at"),
+                row.path("capture_sha256").asText(""), row.path("thread_stacks_payload").asText(""));
+    }
+
+    /** 旧在途登记缺少新列时，按数据库默认空值比较全部状态，保留原始登记字节。 */
+    public boolean matches(String payload, CrashState current) {
+        return decode(mapper.readTree(payload)).equals(current);
     }
 
     /** 固定格式解析，保留毫秒身份。 */

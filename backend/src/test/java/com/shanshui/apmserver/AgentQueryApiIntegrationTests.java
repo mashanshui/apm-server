@@ -156,6 +156,37 @@ class AgentQueryApiIntegrationTests extends AppIngestApiTestSupport {
                 .andExpect(jsonPath("$.events.length()").value(0));
     }
 
+    /** Agent 与网页读取同一份脱敏诊断，零值与空帧不被改变。 */
+    @Test
+    void crashDiagnosticsMatchTheAuthorizedWebDetail() throws Exception {
+        MockHttpSession owner = login();
+        String secret = token(owner);
+        String eventId = "agent-diagnostics-" + System.nanoTime();
+        var event = CrashTestSupport.event(eventId, "crash", "session", "device", "1",
+                CrashTestSupport.nowMillis(), CrashTestSupport.crash("java.lang.IllegalStateException", "safe", 1, "A"));
+        ObjectNode batch = (ObjectNode) mapper.valueToTree(CrashTestSupport.batch(List.of(event)));
+        ((ObjectNode) batch.path("events").get(0)).put("packageName", "com.example.agentquery");
+        ObjectNode crash = (ObjectNode) batch.path("events").get(0).path("crash");
+        crash.set("diagnostics", mapper.readTree("""
+                {"otherThreads":{"status":"ok","truncated":false,"threads":[{"javaId":"2","name":"worker",
+                  "state":"WAITING","priority":5,"daemon":false,"mainThread":true,"truncated":false,"frames":[]}]},
+                 "memory":{"status":"ok","truncated":false,"javaHeapUsedBytes":0},
+                 "logcat":{"status":"ok","truncated":false,"main":{"status":"ok","truncated":false,
+                   "lines":["token=synthetic-secret"]}}}
+                """));
+        mvc.perform(MockMvcRequestBuilders.post("/ingest/v1/batches").header("X-App-Key", appKey())
+                        .contentType(MediaType.APPLICATION_JSON).content(mapper.writeValueAsString(batch)))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.accepted").value(1));
+        var web = mvc.perform(MockMvcRequestBuilders.get("/api/v1/apps/" + appId() + "/crashes/events/" + eventId)
+                .session(owner)).andExpect(status().isOk()).andReturn();
+        var agent = mvc.perform(MockMvcRequestBuilders.get("/api/agent/v1/crashes/events/" + eventId)
+                .header("Authorization", "Bearer " + secret)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.diagnostics.memory.javaHeapUsedBytes").value(0))
+                .andExpect(jsonPath("$.diagnostics.otherThreads.threads[0].stack.content").isArray()).andReturn();
+        assertEquals(mapper.readTree(web.getResponse().getContentAsString()), mapper.readTree(agent.getResponse().getContentAsString()));
+        assertTrue(!agent.getResponse().getContentAsString().contains("synthetic-secret"));
+    }
+
     /** 相同静态卡顿数据中，页大小只影响列表，网页与 Agent 统计逐字段一致。 */
     @Test void jankStatisticsAndCursorPagesMatchWithRealData() throws Exception {
         MockHttpSession owner=login();

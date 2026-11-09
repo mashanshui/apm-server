@@ -1,6 +1,7 @@
 import { createMcpHandler, McpServer } from '@modelcontextprotocol/server';
 import { z } from 'zod';
 import { ApmClient, ApmError, digest, isRecord } from './apm.js';
+import { validDiagnostics } from './crashDiagnostics.js';
 
 /** 输入参数全集；工具只领取实际支持的字段。 */
 const fields = {
@@ -48,7 +49,7 @@ const tools: ReadonlyArray<readonly [string, string, readonly (keyof typeof fiel
 
 /** 大详情的顶层证据字段，默认只返回摘要。 */
 const detailSections: Record<string, readonly string[]> = {
-  get_crash_event: ['stack'],
+  get_crash_event: ['stack', 'diagnostics'],
   get_jank_event: ['jank', 'analysis']
 };
 
@@ -194,7 +195,8 @@ function project(name: string, body: unknown, query: Record<string, string>, arg
 function requireCurrentCrash(body: unknown): void {
   // 这些字段之间的关系属于当前契约，不能把成功材料误标成原始材料。
   const invalid = () => { throw new ApmError('QUERY_BACKEND_INVALID_RESPONSE', 503, false); };
-  if (!isRecord(body) || !isRecord(body.stack) || 'rawCrash' in body || 'symbolicatedStackText' in body
+  if (!isRecord(body) || !isRecord(body.stack) || !validDiagnostics(body.diagnostics)
+      || 'rawCrash' in body || 'symbolicatedStackText' in body
       || !['pending','failed','symbolicated'].includes(String(body.symbolicationStatus))
       || typeof body.crashKind !== 'string' || typeof body.fatal !== 'boolean') return invalid();
   const stack = body.stack;
@@ -204,6 +206,7 @@ function requireCurrentCrash(body: unknown): void {
         || typeof body.symbolFileSha256 !== 'string' || !/^[a-f0-9]{64}$/.test(body.symbolFileSha256)
         || typeof body.processedAt !== 'string' || !Number.isFinite(Date.parse(body.processedAt))) return invalid();
   } else if (body.groupingKind !== 'temporary' || stack.format !== 'raw_chain' || !isRecord(stack.content)
+      || 'diagnostics' in stack.content
       || !Array.isArray(stack.content.throwableChain) || !stack.content.throwableChain.length
       || stack.content.throwableChain.some((node) => !isRecord(node) || typeof node.type !== 'string'
         || !Array.isArray(node.frames) || !node.frames.length)) return invalid();

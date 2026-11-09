@@ -7,7 +7,14 @@ public record CrashEvent(
         /** 不变事件事实。 */ EventMetadata metadata,
         /** 不变 Crash 类型。 */ String crashKind,
         /** 不变致命资格。 */ boolean fatal,
-        /** 同版本堆栈、归组和来源。 */ CrashState state) implements CrashStoredSignal {
+        /** 同版本堆栈、归组和来源。 */ CrashState state,
+        /** 不可变的非堆栈诊断上下文。 */ String diagnosticsPayload) implements CrashStoredSignal {
+    /** 构造不含诊断的既有事件。 */
+    public CrashEvent(EventMetadata metadata, String crashKind, boolean fatal, CrashState state) {
+        this(metadata, crashKind, fatal, state, "");
+    }
+    /** 空诊断使用数据库默认语义。 */
+    public CrashEvent { diagnosticsPayload = diagnosticsPayload == null ? "" : diagnosticsPayload; }
     /** 当前异常类型。 */
     public String exceptionType() { return state.exceptionType(); }
     /** 当前归组。 */

@@ -112,6 +112,10 @@ class AppStackMappingResolverTests {
                 return mapping;
             }
 
+            /** 此测试不调用辅助线程还原。 */
+            @Override
+            public SymbolFileLease retain() { throw new UnsupportedOperationException(); }
+
             @Override
             public void close() {
                 closed.set(true);
@@ -128,6 +132,12 @@ class AppStackMappingResolverTests {
             @Override
             public SymbolicationResult retrace(SymbolFileLease ignored, List<String> stackLines) {
                 return SymbolicationResult.failed("unused");
+            }
+
+            /** 卡顿解析不调用辅助线程还原。 */
+            @Override
+            public SymbolicationResult retraceAuxiliary(SymbolFileLease ignored, List<String> lines, long bytes, java.time.Duration wait) {
+                throw new AssertionError("不应调用辅助还原");
             }
         };
 
@@ -152,6 +162,12 @@ class AppStackMappingResolverTests {
             @Override
             public SymbolicationResult retrace(SymbolFileLease lease, List<String> stackLines) {
                 return SymbolicationResult.failed("unused");
+            }
+
+            /** 注册表不可用时不调用辅助线程还原。 */
+            @Override
+            public SymbolicationResult retraceAuxiliary(SymbolFileLease lease, List<String> lines, long bytes, java.time.Duration wait) {
+                throw new AssertionError("不应调用辅助还原");
             }
         };
 

@@ -7,6 +7,21 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class CrashEventFactoryTest {
+    /** 私有路径和包含多项凭据的请求头不能进入本地持久材料。 */
+    @Test
+    fun redactsPrivatePathsAndWholeCredentialHeaders() {
+        val input = "path=/data/user/0/com.example/files/private sentinel.txt\n" +
+            "Cookie: session=secret-one; other=secret-two\n" +
+            "Authorization: Bearer secret-three\n" +
+            "reference https://example.invalid/#secret-fragment"
+        val sanitized = CrashSanitizer.sanitize(input, 4096)
+        assertFalse(sanitized.contains("sentinel"))
+        assertFalse(sanitized.contains("secret-one"))
+        assertFalse(sanitized.contains("secret-two"))
+        assertFalse(sanitized.contains("secret-three"))
+        assertFalse(sanitized.contains("secret-fragment"))
+    }
+
     @Test
     fun crashEventSanitizesMessageAndLimitsThrowablePayload() {
         val factory = CrashEventFactory(

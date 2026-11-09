@@ -17,6 +17,8 @@
 | `NON_FATAL_CRASH` | 200 | 单条 | 否 | 首期只接受 JVM 致命 Crash |
 | `EVENT_TIME_TOO_OLD` / `EVENT_TIME_IN_FUTURE` | 200 | 单条 | 否 | 事件时间超出窗口 |
 | `TOO_MANY_STACK_FRAMES` / `MESSAGE_TOO_LONG` / `EVENT_TOO_LARGE` | 200 | 单条 | 否 | 超出字段或事件大小限制 |
+| `INVALID_CRASH_DIAGNOSTICS` | 200 | 单条 | 否 | 诊断状态、字段关系、数量或实际 JSON 字节超出限制 |
+| `CRASH_CONTENT_CONFLICT` | 200 | 单条 | 否 | 同一应用及 eventId 的已保存或部分保存内容与重试不一致，不能用于追加诊断 |
 | `EVENT_STORE_UNAVAILABLE` | 503 | 批次 | 是 | 返回 `Retry-After: 30` |
 | `INGEST_RATE_LIMITED` | 429 | 批次 | 是 | 预留给应用配额和限流器 |
 
@@ -42,4 +44,4 @@
 }
 ```
 
-`duplicate` 表示服务端已经见过相同应用和 `eventId` 的逻辑事件。重复事件不会再次写入内存仓库，也不会再次放大统计；生产 ClickHouse 表使用 `ReplacingMergeTree` 配合查询去重。
+`duplicate` 表示同一应用和 `eventId` 的事件材料已完整确认；相同内容重试不会放大统计。未知嵌套字段属于批次结构错误 `INVALID_BATCH`，合法结构中的诊断语义错误按事件索引返回；历史缺少诊断的事件不能通过重试补齐新现场。

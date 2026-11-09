@@ -1,0 +1,46 @@
+{
+  "requestId": "00000000-0000-4000-8000-000000000000",
+  "events": [{
+    "schemaVersion": 2,
+    "eventId": "crash-diagnostics-example",
+    "eventType": "crash",
+    "occurredAt": 1794135600000,
+    "sessionId": "session-example",
+    "processId": "11111111-1111-4111-8111-111111111111",
+    "anonymousDeviceId": "synthetic-device",
+    "packageName": "com.example.app",
+    "appVersion": "1.0",
+    "versionCode": 1,
+    "buildId": "build-example",
+    "environment": "test",
+    "channel": "test",
+    "osVersion": "15",
+    "deviceModel": "synthetic",
+    "crash": {
+      "kind": "jvm",
+      "fatal": true,
+      "throwableChain": [{
+        "type": "java.lang.IllegalStateException",
+        "message": "synthetic failure",
+        "frames": [{"className": "com.example.Worker", "methodName": "run", "fileName": "Worker.kt", "lineNumber": 42, "applicationFrame": true}]
+      }],
+      "diagnostics": {
+        "crashedThread": {"status": "ok", "truncated": false, "javaId": "1001", "name": "worker", "state": "RUNNABLE", "priority": 5, "daemon": false, "mainThread": false, "systemTid": 1234},
+        "otherThreads": {
+          "status": "ok", "truncated": false, "observedCount": 1, "omittedCount": 0,
+          "threads": [{"javaId": "1002", "name": "main", "state": "WAITING", "priority": 5, "daemon": false, "mainThread": true, "truncated": false,
+            "frames": [{"className": "android.os.Looper", "methodName": "loop", "fileName": "Looper.java", "lineNumber": 1, "applicationFrame": false}]}]
+        },
+        "logcat": {"status": "partial", "reason": "permission_denied", "truncated": false,
+          "main": {"status": "ok", "truncated": false, "lines": ["synthetic log line"]},
+          "system": {"status": "unavailable", "reason": "permission_denied", "truncated": false, "lines": []},
+          "events": {"status": "ok", "truncated": false, "lines": []}
+        },
+        "memory": {"status": "ok", "truncated": false, "javaHeapUsedBytes": 0, "javaHeapMaxBytes": 16777216, "totalPssBytes": 8388608},
+        "openFiles": {"status": "ok", "truncated": false, "count": 1, "entries": [{"fd": 3, "target": "[path]"}]},
+        "process": {"status": "ok", "truncated": false, "pid": 1234, "name": "com.example.app", "foreground": true, "sdkInitializedAt": 1794135599000},
+        "device": {"status": "ok", "truncated": false, "apiLevel": 35, "abis": ["arm64-v8a"], "manufacturer": "synthetic", "brand": "synthetic", "buildFingerprint": "synthetic/build"}
+      }
+    }
+  }]
+}

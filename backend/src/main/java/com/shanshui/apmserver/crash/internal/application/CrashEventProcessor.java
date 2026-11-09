@@ -17,6 +17,8 @@ import java.util.Map;
 @Service
 public class CrashEventProcessor implements CrashEventProcessing {
 
+    /** 只输出安全阶段和计数，不输出异常或诊断原文。 */
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(CrashEventProcessor.class);
     private final CrashEventValidator validator;
     private final CrashSanitizer sanitizer;
     private final CrashFingerprintService fingerprintService;
@@ -47,7 +49,11 @@ public class CrashEventProcessor implements CrashEventProcessing {
     public SignalIngestResult ingest(java.util.UUID appId, CrashIngestCommand event, Instant receivedAt) {
         validator.validate(event);
         CrashIngestCommand sanitized = sanitizer.sanitize(event);
+        // 脱敏文本可能变长；最终存储材料仍必须满足独立分区及事件预算。
+        if (sanitized.crash() != null && sanitized.crash().diagnostics() != null) validator.validate(sanitized);
         CrashPayload crash = sanitized.crash();
+        // 状态中的主异常永远不嵌入诊断；现场与辅助栈独立存放并共享摘要。
+        var diagnostics = crash == null ? null : new CrashDiagnosticsStorage(mapper).encode(sanitized);
         String exceptionType = crash == null || crash.throwableChain().isEmpty()
                 ? null : crash.throwableChain().get(0).type();
         String fingerprint = "crash".equals(sanitized.eventType())
@@ -64,9 +70,13 @@ public class CrashEventProcessor implements CrashEventProcessing {
                 ? new AppStartEvent(metadata)
                 : new CrashEvent(metadata, crash.kind(), Boolean.TRUE.equals(crash.fatal()),
                 new com.shanshui.apmserver.crash.internal.domain.CrashState(appId, metadata.eventId(), metadata.buildId(), metadata.occurredAt(),
-                        0, "pending", "awaiting_processing", "raw_chain", mapper.writeValueAsString(crash), exceptionType,
-                        fingerprint, "tmp-v1", "temporary", null, null, null, null, null));
+                        0, "pending", "awaiting_processing", "raw_chain",
+                        mapper.writeValueAsString(new CrashPayload(crash.kind(), crash.fatal(), crash.throwableChain())), exceptionType,
+                        fingerprint, "tmp-v1", "temporary", null, null, null, null, null,
+                        diagnostics.captureSha256(), diagnostics.threadStacksPayload()), diagnostics.diagnosticsPayload());
         var appendResult = repository.append(appId, java.util.List.of(stored));
+        if (crash != null) log.info("Crash 接收已确认：accepted={} duplicate={} diagnostics={}",
+                appendResult.accepted(), appendResult.duplicate(), crash.diagnostics() != null);
         if (crash != null) {
             // 两侧已确认后通知失败不能伪造未持久化；定时轮转仍可发现当前事件。
             try (var mapping = symbols.acquire(appId, metadata.buildId()).orElse(null)) {

@@ -55,9 +55,15 @@ class SymbolFileStoreTests {
                 key, "mapping.txt", 21, staged.sha256(), UUID.randomUUID(), Instant.now(), Instant.now());
 
         var lease = store.open(entity);
+        var retained = lease.retain();
         store.retire(key);
         assertTrue(Files.exists(lease.path()));
         lease.close();
+        assertTrue(Files.exists(retained.path()));
+        assertEquals(symbolId, retained.symbolId());
+        assertEquals(staged.sha256(), retained.sha256());
+        assertThrows(IllegalStateException.class, lease::retain);
+        retained.close();
         assertFalse(Files.exists(lease.path()));
     }
 

@@ -1,6 +1,7 @@
 package com.shanshui.apmserver.crash.internal.persistence;
 
 import com.shanshui.apmserver.crash.internal.domain.CrashFact;
+import com.shanshui.apmserver.crash.internal.domain.CrashCaptureIdentity;
 import com.shanshui.apmserver.crash.internal.domain.CrashState;
 import com.shanshui.apmserver.crash.internal.domain.CrashWorkItem;
 import com.shanshui.apmserver.crash.internal.port.CrashStatePort;
@@ -52,14 +53,20 @@ public class InMemoryCrashStateStore implements CrashStatePort {
         }
         String key = key(metadata.appId(), metadata.eventId());
         CrashFact existing = facts.get(key);
+        boolean legacy = existing != null && existing.captureSha256().isEmpty();
         if (existing != null && (!existing.metadata().buildId().equals(metadata.buildId())
                 || !existing.metadata().occurredAt().equals(metadata.occurredAt()))) {
             throw new IllegalArgumentException("重复 eventId 不得改变构建或发生时间");
         }
+        if (existing != null && initialState != null) {
+            CrashCaptureIdentity.requireCompatible(existing.captureSha256(), initialState.captureSha256(),
+                    !fact.diagnosticsPayload().isEmpty());
+        }
         if (initialState != null) {
             if (initialState.stateVersion() != 0 || !"pending".equals(initialState.status())
                     || !initialState.appId().equals(metadata.appId()) || !initialState.eventId().equals(metadata.eventId())
-                    || !initialState.buildId().equals(metadata.buildId()) || !initialState.eventTime().equals(metadata.occurredAt())) {
+                    || !initialState.buildId().equals(metadata.buildId()) || !initialState.eventTime().equals(metadata.occurredAt())
+                    || !initialState.captureSha256().equals(fact.captureSha256())) {
                 throw new IllegalArgumentException("初始状态与事实不一致");
             }
             // 部分写入后的孤立状态同样固定原身份，不能确认一个无法关联状态的新事实。
@@ -67,9 +74,18 @@ public class InMemoryCrashStateStore implements CrashStatePort {
             if (previous != null && (!previous.buildId().equals(metadata.buildId()) || !previous.eventTime().equals(metadata.occurredAt()))) {
                 throw new IllegalArgumentException("重复 eventId 不得改变已保存状态的定位");
             }
-            states.putIfAbsent(key, initialState);
+            if (previous != null) {
+                if (existing != null && !existing.captureSha256().equals(previous.captureSha256())) {
+                    throw new EventStoreUnavailableException("Crash 事实与状态摘要不一致");
+                }
+                CrashCaptureIdentity.requireCompatible(previous.captureSha256(), initialState.captureSha256(),
+                        !fact.diagnosticsPayload().isEmpty());
+                legacy |= previous.captureSha256().isEmpty();
+            }
+            states.putIfAbsent(key, legacy ? CrashCaptureIdentity.withoutDigest(initialState) : initialState);
         }
-        return facts.putIfAbsent(key, fact) == null;
+        CrashFact storedFact = legacy ? new CrashFact(fact.metadata(), fact.crashKind(), fact.fatal(), "", "") : fact;
+        return facts.putIfAbsent(key, storedFact) == null;
     }
 
     /** 孤立状态不暴露，且必须与事实的不可变定位一致。 */

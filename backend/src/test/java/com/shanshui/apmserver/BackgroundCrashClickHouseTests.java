@@ -45,6 +45,25 @@ class BackgroundCrashClickHouseTests {
                 .readAllBytes(), StandardCharsets.UTF_8);
         for (String statement : ddl.split(";")) if (!statement.isBlank()) client.execute(statement);
         for (String statement : ddl.split(";")) if (!statement.isBlank()) client.execute(statement);
+        String factTtl = ttl(client, "apm_crash_fact");
+        String stateTtl = ttl(client, "apm_crash_state");
+        // 先保存无诊断的旧事实，再执行新迁移两次，验证默认空值和幂等。
+        client.execute("INSERT INTO apm.apm_crash_fact(app_id,event_id,event_type,package_name,build_id,event_time,received_time,schema_version,crash_kind,crash_fatal) VALUES ('11111111-1111-4111-8111-111111111111','migration-old','app_start','com.example','build',now64(3),now64(3),2,'',0)");
+        client.execute("INSERT INTO apm.apm_crash_state(app_id,event_id,build_id,event_time,state_version,symbolication_status,symbolication_reason,stack_format,stack_payload,exception_type,fingerprint,fingerprint_version,grouping_kind) VALUES ('11111111-1111-4111-8111-111111111111','migration-old','build',now64(3),0,'pending','awaiting_processing','raw_chain','{}','X','fp','tmp-v1','temporary')");
+        String diagnosticsDdl = new String(getClass().getResourceAsStream("/db/clickhouse/010_crash_diagnostics.sql")
+                .readAllBytes(), StandardCharsets.UTF_8);
+        for (String statement : diagnosticsDdl.split(";")) if (!statement.isBlank()) client.execute(statement);
+        for (String statement : diagnosticsDdl.split(";")) if (!statement.isBlank()) client.execute(statement);
+        var historical = new ObjectMapper().readTree(client.execute("SELECT diagnostics_payload,capture_sha256 FROM apm.apm_crash_fact WHERE event_id='migration-old' FORMAT JSONEachRow"));
+        assertEquals("", historical.path("diagnostics_payload").asText());
+        assertEquals("", historical.path("capture_sha256").asText());
+        var historicalState = new ObjectMapper().readTree(client.execute("SELECT thread_stacks_payload,capture_sha256 FROM apm.apm_crash_state WHERE event_id='migration-old' FORMAT JSONEachRow"));
+        assertEquals("", historicalState.path("thread_stacks_payload").asText());
+        assertEquals("", historicalState.path("capture_sha256").asText());
+        assertEquals(factTtl, ttl(client, "apm_crash_fact"));
+        assertEquals(stateTtl, ttl(client, "apm_crash_state"));
+        client.execute("ALTER TABLE apm.apm_crash_fact DELETE WHERE event_id='migration-old' SETTINGS mutations_sync=2");
+        client.execute("ALTER TABLE apm.apm_crash_state DELETE WHERE event_id='migration-old' SETTINGS mutations_sync=2");
         properties.setDatabase("apm");
         ClickHouseCrashStateStore store = new ClickHouseCrashStateStore(client, new ObjectMapper(), new QueryProperties());
         UUID app = UUID.randomUUID();
@@ -90,6 +109,21 @@ class BackgroundCrashClickHouseTests {
         // 仅轻量列投影的查询计划不能读取堆栈列。
         String plan = client.execute("EXPLAIN PLAN actions=1 SELECT event_id,fingerprint,grouping_kind FROM apm_crash_state FINAL WHERE app_id='" + app + "'");
         assertFalse(plan.contains("stack_payload"), plan);
+        // 状态先写且事实未写时，不同诊断摘要不能与原状态拼接。
+        EventMetadata partialMetadata = new EventMetadata(app, metadata.packageName(), "partial-diagnostics", "crash", occurred,
+                now, 2, "session", metadata.processId(), "device", "1", 1, "digest-build", "production", "official",
+                "16", "test", "wifi", Map.of(), Map.of());
+        CrashState original = diagnosticState(partialMetadata, "a".repeat(64));
+        store.publish(original);
+        var conflict = assertThrows(com.shanshui.apmserver.telemetry.api.EventValidationException.class, () -> store.accept(
+                new CrashFact(partialMetadata, "jvm", true, "{\"memory\":{}}", "b".repeat(64)),
+                diagnosticState(partialMetadata, "b".repeat(64))));
+        assertEquals("CRASH_CONTENT_CONFLICT", conflict.getIssues().getFirst().code());
+        assertTrue(store.current(app, "partial-diagnostics").isEmpty());
+        CrashFact originalFact = new CrashFact(partialMetadata, "jvm", true, "{\"memory\":{}}", "a".repeat(64));
+        assertTrue(store.accept(originalFact, original));
+        assertFalse(store.accept(originalFact, original));
+        assertEquals(original, store.current(app, "partial-diagnostics").orElseThrow());
         // 原始状态仍是新三态；无法解析的状态在构造入口明确失败。
         assertThrows(IllegalArgumentException.class, () -> state(app, "bad", occurred, 1, "raw_only", null, null, now));
         // 缺少新结构必须明确失败，即便有旧表也不回退。
@@ -99,6 +133,23 @@ class BackgroundCrashClickHouseTests {
         client.execute("DROP TABLE apm_crash_state");
         assertThrows(RuntimeException.class, () -> store.current(app, "event"));
         assertEquals(1, new ObjectMapper().readTree(client.execute("SELECT count() AS n FROM apm_crash_detail FORMAT JSONEachRow")).path("n").asInt());
+    }
+
+    /** 从实际建表语句提取 TTL，验证加列不会改变保留期。 */
+    private String ttl(ClickHouseHttpClient client, String table) {
+        String row = client.execute("SELECT create_table_query FROM system.tables WHERE database='apm' AND name='" + table + "' FORMAT JSONEachRow");
+        String ddl = new ObjectMapper().readTree(row).path("create_table_query").asText();
+        int start = ddl.lastIndexOf(" TTL ");
+        int end = ddl.indexOf(" SETTINGS ", start);
+        if (start < 0) throw new IllegalStateException("建表语句缺少 TTL");
+        return ddl.substring(start, end < 0 ? ddl.length() : end);
+    }
+
+    /** 构造携带摘要和辅助线程材料的初始状态。 */
+    private CrashState diagnosticState(EventMetadata metadata, String digest) {
+        return new CrashState(metadata.appId(), metadata.eventId(), metadata.buildId(), metadata.occurredAt(), 0,
+                "pending", "awaiting_processing", "raw_chain", "{}", "E", "fp", "tmp-v1", "temporary",
+                null, null, null, null, null, digest, "[]");
     }
 
     /** 合成单份原始或还原状态，来源身份固定。 */

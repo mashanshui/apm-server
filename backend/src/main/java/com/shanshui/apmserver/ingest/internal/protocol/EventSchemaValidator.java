@@ -7,6 +7,7 @@ import tools.jackson.databind.JsonNode;
 import org.springframework.stereotype.Service;
 
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 
 /**
@@ -22,9 +23,22 @@ public class EventSchemaValidator {
             "packageName", "appVersion", "versionCode", "buildId", "environment", "channel", "osVersion",
             "deviceModel", "networkType", "measurements", "attributes", "crash", "jank",
             "frameSceneSummary", "foregroundSuspensionSummary", "memoryPeakSummary");
-    private static final Set<String> CRASH_FIELDS = Set.of("kind", "fatal", "throwableChain");
+    private static final Set<String> CRASH_FIELDS = Set.of("kind", "fatal", "throwableChain", "diagnostics");
     private static final Set<String> THROWABLE_FIELDS = Set.of("type", "message", "frames");
     private static final Set<String> FRAME_FIELDS = Set.of("className", "methodName", "fileName", "lineNumber", "applicationFrame");
+    /** 诊断各分区的严格字段，防止 Jackson 静默丢弃未知内容。 */
+    private static final Set<String> DIAGNOSTICS_FIELDS = Set.of("coreTruncation", "crashedThread", "otherThreads", "logcat", "memory", "openFiles", "process", "device");
+    private static final Set<String> CORE_TRUNCATION_FIELDS = Set.of("truncated", "reason");
+    private static final Set<String> CRASHED_THREAD_FIELDS = Set.of("status", "reason", "truncated", "capturedAt", "javaId", "name", "state", "priority", "daemon", "mainThread", "systemTid");
+    private static final Set<String> OTHER_THREADS_FIELDS = Set.of("status", "reason", "truncated", "capturedAt", "observedCount", "omittedCount", "threads");
+    private static final Set<String> OTHER_THREAD_FIELDS = Set.of("javaId", "name", "state", "priority", "daemon", "mainThread", "truncated", "frames");
+    private static final Set<String> LOGCAT_FIELDS = Set.of("status", "reason", "truncated", "capturedAt", "main", "system", "events");
+    private static final Set<String> LOG_BUFFER_FIELDS = Set.of("status", "reason", "truncated", "capturedAt", "lines");
+    private static final Set<String> CRASH_MEMORY_FIELDS = Set.of("status", "reason", "truncated", "capturedAt", "javaHeapUsedBytes", "javaHeapMaxBytes", "javaHeapPssBytes", "nativeHeapPssBytes", "nativeHeapAllocatedBytes", "totalPssBytes", "rssBytes", "vssBytes", "swapBytes", "meminfo", "statusText", "limits");
+    private static final Set<String> OPEN_FILES_FIELDS = Set.of("status", "reason", "truncated", "capturedAt", "count", "entries");
+    private static final Set<String> OPEN_FILE_FIELDS = Set.of("fd", "target");
+    private static final Set<String> CRASH_PROCESS_FIELDS = Set.of("status", "reason", "truncated", "capturedAt", "pid", "name", "foreground", "startedAt", "sdkInitializedAt");
+    private static final Set<String> CRASH_DEVICE_FIELDS = Set.of("status", "reason", "truncated", "capturedAt", "apiLevel", "abis", "manufacturer", "brand", "buildFingerprint");
     private static final Set<String> FRAME_SCENE_FIELDS = Set.of("scene", "algorithmVersion", "activeDurationMs",
             "uiRefreshFrameCount", "refreshRateHz", "normalizedFps60", "frameDurationHistogram");
     private static final Set<String> SUSPENSION_FIELDS = Set.of("algorithmVersion", "foregroundDurationMs",
@@ -82,6 +96,7 @@ public class EventSchemaValidator {
         rejectUnknown(payload, CRASH_FIELDS, "crash");
         requireText(payload, "kind");
         requireBoolean(payload, "fatal");
+        validateCrashDiagnostics(payload.get("diagnostics"));
         JsonNode chain = payload.get("throwableChain");
         if (chain == null || chain.isNull()) {
             return;
@@ -100,15 +115,130 @@ public class EventSchemaValidator {
             }
             if (frames != null && frames.isArray()) {
                 for (JsonNode frame : frames) {
-                    requireObject(frame, "stack frame");
-                    rejectUnknown(frame, FRAME_FIELDS, "stack frame");
-                    requireText(frame, "className");
-                    requireText(frame, "methodName");
-                    requireText(frame, "fileName");
-                    requireInteger(frame, "lineNumber");
-                    requireBoolean(frame, "applicationFrame");
+                    validateStackFrame(frame);
                 }
             }
+        }
+    }
+
+    /** 校验诊断 JSON 的结构与字段类型；数量和语义由事件校验器逐事件处理。 */
+    private void validateCrashDiagnostics(JsonNode diagnostics) {
+        if (diagnostics == null || diagnostics.isNull()) return;
+        requireObject(diagnostics, "diagnostics");
+        rejectUnknown(diagnostics, DIAGNOSTICS_FIELDS, "diagnostics");
+        JsonNode core = optionalObject(diagnostics, "coreTruncation");
+        if (core != null) {
+            rejectUnknown(core, CORE_TRUNCATION_FIELDS, "coreTruncation");
+            requireBoolean(core, "truncated");
+            requireText(core, "reason");
+        }
+        JsonNode crashed = optionalPartition(diagnostics, "crashedThread", CRASHED_THREAD_FIELDS);
+        if (crashed != null) {
+            threadFields(crashed);
+            requireInteger(crashed, "systemTid");
+        }
+        JsonNode other = optionalPartition(diagnostics, "otherThreads", OTHER_THREADS_FIELDS);
+        if (other != null) {
+            requireInteger(other, "observedCount");
+            requireInteger(other, "omittedCount");
+            JsonNode threads = optionalArray(other, "threads");
+            if (threads != null) for (JsonNode thread : threads) {
+                requireObject(thread, "otherThread");
+                rejectUnknown(thread, OTHER_THREAD_FIELDS, "otherThread");
+                threadFields(thread);
+                requireBoolean(thread, "truncated");
+                JsonNode frames = optionalArray(thread, "frames");
+                if (frames != null) for (JsonNode frame : frames) validateStackFrame(frame);
+            }
+        }
+        JsonNode logcat = optionalPartition(diagnostics, "logcat", LOGCAT_FIELDS);
+        if (logcat != null) for (String name : List.of("main", "system", "events")) {
+            JsonNode buffer = optionalPartition(logcat, name, LOG_BUFFER_FIELDS);
+            if (buffer != null) textArray(buffer, "lines");
+        }
+        JsonNode memory = optionalPartition(diagnostics, "memory", CRASH_MEMORY_FIELDS);
+        if (memory != null) {
+            for (String name : List.of("javaHeapUsedBytes", "javaHeapMaxBytes", "javaHeapPssBytes", "nativeHeapPssBytes",
+                    "nativeHeapAllocatedBytes", "totalPssBytes", "rssBytes", "vssBytes", "swapBytes")) requireInteger(memory, name);
+            for (String name : List.of("meminfo", "statusText", "limits")) requireText(memory, name);
+        }
+        JsonNode files = optionalPartition(diagnostics, "openFiles", OPEN_FILES_FIELDS);
+        if (files != null) {
+            requireInteger(files, "count");
+            JsonNode entries = optionalArray(files, "entries");
+            if (entries != null) for (JsonNode entry : entries) {
+                requireObject(entry, "openFile");
+                rejectUnknown(entry, OPEN_FILE_FIELDS, "openFile");
+                requireInteger(entry, "fd");
+                requireText(entry, "target");
+            }
+        }
+        JsonNode process = optionalPartition(diagnostics, "process", CRASH_PROCESS_FIELDS);
+        if (process != null) {
+            for (String name : List.of("pid", "startedAt", "sdkInitializedAt")) requireInteger(process, name);
+            requireText(process, "name");
+            requireBoolean(process, "foreground");
+        }
+        JsonNode device = optionalPartition(diagnostics, "device", CRASH_DEVICE_FIELDS);
+        if (device != null) {
+            requireInteger(device, "apiLevel");
+            textArray(device, "abis");
+            for (String name : List.of("manufacturer", "brand", "buildFingerprint")) requireText(device, name);
+        }
+    }
+
+    /** 校验线程身份字段的 JSON 类型，不混用 Java ID 与数值 TID。 */
+    private void threadFields(JsonNode thread) {
+        for (String name : List.of("javaId", "name", "state")) requireText(thread, name);
+        requireInteger(thread, "priority");
+        requireBoolean(thread, "daemon");
+        requireBoolean(thread, "mainThread");
+    }
+
+    /** 校验主异常与辅助线程共用的帧对象。 */
+    private void validateStackFrame(JsonNode frame) {
+        requireObject(frame, "stack frame");
+        rejectUnknown(frame, FRAME_FIELDS, "stack frame");
+        requireText(frame, "className");
+        requireText(frame, "methodName");
+        requireText(frame, "fileName");
+        requireInteger(frame, "lineNumber");
+        requireBoolean(frame, "applicationFrame");
+    }
+
+    /** 分区共享状态字段，缺失与取值规则由事件校验器负责。 */
+    private JsonNode optionalPartition(JsonNode parent, String name, Set<String> fields) {
+        JsonNode value = optionalObject(parent, name);
+        if (value == null) return null;
+        rejectUnknown(value, fields, name);
+        requireText(value, "status");
+        requireText(value, "reason");
+        requireBoolean(value, "truncated");
+        requireInteger(value, "capturedAt");
+        return value;
+    }
+
+    /** 获取可选对象；空值与字段缺失等价。 */
+    private JsonNode optionalObject(JsonNode parent, String name) {
+        JsonNode value = parent.get(name);
+        if (value == null || value.isNull()) return null;
+        requireObject(value, name);
+        return value;
+    }
+
+    /** 获取可选数组，不接受其他 JSON 类型。 */
+    private JsonNode optionalArray(JsonNode parent, String name) {
+        JsonNode value = parent.get(name);
+        if (value == null || value.isNull()) return null;
+        if (!value.isArray()) throw new InvalidBatchException(name + " 必须是数组");
+        return value;
+    }
+
+    /** 数组元素必须为文本，不能被反序列化器隐式转换。 */
+    private void textArray(JsonNode parent, String name) {
+        JsonNode values = optionalArray(parent, name);
+        if (values != null) for (JsonNode value : values) {
+            if (!value.isString()) throw new InvalidBatchException(name + " 元素必须是字符串");
         }
     }
 

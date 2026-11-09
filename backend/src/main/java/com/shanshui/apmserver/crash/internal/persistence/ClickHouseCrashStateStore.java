@@ -1,6 +1,7 @@
 package com.shanshui.apmserver.crash.internal.persistence;
 
 import com.shanshui.apmserver.crash.internal.domain.CrashFact;
+import com.shanshui.apmserver.crash.internal.domain.CrashCaptureIdentity;
 import com.shanshui.apmserver.crash.internal.domain.CrashState;
 import com.shanshui.apmserver.crash.internal.domain.CrashWorkItem;
 import com.shanshui.apmserver.crash.internal.port.CrashStatePort;
@@ -45,8 +46,8 @@ public class ClickHouseCrashStateStore implements CrashStatePort {
     /** 新链路启动时校验所需结构；缺表/缺列必须拒绝启动，禁止回退旧结构。 */
     @jakarta.annotation.PostConstruct
     public void requireCurrentSchema() {
-        query("SELECT app_id,event_id,build_id,event_time,received_time,event_type,crash_kind,crash_fatal FROM apm_crash_fact LIMIT 0 FORMAT JSONEachRow");
-        query("SELECT state_version,symbolication_status,symbolication_reason,stack_format,stack_payload,exception_type,fingerprint,fingerprint_version,grouping_kind,symbol_id,symbol_revision,symbol_sha256,processed_at,retry_at FROM apm_crash_state LIMIT 0 FORMAT JSONEachRow");
+        query("SELECT app_id,event_id,build_id,event_time,received_time,event_type,crash_kind,crash_fatal,diagnostics_payload,capture_sha256 FROM apm_crash_fact LIMIT 0 FORMAT JSONEachRow");
+        query("SELECT state_version,symbolication_status,symbolication_reason,stack_format,stack_payload,exception_type,fingerprint,fingerprint_version,grouping_kind,symbol_id,symbol_revision,symbol_sha256,processed_at,retry_at,thread_stacks_payload,capture_sha256 FROM apm_crash_state LIMIT 0 FORMAT JSONEachRow");
     }
 
     /** 每次接收同步确认两侧；重放版本 0 不能覆盖后台更高版本。 */
@@ -59,8 +60,9 @@ public class ClickHouseCrashStateStore implements CrashStatePort {
             throw new IllegalArgumentException("当前事实必须是有初始状态的 JVM fatal Crash 或启动事件");
         }
         String identity = "app_id=" + quote(metadata.appId().toString()) + " AND event_id=" + quote(metadata.eventId());
-        List<JsonNode> existing = query("SELECT build_id,event_time FROM apm_crash_fact FINAL WHERE "
+        List<JsonNode> existing = query("SELECT build_id,event_time,capture_sha256 FROM apm_crash_fact FINAL WHERE "
                 + identity + " LIMIT 1 FORMAT JSONEachRow");
+        boolean legacy = false;
         if (!existing.isEmpty()) {
             // 使用已确认事实的定位，拒绝改变事件身份的重试。
             JsonNode stored = existing.getFirst();
@@ -68,21 +70,35 @@ public class ClickHouseCrashStateStore implements CrashStatePort {
                     || !parseTime(stored.path("event_time").asText()).equals(metadata.occurredAt())) {
                 throw new IllegalArgumentException("重复 eventId 不得改变构建或发生时间");
             }
+            if (initialState != null) {
+                String storedDigest = stored.path("capture_sha256").asText("");
+                CrashCaptureIdentity.requireCompatible(storedDigest, initialState.captureSha256(), !fact.diagnosticsPayload().isEmpty());
+                legacy = storedDigest.isEmpty();
+            }
         }
         if (initialState != null) {
             if (initialState.stateVersion() != 0 || !"pending".equals(initialState.status())
                     || !initialState.appId().equals(metadata.appId()) || !initialState.eventId().equals(metadata.eventId())
-                    || !initialState.buildId().equals(metadata.buildId()) || !initialState.eventTime().equals(metadata.occurredAt())) {
+                    || !initialState.buildId().equals(metadata.buildId()) || !initialState.eventTime().equals(metadata.occurredAt())
+                    || !initialState.captureSha256().equals(fact.captureSha256())) {
                 throw new IllegalArgumentException("接收只能提交对应事实的初始 pending 状态");
             }
             // 客户端重复上传不能重新保存成功事件的原始链；孤立状态也可被重用。
-            List<JsonNode> previousState = query("SELECT build_id,event_time FROM apm_crash_state FINAL WHERE " + identity + " LIMIT 1 FORMAT JSONEachRow");
+            List<JsonNode> previousState = query("SELECT build_id,event_time,capture_sha256 FROM apm_crash_state FINAL WHERE " + identity + " LIMIT 1 FORMAT JSONEachRow");
             if (!previousState.isEmpty() && (!previousState.getFirst().path("build_id").asText().equals(metadata.buildId())
                     || !parseTime(previousState.getFirst().path("event_time").asText()).equals(metadata.occurredAt()))) {
                 throw new IllegalArgumentException("重复 eventId 不得改变已保存状态的定位");
             }
+            if (!previousState.isEmpty()) {
+                String storedDigest = previousState.getFirst().path("capture_sha256").asText("");
+                if (!existing.isEmpty() && !existing.getFirst().path("capture_sha256").asText("").equals(storedDigest)) {
+                    throw new com.shanshui.apmserver.platform.api.EventStoreUnavailableException("Crash 事实与状态摘要不一致");
+                }
+                CrashCaptureIdentity.requireCompatible(storedDigest, initialState.captureSha256(), !fact.diagnosticsPayload().isEmpty());
+                legacy |= storedDigest.isEmpty();
+            }
             if (previousState.isEmpty()) {
-                publish(initialState);
+                publish(legacy ? CrashCaptureIdentity.withoutDigest(initialState) : initialState);
             }
         }
         if (!existing.isEmpty()) return false;
@@ -108,6 +124,8 @@ public class ClickHouseCrashStateStore implements CrashStatePort {
         row.put("network_type", empty(metadata.networkType()));
         row.put("crash_kind", empty(fact.crashKind()));
         row.put("crash_fatal", fact.fatal() ? 1 : 0);
+        row.put("diagnostics_payload", legacy ? "" : fact.diagnosticsPayload());
+        row.put("capture_sha256", legacy ? "" : fact.captureSha256());
         client.execute("INSERT INTO apm_crash_fact FORMAT JSONEachRow", mapper.writeValueAsString(row));
         return true;
     }
@@ -163,7 +181,10 @@ public class ClickHouseCrashStateStore implements CrashStatePort {
                 + "symbol_id IS NULL OR symbol_id != " + quote(symbolId.toString())
                 + " OR symbol_revision != " + revision + " OR retry_at <= " + date(now) + ")))"
                 + " ORDER BY l.event_time,l.event_id LIMIT " + limit;
-        String limitedState = "SELECT * FROM apm_crash_state FINAL PREWHERE " + scope
+        String limitedState = "SELECT app_id,event_id,build_id,event_time,state_version,symbolication_status,symbolication_reason,"
+                + "stack_format,stack_payload,exception_type,fingerprint,fingerprint_version,grouping_kind,symbol_id,"
+                + "symbol_revision,symbol_sha256,processed_at,retry_at,capture_sha256,thread_stacks_payload"
+                + " FROM apm_crash_state FINAL PREWHERE " + scope
                 + " AND (app_id,build_id,event_time,event_id) IN (" + selected + ")"
                 + " ORDER BY event_time,event_id LIMIT " + limit;
         return query("SELECT s.*,f.package_name FROM (" + limitedState + ") AS s INNER JOIN"

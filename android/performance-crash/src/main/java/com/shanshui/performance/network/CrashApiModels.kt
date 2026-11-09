@@ -32,6 +32,8 @@ data class CrashPayload(
     val kind: String = "jvm",
     val fatal: Boolean = true,
     val throwableChain: List<ThrowableNode>,
+    /** 可选的崩溃现场；缺失时仍可上报核心异常。 */
+    val diagnostics: CrashDiagnostics? = null,
 )
 
 data class ThrowableNode(

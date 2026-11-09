@@ -4,12 +4,11 @@
 
 ## 批量上报
 
-首期调试协议使用 JSON；Android SDK 可以将 JSON gzip 压缩后发送。服务端通过永久 appKey 识别应用，完整 Key 不写入日志。
+请求正文是 UTF-8 JSON 批次，包含 `requestId` 和 `events` 数组；每个 JVM Crash 的补充现场位于该事件的 `crash.diagnostics` 对象。当前 Android SDK 默认发送普通 JSON，服务端也接受 gzip 压缩的 JSON；只有实际压缩时才设置 `Content-Encoding: gzip`。服务端通过永久 appKey 识别应用，完整 Key 不写入日志。
 
 ```http
 POST /ingest/v1/batches
 Content-Type: application/json
-Content-Encoding: gzip
 X-App-Key: <appKey>
 X-Schema-Version: 2
 ```
@@ -54,11 +53,30 @@ Crash 事件最小结构如下：
 }
 ```
 
+七类分区的完整安全合成请求见 [Crash 诊断批次 JSON 样例](../examples/crash-diagnostics-batch.json)；实际联调时将 `occurredAt` 换成当前发生时间并使用目标应用的 Key、包名和构建身份。样例不包含真实设备或业务数据。
+
+`diagnostics` 可缺失或为 null；存在时各分区可以独立缺失或为 null。`app_start` 和其他事件类型不得携带 `crash`。上报与详情都使用下列语义，其他线程在上报时携带 `frames`，查询时则返回当前唯一 `stack`：
+
+| 字段 | 上报内容与单位 |
+|---|---|
+| `crashedThread` | 崩溃线程的 `javaId`、名称、状态、优先级、是否守护/主线程，以及可取得时的数值 `systemTid`；`javaId` 是十进制字符串，不等于系统 TID |
+| `otherThreads` | 其他线程列表、可知的 `observedCount`/`omittedCount`，每线程最多 32 个 Java `frames`；空数组表示没有取得帧 |
+| `logcat` | `main`、`system`、`events` 三个独立缓冲区；每个 `lines` 是已脱敏字符串数组 |
+| `memory` | Runtime Java 堆、Debug PSS、Native 堆和进程 RSS/VSS/Swap，数值均为字节；可包含脱敏且受限的 proc 文本 |
+| `openFiles` | 可知的 FD 总数与受限 `entries`；目标只保留 `[path]`、`[socket]` 等安全类别 |
+| `process` | 数值 `pid`、进程名、可知前后台、可靠的 `startedAt` 和 SDK 的 `sdkInitializedAt`，时间均为 Unix 毫秒；未知值不猜测 |
+| `device` | API level、ABI、厂商、品牌和系统构建标识 |
+| `coreTruncation` | 主异常因源端大小限制裁剪时为 `{ "truncated": true, "reason": "size_limit" }` |
+
+各采集分区携带 `status=ok|partial|unavailable|skipped`、`truncated`，可带安全 `reason` 和 Unix 毫秒 `capturedAt`。`ok` 且空数组表示采集成功但结果为空；`unavailable`、`skipped` 或分区缺失不能解释为成功空结果。原因类别包括 `permission_denied`、`unsupported`、`timeout`、`io_error`、`memory_pressure`、`interrupted`、`size_limit`、`count_limit`。数值零是实际值，缺失或 null 表示未知。
+
+默认服务端限制单事件 JSON 为 256 KiB，主异常独立限制为 16 层、总计 200 帧。诊断对象最多 128 KiB；其他线程最多 64 条、每条 32 帧且分区最多 48 KiB；logcat 的 main/system/events 分别最多 200/50/50 行、合计最多 48 KiB、每行 JSON 编码最多 2 KiB；内存最多 16 KiB，FD 最多 128 条及 12 KiB，崩溃线程/进程/设备合计最多 4 KiB。字节限额按 JSON 转义后的 UTF-8 计算，服务端拒绝超限内容；Android 额外把单事件控制在 240 KiB 内并核对实际批次上限。完整字段类型与数量约束见 [JSON Schema](../../backend/src/main/resources/schema/crash-event-v2.schema.json)，跨字段状态与字节数仍由服务端校验。
+
 `X-App-Key` 必须是应用设置页获取的完整 Key。服务端先按 SHA-256 摘要从 PostgreSQL 得到唯一 `appId + packageName`，再读取正文。每个事件必须显式提供 `packageName`，且全部与 Key 绑定包名逐字符一致；任一不一致时整批返回 `403 PACKAGE_NAME_MISMATCH`，不进行部分接受或写入。服务端按 `appId + eventId` 去重，客户端临时失败重试时必须保留原 `eventId`。
 
 批次响应包含 `accepted`、`rejected`、`duplicate`、`retryable`、`retryAfterSeconds` 和逐事件 `errors`。HTTP 401/503 发生在正文读取前；事件级校验错误使用 HTTP 200 的部分接受响应。
 
-accepted 只表示当前原始链 pending 状态与不可变事实均已持久化，不表示还原完成。即使 mapping 已存在，上报请求也不执行 R8。原 eventId、构建和发生时间重试会修复缺失的一侧，不能把已成功事件重置为 pending。接收后的任务通知失败由持久化轮转对账补偿，不撤销已确认事实。v2 请求字段不增加。
+accepted 表示主异常、原始辅助帧和不可变诊断上下文均已确认持久化，不表示还原完成。即使 mapping 已存在，上报请求也不执行 R8。相同 `appId + eventId` 的重试必须保留原事件身份与内容；相同内容可修复部分写入，已有完整事件返回 duplicate，不会追加新现场。内容不一致返回不可重试的 `CRASH_CONTENT_CONFLICT`。历史事件缺失诊断时不能用重试追加。接收后的任务通知失败由持久化轮转对账补偿，不撤销已确认事实。
 
 ## 查询接口
 
@@ -90,8 +108,11 @@ Issue 摘要增加 `groupingKind=temporary|resolved`，temporary 必须附 `buil
 | `fingerprint`、`fingerprintVersion`、`groupingKind` | 同一已发布状态中的当前归组 |
 | `symbolicationReason` | 安全等待/失败类别；初始 awaiting_processing 只表示等待后台处理 |
 | `symbolFileId`、`symbolFileRevision`、`symbolFileSha256`、`processedAt` | 实际成功或最后尝试的来源与处理时间，不能用当前注册表代替 |
+| `diagnostics` | 独立的诊断对象；历史或未采集事件为 null，不嵌入主 `stack` |
 
 pending/failed 保留完整脱敏原始链，格式为 raw_chain；symbolicated 仅返回完整 retrace_text，来源字段和处理时间必须存在。详情和分析任务创建不调用 R8；成功后删除、替换或重新上传 mapping 都不改变该事件。完整原因链、内联和多候选不截断，处理完成不保证每帧都准确映射。响应不再包含 rawCrash、symbolicatedStackText 或其他旧字段别名。
+
+详情中的 `diagnostics.otherThreads.threads[]` 保留线程身份，并以 `stack: {format, content}` 返回唯一当前栈：`raw_frames` 对应原始帧数组，`retrace_text` 对应完整还原文本。每个线程独立携带 `symbolicationStatus=pending|failed|symbolicated|not_applicable`、安全原因和实际 mapping 来源；空帧为 `not_applicable`。主异常首次还原成功时，辅助线程在同一 mapping 下依次处理，成功或失败结果随主结果固定；辅助失败保留原始帧，不影响主异常归组和指纹。线程快照可能与抛出异常并非同一瞬间。
 
 ## 统计公式
 
@@ -111,6 +132,7 @@ crashFreeSessionRate = 1 - crashedSessions / startedSessions
 - `anonymousDeviceId` 使用部署级 `APM_DEVICE_HASH_SALT` 与去除首尾空白的设备标识拼接后计算 SHA-256，不包含 appId；原始设备标识不进入分析存储。
 - `processId` 必须是标准连字符 UUID v4，服务端保留客户端原值；缺失、数值 PID 和非 v4 值按永久校验错误拒绝。
 - 异常消息替换邮箱、URL、用户路径、手机号、UUID，并按配置截断。
+- 诊断文本与私有路径在客户端持久化前和服务端存储前各做模式脱敏；日志和 FD 仍可能包含无法自动识别的业务敏感内容，业务方不应主动写入秘密。结构化 Java ID、PID、`processId`、`buildId` 和内存数值不套用自由文本替换。
 - 属性名只接受字母、数字、下划线、点和连字符；测量值只保存数字。
 - 指纹由服务端生成：`tmp-v1` 绑定应用和构建，未成功事件不跨构建合并；`resolved-v1` 使用还原后的异常链、规范化动态消息和关键调用身份，排除行号、应用版本、构建及 mapping 身份，候选集合按稳定规则表示。没有可靠应用帧时使用完整候选/帧回退，不能任取候选。
 - `buildId` 是符号表精确匹配键，按结构化标识清理和限长，不套用面向自然语言的电话号码脱敏，避免合法构建标识被改写后无法匹配 mapping。

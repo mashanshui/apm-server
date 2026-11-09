@@ -26,6 +26,8 @@ import java.util.List;
 /** 一次执行一个有界构建批次；请求线程只登记工作，不调用本执行器。 */
 @Service
 public class CrashBackgroundProcessor {
+    /** 仅记录安全阶段与状态，不输出堆栈或设备身份。 */
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(CrashBackgroundProcessor.class);
     /** 构建领取、唤醒与进展。 */
     private final CrashSymbolicationJobs jobs;
     /** 最新状态和有限候选。 */
@@ -40,6 +42,8 @@ public class CrashBackgroundProcessor {
     private final CrashSanitizer sanitizer;
     /** 原始链 JSON 解码。 */
     private final ObjectMapper mapper;
+    /** 主异常成功后的有界辅助线程处理。 */
+    private final CrashAuxiliaryStacks auxiliary;
     /** 一次最多读取的事件数。 */
     private final int batchSize;
     /** 独立进程身份，只参与租约，不写入遥测。 */
@@ -59,6 +63,7 @@ public class CrashBackgroundProcessor {
         this.fingerprints = fingerprints;
         this.sanitizer = sanitizer;
         this.mapper = mapper;
+        this.auxiliary = new CrashAuxiliaryStacks(mapper, symbols, sanitizer);
         this.batchSize = batchSize;
         if (batchSize < 1 || batchSize > 100) throw new IllegalArgumentException("后台批次必须介于 1 到 100");
     }
@@ -134,16 +139,20 @@ public class CrashBackgroundProcessor {
                     var normalized = new SymbolicationResult(safeText, SymbolicationResult.Status.SYMBOLICATED, null).fingerprintInput();
                     String exception = normalized.exceptions().isEmpty() ? candidate.exceptionType()
                             : normalized.exceptions().getFirst().split(":", 2)[0];
+                    String auxiliaryStacks = auxiliary.resolve(candidate.threadStacksPayload(), mapping);
                     CrashState computed = new CrashState(candidate.appId(), candidate.eventId(), candidate.buildId(),
                             candidate.eventTime(), 0, "symbolicated", null, "retrace_text", safeText, exception,
                             fingerprints.resolved(candidate.appId(), work.packageName(), normalized), "resolved-v1", "resolved",
-                            mapping.symbolId(), mapping.revision(), mapping.sha256(), Instant.now().truncatedTo(ChronoUnit.MILLIS), null);
+                            mapping.symbolId(), mapping.revision(), mapping.sha256(), Instant.now().truncatedTo(ChronoUnit.MILLIS), null,
+                            candidate.captureSha256(), auxiliaryStacks);
                     try {
-                        var fixed = publications.register(lease, computed);
+                        var fixed = registerWithAuxiliaryFallback(lease, computed, candidate);
                         if (fixed.isEmpty() || stopping || !publications.publish(lease, fixed.get())) return;
+                        log.info("Crash 后台结果已确认，包含辅助线程={}", !auxiliaryStacks.isEmpty());
                     } catch (CrashResultTooLargeException tooLarge) {
                         // 不截断文本来伪造成功，也不在同一 mapping 下无限重试超限结果。
                         if (!recordFailure(lease, mapping, candidate, "output_limit", false)) return;
+                        log.warn("Crash 后台结果超过发布上限，已保留原始堆栈");
                     }
                 } else {
                     // 许可不足属于临时失败；确定性解析/输出错误等待下一份 mapping。
@@ -156,6 +165,23 @@ public class CrashBackgroundProcessor {
                     retry ? "transient_event_failure" : null, retry ? Duration.ofSeconds(30) : Duration.ZERO);
         } catch (IOException failure) {
             jobs.release(lease, "retry_wait", "mapping_unavailable", Duration.ofSeconds(30));
+        }
+    }
+
+    /** 单份发布超限时先将辅助还原结果回退为原始帧，再登记同一主异常成功结果。 */
+    private java.util.Optional<CrashSymbolicationPublications.Publication> registerWithAuxiliaryFallback(
+            CrashSymbolicationJobs.Lease lease, CrashState computed, CrashState original) {
+        try {
+            return publications.register(lease, computed);
+        } catch (CrashResultTooLargeException tooLarge) {
+            String fallback = auxiliary.fallback(original.threadStacksPayload());
+            if (fallback.equals(computed.threadStacksPayload())) throw tooLarge;
+            CrashState reduced = new CrashState(computed.appId(), computed.eventId(), computed.buildId(), computed.eventTime(),
+                    computed.stateVersion(), computed.status(), computed.reason(), computed.stackFormat(), computed.stackPayload(),
+                    computed.exceptionType(), computed.fingerprint(), computed.fingerprintVersion(), computed.groupingKind(),
+                    computed.symbolId(), computed.symbolRevision(), computed.symbolSha256(), computed.processedAt(), computed.retryAt(),
+                    computed.captureSha256(), fallback);
+            return publications.register(lease, reduced);
         }
     }
 
@@ -186,7 +212,8 @@ public class CrashBackgroundProcessor {
                 candidate.eventTime(), version.get(), "failed", reason, "raw_chain", candidate.stackPayload(),
                 candidate.exceptionType(), candidate.fingerprint(), candidate.fingerprintVersion(), "temporary",
                 mapping.symbolId(), mapping.revision(), mapping.sha256(), Instant.now().truncatedTo(ChronoUnit.MILLIS),
-                transientFailure ? Instant.now().plusSeconds(30).truncatedTo(ChronoUnit.MILLIS) : null);
+                transientFailure ? Instant.now().plusSeconds(30).truncatedTo(ChronoUnit.MILLIS) : null,
+                candidate.captureSha256(), candidate.threadStacksPayload());
         if (stopping || !jobs.renew(lease, Duration.ofMinutes(1))) return false;
         states.publish(failed);
         return true;

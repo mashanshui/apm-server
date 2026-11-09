@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import CrashAnalysisPanel from '../components/CrashAnalysisPanel.vue'
+import CrashDiagnosticsPanel from '../components/CrashDiagnosticsPanel.vue'
 import { useAppStore } from '../stores/apps'
 import { useSessionStore } from '../stores/session'
 import AppLayout from '../components/AppLayout.vue'
@@ -29,6 +30,8 @@ const canManageAnalysis = computed(() => ['OWNER', 'ADMIN'].includes(analysisRol
 const event = ref<CrashEventDetailResponse | null>(null)
 const loading = ref(false)
 const error = ref<string | null>(null)
+/** 认证失效后阻止当前页面重新加载，直到建立新的会话。 */
+const authInvalidated = ref(false)
 let controller: AbortController | null = null
 let requestToken = 0
 
@@ -67,6 +70,8 @@ const backToOverview = computed(() => ({
 
 /** 详情仅读取持久化状态，不触发还原。 */
 async function load() {
+  // 跳转登录页可能被延迟，期间的路由变化和重试不能重新加载旧详情。
+  if (authInvalidated.value) return
   const token = ++requestToken
   controller?.abort()
   controller = new AbortController()
@@ -88,8 +93,37 @@ async function load() {
   }
 }
 
+/** 认证失效时立即取消在途请求并清除当前详情，不依赖页面跳转完成。 */
+function invalidateDetailForAuth() {
+  if (authInvalidated.value) return
+  authInvalidated.value = true
+  requestToken += 1
+  controller?.abort()
+  controller = null
+  event.value = null
+  error.value = null
+  loading.value = false
+  console.info('[CrashEventDetailView] 会话失效，已清除详情并取消请求')
+}
+
+// HTTP 401 事件和主动退出登录都可能先于路由卸载，分别接入同一失效处理。
+window.addEventListener('apm:auth-expired', invalidateDetailForAuth)
+watch(() => session.isAuthenticated, (authenticated, previouslyAuthenticated) => {
+  if (!authenticated && previouslyAuthenticated) {
+    invalidateDetailForAuth()
+  } else if (authenticated && !previouslyAuthenticated && authInvalidated.value) {
+    // 只有建立新会话后才允许重新请求，旧请求仍受原令牌隔离。
+    authInvalidated.value = false
+    console.info('[CrashEventDetailView] 新会话已建立，重新加载详情')
+    void load()
+  }
+}, { flush: 'sync' })
 watch(() => route.fullPath, () => { void load() }, { immediate: true })
-onBeforeUnmount(() => { requestToken += 1; controller?.abort() })
+onBeforeUnmount(() => {
+  window.removeEventListener('apm:auth-expired', invalidateDetailForAuth)
+  requestToken += 1
+  controller?.abort()
+})
 </script>
 
 <template>
@@ -113,8 +147,9 @@ onBeforeUnmount(() => { requestToken += 1; controller?.abort() })
       <RouterLink class="button" :to="backToIssue || backToOverview">返回列表</RouterLink>
     </header>
 
+    <div v-if="authInvalidated" class="notice notice-warning" role="status">登录状态已失效，请重新登录。</div>
     <StatusMessage
-      v-if="error"
+      v-else-if="error"
       kind="error"
       :message="error"
       @retry="load"
@@ -164,11 +199,13 @@ onBeforeUnmount(() => { requestToken += 1; controller?.abort() })
         />
       </section>
 
+      <div v-if="event.diagnostics?.coreTruncation?.truncated" class="notice notice-warning">主异常在设备端因大小限制被裁剪，以下堆栈可能不完整。</div>
       <section v-if="event.stack.format === 'retrace_text'" class="panel detail-card symbolicated-panel">
         <div class="panel-header" style="padding: 0 0 16px"><div><h2>还原堆栈</h2><p>首次成功结果已固定。完整保留内联与候选；成功不保证每一帧都准确。</p></div></div>
         <pre class="symbolicated-stack">{{ event.stack.content }}</pre>
       </section>
       <StackTrace v-else :crash="event.stack.content" />
+      <CrashDiagnosticsPanel :key="`${appId}:${eventId}`" :diagnostics="event.diagnostics" />
       <CrashAnalysisPanel v-if="event.crashKind === 'jvm' && event.fatal" :app-id="appId" :event-id="eventId" :can-create="canAnalyze" :can-manage="canManageAnalysis" :user-id="session.user?.id ?? null" />
       <div v-if="canManageAnalysis && event.symbolicationStatus !== 'symbolicated'" class="detail-actions"><RouterLink class="button" :to="{ name: 'app-symbols', params: { appId }, query: { buildId: event.buildId } }">上传此 buildId 的 mapping</RouterLink></div>
     </template>

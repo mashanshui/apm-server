@@ -31,5 +31,6 @@ public record CrashEventDetailResponse(
         /** 不变致命资格。 */ boolean fatal,
         /** temporary 或 resolved。 */ String groupingKind,
         /** 实际处理来源摘要。 */ String symbolFileSha256,
-        /** 实际处理时间。 */ Instant processedAt) {
+        /** 实际处理时间。 */ Instant processedAt,
+        /** 诊断缺失时为 null，不影响主异常详情。 */ CrashDiagnosticsResponse diagnostics) {
 }

@@ -48,8 +48,14 @@ class CrashBackgroundProcessorTests {
             EventMetadata metadata = new EventMetadata(app, "com.example", "event-" + index, "crash", now.minusSeconds(10 - index),
                     now, 2, "session", "11111111-1111-4111-8111-111111111111", "device", "1", 1, "build", "production", "official", "16", "test", "wifi", Map.of(), Map.of());
             var raw = CrashTestSupport.crash("java.lang.RuntimeException", "test", 1, "a");
+            String auxiliary = index == 0 ? mapper.writeValueAsString(java.util.List.of(
+                    new com.shanshui.apmserver.crash.api.CrashThreadStack("1", "pending", null,
+                            new com.shanshui.apmserver.crash.api.CrashThreadStack.Stack("raw_frames", java.util.List.of(
+                                    new com.shanshui.apmserver.telemetry.api.StackFrame("a.A", "run", "A.java", 1, true))),
+                            null, null, null, null))) : "";
             CrashState pending = new CrashState(app, metadata.eventId(), "build", metadata.occurredAt(), 0, "pending", "mapping_missing", "raw_chain",
-                    mapper.writeValueAsString(raw), "java.lang.RuntimeException", "tmp", "tmp-v1", "temporary", null, null, null, null, null);
+                    mapper.writeValueAsString(raw), "java.lang.RuntimeException", "tmp", "tmp-v1", "temporary", null, null, null, null, null,
+                    "", auxiliary);
             states.accept(new CrashFact(metadata, "jvm", true), pending);
         }
         when(symbols.retrace(eq(file), anyList())).thenReturn(SymbolicationResult.failed("output_limit"),
@@ -73,6 +79,7 @@ class CrashBackgroundProcessorTests {
         processor.runOnce();
         assertEquals("failed", states.current(app, "event-0").orElseThrow().status());
         assertEquals("output_limit", states.current(app, "event-0").orElseThrow().reason());
+        assertTrue(states.current(app, "event-0").orElseThrow().threadStacksPayload().contains("raw_frames"));
         assertEquals("symbolicated", states.current(app, "event-1").orElseThrow().status());
         assertEquals(symbol, states.current(app, "event-1").orElseThrow().symbolId());
         assertEquals("pending", states.current(app, "event-2").orElseThrow().status());
@@ -80,6 +87,7 @@ class CrashBackgroundProcessorTests {
         assertEquals(2, states.candidates(app, "build", UUID.randomUUID(), 1, now.minusSeconds(86400), now, 100).size());
         verify(symbols).acquire(app, "build");
         verify(symbols, times(2)).retrace(eq(file), anyList());
+        verify(symbols, never()).retraceAuxiliary(any(), anyList(), anyLong(), any());
         verify(file).close();
         verify(jobs).release(lease, "queued", null, Duration.ZERO);
         // 大载荷触发响应预算后最多有限减半，不抬高资源预算或丢弃该事件。
@@ -124,6 +132,138 @@ class CrashBackgroundProcessorTests {
         verify(jobs).release(lease, "waiting_mapping", "mapping_missing", Duration.ZERO);
         verify(states, never()).candidates(any(), any(), any(), anyInt(), any(), any(), anyInt());
         verify(symbols, never()).retrace(any(), any());
+    }
+
+    /** 主异常相同时辅助线程内容不同，正式指纹仍一致且各线程状态独立固定。 */
+    @Test
+    void symbolicatesAuxiliaryStacksWithoutChangingMainFingerprint() {
+        var mapper = new ObjectMapper();
+        var states = new InMemoryCrashStateStore(CrashTestSupport.storageProperties(), mapper);
+        var jobs = mock(CrashSymbolicationJobs.class);
+        var publications = mock(CrashSymbolicationPublications.class);
+        var symbols = mock(SymbolRegistry.class);
+        var mapping = mock(SymbolFileLease.class);
+        UUID app = UUID.randomUUID();
+        UUID symbol = UUID.randomUUID();
+        Instant now = Instant.now().truncatedTo(ChronoUnit.MILLIS);
+        var lease = new CrashSymbolicationJobs.Lease(app, "build", UUID.randomUUID(), 1, 1);
+        when(jobs.claim(any(), any())).thenReturn(Optional.of(lease));
+        when(jobs.renew(eq(lease), any())).thenReturn(true);
+        when(symbols.acquire(app, "build")).thenReturn(Optional.of(mapping));
+        when(mapping.symbolId()).thenReturn(symbol);
+        when(mapping.revision()).thenReturn(1);
+        when(mapping.sha256()).thenReturn("a".repeat(64));
+        for (int index = 0; index < 2; index++) {
+            String eventId = "aux-" + index;
+            EventMetadata metadata = new EventMetadata(app, "com.example", eventId, "crash", now.minusSeconds(10 - index),
+                    now, 2, "session", CrashTestSupport.PROCESS_ID, "device", "1", 1, "build", "production", "official",
+                    "16", "test", "wifi", Map.of(), Map.of());
+            var frame = new com.shanshui.apmserver.telemetry.api.StackFrame("a.A", "run" + index, "A.java", 1, true);
+            var thread = new com.shanshui.apmserver.crash.api.CrashThreadStack("1", "pending", null,
+                    new com.shanshui.apmserver.crash.api.CrashThreadStack.Stack("raw_frames", java.util.List.of(frame)), null, null, null, null);
+            var empty = new com.shanshui.apmserver.crash.api.CrashThreadStack("2", "not_applicable", null,
+                    new com.shanshui.apmserver.crash.api.CrashThreadStack.Stack("raw_frames", java.util.List.of()), null, null, null, null);
+            String digest = (index == 0 ? "b" : "c").repeat(64);
+            CrashState pending = new CrashState(app, eventId, "build", metadata.occurredAt(), 0, "pending", "mapping_missing", "raw_chain",
+                    mapper.writeValueAsString(CrashTestSupport.crash("java.lang.RuntimeException", "same", 1, "a")),
+                    "java.lang.RuntimeException", "tmp", "tmp-v1", "temporary", null, null, null, null, null,
+                    digest, mapper.writeValueAsString(java.util.List.of(thread, empty)));
+            states.accept(new CrashFact(metadata, "jvm", true, "{}", digest), pending);
+        }
+        when(symbols.retrace(eq(mapping), anyList())).thenReturn(new SymbolicationResult(
+                "java.lang.RuntimeException\n\tat com.example.Main.run(Main.java:1)", SymbolicationResult.Status.SYMBOLICATED, null));
+        when(symbols.retraceAuxiliary(eq(mapping), anyList(), eq(32768L), any())).thenReturn(
+                new SymbolicationResult("\tat com.example.Worker.run(Worker.java:8)\n\tat com.example.Inline.call(Inline.java:2)",
+                        SymbolicationResult.Status.SYMBOLICATED, null), SymbolicationResult.failed("timeout"));
+        when(publications.existing(eq(app), anyString())).thenReturn(Optional.empty());
+        AtomicLong version = new AtomicLong();
+        when(publications.register(eq(lease), any())).thenAnswer(call -> {
+            CrashState fixed = CrashSymbolicationPublications.versioned(call.getArgument(1), version.incrementAndGet());
+            return Optional.of(new CrashSymbolicationPublications.Publication(app, fixed.eventId(), "build", fixed.stateVersion(), "digest",
+                    new CrashStateJson(mapper).encode(fixed), now.plusSeconds(3600)));
+        });
+        when(publications.publish(eq(lease), any())).thenAnswer(call -> {
+            CrashSymbolicationPublications.Publication fixed = call.getArgument(1);
+            states.replay(fixed.payload());
+            return true;
+        });
+        var processor = new CrashBackgroundProcessor(jobs, states, publications, symbols, new CrashFingerprintService(),
+                new CrashSanitizer(CrashTestSupport.ingestProperties()), mapper, 100);
+        processor.runOnce();
+        CrashState first = states.current(app, "aux-0").orElseThrow();
+        CrashState second = states.current(app, "aux-1").orElseThrow();
+        assertEquals("symbolicated", first.status());
+        assertEquals("symbolicated", second.status());
+        assertEquals(first.fingerprint(), second.fingerprint());
+        var firstThreads = mapper.readValue(first.threadStacksPayload(), com.shanshui.apmserver.crash.api.CrashThreadStack[].class);
+        var secondThreads = mapper.readValue(second.threadStacksPayload(), com.shanshui.apmserver.crash.api.CrashThreadStack[].class);
+        assertEquals("symbolicated", firstThreads[0].symbolicationStatus());
+        assertEquals(symbol, firstThreads[0].symbolFileId());
+        assertEquals("not_applicable", firstThreads[1].symbolicationStatus());
+        assertEquals("failed", secondThreads[0].symbolicationStatus());
+        assertEquals("timeout", secondThreads[0].symbolicationReason());
+        assertEquals("raw_frames", secondThreads[0].stack().format());
+        assertTrue(states.candidates(app, "build", UUID.randomUUID(), 1, now.minusSeconds(86400), now, 100).isEmpty());
+    }
+
+    /** 发布登记超限时回退辅助还原，主异常成功结果与指纹仍可发布。 */
+    @Test
+    void fallsBackToRawAuxiliaryFramesWhenPublicationIsTooLarge() {
+        var mapper = new ObjectMapper();
+        var states = new InMemoryCrashStateStore(CrashTestSupport.storageProperties(), mapper);
+        var jobs = mock(CrashSymbolicationJobs.class);
+        var publications = mock(CrashSymbolicationPublications.class);
+        var symbols = mock(SymbolRegistry.class);
+        var mapping = mock(SymbolFileLease.class);
+        UUID app = UUID.randomUUID();
+        UUID symbol = UUID.randomUUID();
+        Instant now = Instant.now().truncatedTo(ChronoUnit.MILLIS);
+        var lease = new CrashSymbolicationJobs.Lease(app, "build", UUID.randomUUID(), 1, 1);
+        when(jobs.claim(any(), any())).thenReturn(Optional.of(lease));
+        when(jobs.renew(eq(lease), any())).thenReturn(true);
+        when(symbols.acquire(app, "build")).thenReturn(Optional.of(mapping));
+        when(mapping.symbolId()).thenReturn(symbol);
+        when(mapping.revision()).thenReturn(1);
+        when(mapping.sha256()).thenReturn("a".repeat(64));
+        var metadata = new EventMetadata(app, "com.example", "fallback", "crash", now.minusSeconds(1), now, 2,
+                "session", CrashTestSupport.PROCESS_ID, "device", "1", 1, "build", "test", "test", "35", "test", null, Map.of(), Map.of());
+        var frame = new com.shanshui.apmserver.telemetry.api.StackFrame("a.A", "run", "A.java", 1, true);
+        var thread = new com.shanshui.apmserver.crash.api.CrashThreadStack("1", "pending", null,
+                new com.shanshui.apmserver.crash.api.CrashThreadStack.Stack("raw_frames", java.util.List.of(frame)), null, null, null, null);
+        String digest = "b".repeat(64);
+        var pending = new CrashState(app, "fallback", "build", metadata.occurredAt(), 0, "pending", "awaiting_processing", "raw_chain",
+                mapper.writeValueAsString(CrashTestSupport.crash("java.lang.RuntimeException", "same", 1, "a")),
+                "java.lang.RuntimeException", "tmp", "tmp-v1", "temporary", null, null, null, null, null,
+                digest, mapper.writeValueAsString(java.util.List.of(thread)));
+        states.accept(new CrashFact(metadata, "jvm", true, "{}", digest), pending);
+        when(symbols.retrace(eq(mapping), anyList())).thenReturn(new SymbolicationResult(
+                "java.lang.RuntimeException\n\tat com.example.Main.run(Main.java:1)", SymbolicationResult.Status.SYMBOLICATED, null));
+        when(symbols.retraceAuxiliary(eq(mapping), anyList(), anyLong(), any())).thenReturn(new SymbolicationResult(
+                "\tat com.example.Worker.run(Worker.java:8)", SymbolicationResult.Status.SYMBOLICATED, null));
+        when(publications.existing(eq(app), anyString())).thenReturn(Optional.empty());
+        AtomicLong attempts = new AtomicLong();
+        when(publications.register(eq(lease), any())).thenAnswer(call -> {
+            if (attempts.incrementAndGet() == 1) throw new CrashResultTooLargeException();
+            CrashState fixed = CrashSymbolicationPublications.versioned(call.getArgument(1), 1);
+            return Optional.of(new CrashSymbolicationPublications.Publication(app, fixed.eventId(), "build", 1, "digest",
+                    new CrashStateJson(mapper).encode(fixed), now.plusSeconds(3600)));
+        });
+        when(publications.publish(eq(lease), any())).thenAnswer(call -> {
+            CrashSymbolicationPublications.Publication fixed = call.getArgument(1);
+            states.replay(fixed.payload());
+            return true;
+        });
+        new CrashBackgroundProcessor(jobs, states, publications, symbols, new CrashFingerprintService(),
+                new CrashSanitizer(CrashTestSupport.ingestProperties()), mapper, 100).runOnce();
+        var result = states.current(app, "fallback").orElseThrow();
+        assertEquals(2, attempts.get());
+        assertEquals("symbolicated", result.status());
+        assertEquals("resolved-v1", result.fingerprintVersion());
+        assertTrue(result.stackPayload().contains("com.example.Main.run"));
+        var restored = mapper.readValue(result.threadStacksPayload(), com.shanshui.apmserver.crash.api.CrashThreadStack[].class);
+        assertEquals("failed", restored[0].symbolicationStatus());
+        assertEquals("output_limit", restored[0].symbolicationReason());
+        assertEquals("raw_frames", restored[0].stack().format());
     }
     /** 并发调度调用在实例门禁串行领取；租约过期后不得启动 R8。 */
     @Test

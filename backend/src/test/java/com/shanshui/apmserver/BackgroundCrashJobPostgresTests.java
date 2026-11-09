@@ -146,12 +146,19 @@ class BackgroundCrashJobPostgresTests {
         jdbc.update("INSERT INTO app_symbol_file(symbol_id,app_id,build_id,revision,storage_key,original_filename,size_bytes,sha256,uploaded_by,uploaded_at,updated_at) VALUES (?,?,'build',1,'test.mapping','mapping.txt',10,?,?,clock_timestamp(),clock_timestamp())", symbol, app, "a".repeat(64), user);
         EventMetadata metadata = new EventMetadata(app, "com.example.publication", "event", "crash", now.minusSeconds(1), now,
                 2, "session", "11111111-1111-4111-8111-111111111111", "device", "1", 1, "build", "production", "official", "16", "test", "wifi", Map.of(), Map.of());
-        CrashState pending = new CrashState(app, "event", "build", metadata.occurredAt(), 0, "pending", "mapping_missing", "raw_chain", "{}", "Exception", "tmp", "tmp-v1", "temporary", null, null, null, null, null);
-        memory.accept(new CrashFact(metadata, "jvm", true), pending);
+        String captureDigest = "b".repeat(64);
+        String originalThreads = mapper.writeValueAsString(java.util.List.of(new com.shanshui.apmserver.crash.api.CrashThreadStack(
+                "1", "pending", null, new com.shanshui.apmserver.crash.api.CrashThreadStack.Stack("raw_frames", java.util.List.of(
+                new com.shanshui.apmserver.telemetry.api.StackFrame("a.A", "run", "A.java", 1, true))), null, null, null, null)));
+        String fixedThreads = mapper.writeValueAsString(java.util.List.of(new com.shanshui.apmserver.crash.api.CrashThreadStack(
+                "1", "symbolicated", null, new com.shanshui.apmserver.crash.api.CrashThreadStack.Stack("retrace_text", "at A.run(A.java:1)"),
+                symbol, 1, "a".repeat(64), now)));
+        CrashState pending = new CrashState(app, "event", "build", metadata.occurredAt(), 0, "pending", "mapping_missing", "raw_chain", "{}", "Exception", "tmp", "tmp-v1", "temporary", null, null, null, null, null, captureDigest, originalThreads);
+        memory.accept(new CrashFact(metadata, "jvm", true, "{}", captureDigest), pending);
         jobs.wake(app, "build");
         var lease = jobs.claim(UUID.randomUUID(), Duration.ofMinutes(1)).orElseThrow();
         long oldFailure = publications.failureVersion(lease, "event").orElseThrow();
-        CrashState computed = new CrashState(app, "event", "build", metadata.occurredAt(), 0, "symbolicated", null, "retrace_text", "fixed完整结果", "Exception", "resolved", "resolved-v1", "resolved", symbol, 1, "a".repeat(64), now, null);
+        CrashState computed = new CrashState(app, "event", "build", metadata.occurredAt(), 0, "symbolicated", null, "retrace_text", "fixed完整结果", "Exception", "resolved", "resolved-v1", "resolved", symbol, 1, "a".repeat(64), now, null, captureDigest, fixedThreads);
         var fixed = publications.register(lease, computed).orElseThrow();
         assertTrue(fixed.version() > oldFailure);
         assertEquals(pending, memory.current(app, "event").orElseThrow());
@@ -179,6 +186,9 @@ class BackgroundCrashJobPostgresTests {
         // 迟到失败低于固定版本，即使落库也不能回退成功。
         memory.publish(CrashSymbolicationPublications.versioned(pending, oldFailure));
         assertEquals("fixed完整结果", memory.current(app, "event").orElseThrow().stackPayload());
+        assertEquals(fixedThreads, memory.current(app, "event").orElseThrow().threadStacksPayload());
+        assertEquals(captureDigest, memory.current(app, "event").orElseThrow().captureSha256());
+        assertEquals("{}", memory.facts(app).stream().filter(fact -> fact.metadata().eventId().equals("event")).findFirst().orElseThrow().diagnosticsPayload());
         assertEquals(symbol, memory.current(app, "event").orElseThrow().symbolId());
         assertEquals(1, memory.current(app, "event").orElseThrow().symbolRevision());
         assertEquals(0, publications.cleanupExpired());

@@ -36,4 +36,11 @@
     <string name="crash_cases_close">返回主页面</string>
     <string name="crash_cases_input_required">请先输入并另行记录测试数据</string>
     <string name="crash_cases_wrapped">6. 数字解析失败（包装 cause）</string>
+    <string name="crash_diagnostics_description">7. 先准备合成日志、同名线程、阻塞线程和临时文件，再选择崩溃线程；不读取真实业务数据。</string>
+    <string name="crash_diagnostics_prepare">准备诊断现场</string>
+    <string name="crash_diagnostics_main">触发主线程诊断崩溃</string>
+    <string name="crash_diagnostics_background">触发后台线程诊断崩溃</string>
+    <string name="crash_diagnostics_ready">诊断现场已准备</string>
+    <string name="crash_diagnostics_failed">诊断现场准备失败</string>
+    <string name="crash_diagnostics_prepare_first">请先准备诊断现场</string>
 </resources>

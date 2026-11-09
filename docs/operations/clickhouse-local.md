@@ -42,7 +42,7 @@ docker run -d `
 
 ## 空库初始化与已有数据边界
 
-当前应用需要完整的 `001～008` 结构，不能只执行 Crash 的 `001`。仅对确认无业务数据的新库，按以下顺序执行：
+当前应用需要完整的 `001～010` 结构，不能只执行 Crash 的 `001`。仅对确认无业务数据的新库，按以下顺序执行：
 
 ```powershell
 # 严格按版本排序；004 会校验十张受影响业务表为空并删除重建对象。
@@ -55,7 +55,8 @@ $schemaFiles = @(
   "006_memory_leak_reports.sql",
   "007_event_process_identity.sql",
   "008_background_crash_symbolication.sql",
-  "009_memory_runtime_peaks.sql"
+  "009_memory_runtime_peaks.sql",
+  "010_crash_diagnostics.sql"
 )
 
 # 任一步失败立即停止，不继续执行后续迁移。
@@ -76,7 +77,7 @@ docker exec apm-clickhouse clickhouse-client `
   --query "SHOW TABLES FROM apm"
 ```
 
-`004` 将应用身份切换为 UUID `app_id`，旧数据不会自动迁移；有数据时不得重跑整套初始化或通过清空表绕过门禁。`005/006` 新增内存相关表，`007` 为六类事件/报告表追加 `process_id`，不改变排序键、TTL、去重键或聚合维度。008 独立新增当前 Crash 事实/状态，旧数据不转换或删除；已有 V7 库只增量执行 008。已有库应先核对当前结构、已执行版本和数据，再按[持久化与数据库迁移](../../backend/docs/knowledge-base/03-持久化与数据库迁移.md)处理。不能把部分脚本的 `IF NOT EXISTS` 推广为全套可安全重跑。
+`004` 将应用身份切换为 UUID `app_id`，旧数据不会自动迁移；有数据时不得重跑整套初始化或通过清空表绕过门禁。`005/006` 新增内存相关表，`007` 为六类事件/报告表追加 `process_id`，`008` 独立新增 Crash 事实/状态，`009` 新增运行峰值表；`010` 为 Crash 事实和状态追加诊断列，历史记录默认为空，TTL 不变。已有库应先核对当前结构、已执行版本和数据，再按[持久化与数据库迁移](../../backend/docs/knowledge-base/03-持久化与数据库迁移.md)增量处理。不能把部分脚本的 `IF NOT EXISTS` 推广为全套可安全重跑。
 
 ## 后端连接
 

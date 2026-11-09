@@ -82,7 +82,7 @@ state 为 `queued/running/waiting_mapping/retry_wait/idle`。计数属于本轮�
 
 ## 生效语义
 
-- Crash 先保存 pending 原始链，由后台独立处理，详情只读当前材料。首次成功后保存完整还原文本、正式归组和实际来源，结果固定；上传、替换、删除和重传仅影响尚未成功及新到事件。完整契约见[Crash API](crash-api.md)，客户端视角见[生效说明](../client-integration/symbol-mapping.md)。
+- Crash 先保存 pending 原始链，由后台独立处理，详情只读当前材料。主异常首次成功时，辅助线程按各自状态与同一实际 mapping 一起固定；辅助失败保留原始帧且不会单独补算。上传、替换、删除和重传仅影响尚未成功及新到事件。单份后台登记材料上限为 4 MiB，辅助结果超预算可回退原始帧；完整契约见[Crash API](crash-api.md)，客户端视角见[生效说明](../client-integration/symbol-mapping.md)。
 - 卡顿 ZIP 在上传解析时读取当前 mapping，并把已解析的证据写入卡顿事件。mapping 替换只影响后续上传的卡顿事件，已保存事件和指纹不回算。
 - mapping 缺失、失败或退避中的事件仍可按临时归组查看原始材料；成功结果不要求符号文件继续存在。格式校验不能证明 mapping 与 APK 匹配，错误 mapping 的首次成功可能永久归错组，上传前必须核对同一次构建。
 

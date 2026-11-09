@@ -62,6 +62,8 @@ GET /api/v1/apps/{appId}/memory-leaks/trend?interval=5m|hour|day
 
 符号表使用 `src/api/symbolApi.ts` 调用 `/api/v1/apps/{appId}/symbols` 的列表、multipart 首次上传、`expectedRevision` 替换/删除及单构建进度接口。`http.ts` 对 `FormData` 不设置 JSON `Content-Type`，继续携带同源 Session/CSRF；`ApiError.details` 保存冲突响应的当前元数据，页面据此展示摘要并等待明确确认。Crash 详情只包含单份 stack、当前三态、归组和实际来源；API 明确拒绝旧双份字段、旧状态与无来源的成功响应，不作转换。符号表支持 expectedRevision DELETE 和单构建进度接口。
 
+Crash 详情另有独立 `diagnostics` 对象或 null；`src/types/crashDiagnostics.ts` 和 `src/api/crashDiagnostics.ts` 校验七类分区、Java 字符串 ID、空帧、独立状态及 raw_frames/retrace_text。未知状态/格式或损坏结构显示协议错误，不把旧响应猜成空现场；零值保留。主 stack 和版本 3 分析证据不嵌入诊断。
+
 ## 请求约定
 
 - API 基地址来自 `VITE_API_BASE_URL`，未配置时使用当前站点相对路径。
@@ -115,7 +117,7 @@ Pinia 只管理跨页面的认证和应用状态；路由查询参数保存可�
 
 - `useCrashOverview` 管理总览、趋势、问题排行和问题分页。
 - `useCrashIssueEvents` 管理某一指纹的事件列表和事件分页。
-- 详情页直接管理单事件请求状态。
+- Crash 详情页直接管理单事件请求状态；收到 401 会话失效事件或有效会话退出时立即中止请求、递增请求令牌并清除详情，拒绝迟到响应。页面仍挂载时禁止重新加载，建立新会话后重新请求。
 - `jankQuery.ts` 维护卡顿公共/指标筛选的最近 24 小时默认值、白名单和 URL 往返；切换到挂起率时强制 `day`、清空 `scene`，并把 `scene` 维度回退到 `deviceModel`。
 - `useJankQuery.ts` 提供独立区域的加载/错误/数据状态、`AbortController`、请求令牌和游标按稳定键去重；`useJankIssues.ts`、`useJankIssueEvents.ts` 和 `useJankMetrics.ts` 分别组合问题、Issue 和指标页面请求。
 - `useMemoryMetrics.ts` 将 summary 与 trend 分成两个请求区域，各自维护加载/错误/重试和 `AbortController`；旧响应按查询令牌丢弃。`MemoryMetricsView.vue` 将时间和筛选保存到 URL，百分位切换只改变显示列，不触发重新聚合。

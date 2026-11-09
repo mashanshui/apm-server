@@ -154,6 +154,12 @@ class StackArtifactParseServiceTests {
             public SymbolicationResult retrace(SymbolFileLease lease, List<String> stackLines) {
                 throw new AssertionError("缺失 mapping 不应执行 Retrace");
             }
+
+            /** 缺失 mapping 不应还原辅助栈。 */
+            @Override
+            public SymbolicationResult retraceAuxiliary(SymbolFileLease lease, List<String> lines, long bytes, java.time.Duration wait) {
+                throw new AssertionError("不应调用辅助还原");
+            }
         };
         InMemoryJankEventRepository missingRepository = repository();
         StackArtifactParseService missingService = serviceWithRegistry(
@@ -171,6 +177,12 @@ class StackArtifactParseServiceTests {
             @Override
             public SymbolicationResult retrace(SymbolFileLease lease, List<String> stackLines) {
                 throw new AssertionError("注册表故障时不应执行 Retrace");
+            }
+
+            /** 注册表故障时不应还原辅助栈。 */
+            @Override
+            public SymbolicationResult retraceAuxiliary(SymbolFileLease lease, List<String> lines, long bytes, java.time.Duration wait) {
+                throw new AssertionError("不应调用辅助还原");
             }
         };
         StackArtifactParseService unavailableService = serviceWithRegistry(
@@ -359,6 +371,10 @@ class StackArtifactParseServiceTests {
                         return mapping;
                     }
 
+                    /** 卡顿测试不调用辅助栈。 */
+                    @Override
+                    public SymbolFileLease retain() { throw new UnsupportedOperationException(); }
+
                     @Override
                     public void close() {
                         if (!released) {
@@ -372,6 +388,12 @@ class StackArtifactParseServiceTests {
             @Override
             public SymbolicationResult retrace(SymbolFileLease lease, List<String> stackLines) {
                 return SymbolicationResult.failed("unused");
+            }
+
+            /** 卡顿解析不调用辅助线程还原。 */
+            @Override
+            public SymbolicationResult retraceAuxiliary(SymbolFileLease lease, List<String> lines, long bytes, java.time.Duration wait) {
+                throw new AssertionError("不应调用辅助还原");
             }
         };
     }

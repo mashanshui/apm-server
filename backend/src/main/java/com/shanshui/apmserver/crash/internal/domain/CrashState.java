@@ -23,14 +23,29 @@ public record CrashState(
         /** 实际尝试的文件版本。 */ Integer symbolRevision,
         /** 实际尝试的摘要。 */ String symbolSha256,
         /** 实际处理时间。 */ Instant processedAt,
-        /** 临时失败下次重试；确定性失败为空。 */ Instant retryAt) {
+        /** 临时失败下次重试；确定性失败为空。 */ Instant retryAt,
+        /** 首次采集内容摘要；历史事件为空。 */ String captureSha256,
+        /** 与主异常同版本的其他线程当前栈 JSON。 */ String threadStacksPayload) {
+
+    /** 构造未携带诊断的历史或测试状态。 */
+    public CrashState(UUID appId, String eventId, String buildId, Instant eventTime, long stateVersion,
+                      String status, String reason, String stackFormat, String stackPayload, String exceptionType,
+                      String fingerprint, String fingerprintVersion, String groupingKind, UUID symbolId,
+                      Integer symbolRevision, String symbolSha256, Instant processedAt, Instant retryAt) {
+        this(appId, eventId, buildId, eventTime, stateVersion, status, reason, stackFormat, stackPayload, exceptionType,
+                fingerprint, fingerprintVersion, groupingKind, symbolId, symbolRevision, symbolSha256, processedAt,
+                retryAt, "", "");
+    }
 
     /** 当前存储拒绝未知状态，防止旧格式被默认解释为 pending。 */
     public CrashState {
+        captureSha256 = captureSha256 == null ? "" : captureSha256;
+        threadStacksPayload = threadStacksPayload == null ? "" : threadStacksPayload;
         if (status == null || !Set.of("pending", "failed", "symbolicated").contains(status)
                 || appId == null || eventId == null || buildId == null || eventTime == null
                 || stateVersion < 0 || stackPayload == null || stackPayload.isBlank()
-                || fingerprint == null || fingerprintVersion == null) {
+                || fingerprint == null || fingerprintVersion == null
+                || (!captureSha256.isEmpty() && !captureSha256.matches("[a-f0-9]{64}"))) {
             throw new IllegalArgumentException("Crash 当前状态不合法");
         }
         if ("symbolicated".equals(status)) {
