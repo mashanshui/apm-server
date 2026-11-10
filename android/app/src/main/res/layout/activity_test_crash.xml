@@ -44,6 +44,16 @@
             android:text="@string/crash_diagnostics_main" />
         <Button android:id="@+id/diagnosticsBackgroundCrashButton" android:layout_width="match_parent" android:layout_height="wrap_content"
             android:text="@string/crash_diagnostics_background" />
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_marginTop="12dp" android:text="@string/crash_native_description" />
+        <Button android:id="@+id/nativeMainCrashButton" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:text="@string/crash_native_main" />
+        <Button android:id="@+id/nativeBackgroundCrashButton" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:text="@string/crash_native_background" />
+        <Button android:id="@+id/nativePureCrashButton" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:text="@string/crash_native_pure" />
+        <Button android:id="@+id/nativeAbortButton" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:text="@string/crash_native_abort" />
         <Button android:id="@+id/closeCrashPageButton" android:layout_width="match_parent" android:layout_height="wrap_content"
             android:text="@string/crash_cases_close" />
     </LinearLayout>

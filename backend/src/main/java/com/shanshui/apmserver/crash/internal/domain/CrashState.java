@@ -13,7 +13,7 @@ public record CrashState(
         /** 独立单调版本，0 为初始接收。 */ long stateVersion,
         /** 当前三态。 */ String status,
         /** 安全原因类别。 */ String reason,
-        /** raw_chain 或 retrace_text。 */ String stackFormat,
+        /** raw_chain、raw_native 或 retrace_text。 */ String stackFormat,
         /** 原始链 JSON 或完整还原文本，只有一份。 */ String stackPayload,
         /** 当前异常类型。 */ String exceptionType,
         /** 当前归组指纹。 */ String fingerprint,
@@ -54,8 +54,15 @@ public record CrashState(
                     || symbolSha256 == null || !symbolSha256.matches("[a-f0-9]{64}") || processedAt == null) {
                 throw new IllegalArgumentException("Crash 成功状态缺少完整结果或来源");
             }
+        } else if ("raw_native".equals(stackFormat)) {
+            // Native 待支持不表示进入 JVM 后台，来源和重试时间均不可伪造。
+            if (!"pending".equals(status) || !"native_symbolication_deferred".equals(reason)
+                    || !"temporary".equals(groupingKind) || symbolId != null || symbolRevision != null
+                    || symbolSha256 != null || processedAt != null || retryAt != null) {
+                throw new IllegalArgumentException("Native 原始状态或来源不合法");
+            }
         } else if (!"raw_chain".equals(stackFormat) || !"temporary".equals(groupingKind)) {
-            throw new IllegalArgumentException("Crash 未成功状态必须保存原始异常链");
+            throw new IllegalArgumentException("Crash 未成功状态必须保存合法原始材料");
         }
     }
 }

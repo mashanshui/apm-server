@@ -23,15 +23,31 @@ public class EventSchemaValidator {
             "packageName", "appVersion", "versionCode", "buildId", "environment", "channel", "osVersion",
             "deviceModel", "networkType", "measurements", "attributes", "crash", "jank",
             "frameSceneSummary", "foregroundSuspensionSummary", "memoryPeakSummary");
-    private static final Set<String> CRASH_FIELDS = Set.of("kind", "fatal", "throwableChain", "diagnostics");
+    private static final Set<String> CRASH_FIELDS = Set.of("kind", "fatal", "throwableChain", "diagnostics", "nativeCrash");
+    /** Native 数据仅接受明确字段，不能携带完整 tombstone 或内存转储。 */
+    private static final Set<String> NATIVE_CRASH_FIELDS = Set.of("abi", "systemTid", "threadName", "mainThread", "signal", "registers", "modules", "backtrace", "javaStack");
+    /** 信号和故障信息。 */
+    private static final Set<String> NATIVE_SIGNAL_FIELDS = Set.of("number", "name", "code", "codeName", "faultAddress", "abortMessage");
+    /** 寄存器采集结果。 */
+    private static final Set<String> NATIVE_REGISTERS_FIELDS = Set.of("status", "reason", "truncated", "capturedAt", "values");
+    /** 事件内有限模块字典。 */
+    private static final Set<String> NATIVE_MODULE_FIELDS = Set.of("id", "name", "path", "abi", "elfBuildId");
+    /** 原始帧。 */
+    private static final Set<String> NATIVE_FRAME_FIELDS = Set.of("index", "moduleId", "relativePc", "functionName", "functionOffset");
+    /** 主辅回溯和 Java 栈的通用分区字段。 */
+    private static final Set<String> NATIVE_TRACE_FIELDS = Set.of("status", "reason", "truncated", "capturedAt", "frames");
+    /** Native 线程集合。 */
+    private static final Set<String> NATIVE_THREADS_FIELDS = Set.of("status", "reason", "truncated", "capturedAt", "observedCount", "omittedCount", "threads");
+    /** 按系统 TID 区分的 Native 线程。 */
+    private static final Set<String> NATIVE_THREAD_FIELDS = Set.of("systemTid", "name", "mainThread", "backtrace");
     private static final Set<String> THROWABLE_FIELDS = Set.of("type", "message", "frames");
     private static final Set<String> FRAME_FIELDS = Set.of("className", "methodName", "fileName", "lineNumber", "applicationFrame");
     /** 诊断各分区的严格字段，防止 Jackson 静默丢弃未知内容。 */
-    private static final Set<String> DIAGNOSTICS_FIELDS = Set.of("coreTruncation", "crashedThread", "otherThreads", "logcat", "memory", "openFiles", "process", "device");
+    private static final Set<String> DIAGNOSTICS_FIELDS = Set.of("coreTruncation", "crashedThread", "otherThreads", "nativeThreads", "logcat", "memory", "openFiles", "process", "device");
     private static final Set<String> CORE_TRUNCATION_FIELDS = Set.of("truncated", "reason");
     private static final Set<String> CRASHED_THREAD_FIELDS = Set.of("status", "reason", "truncated", "capturedAt", "javaId", "name", "state", "priority", "daemon", "mainThread", "systemTid");
     private static final Set<String> OTHER_THREADS_FIELDS = Set.of("status", "reason", "truncated", "capturedAt", "observedCount", "omittedCount", "threads");
-    private static final Set<String> OTHER_THREAD_FIELDS = Set.of("javaId", "name", "state", "priority", "daemon", "mainThread", "truncated", "frames");
+    private static final Set<String> OTHER_THREAD_FIELDS = Set.of("javaId", "name", "state", "priority", "daemon", "mainThread", "truncated", "frames", "systemTid", "relationToCrash");
     private static final Set<String> LOGCAT_FIELDS = Set.of("status", "reason", "truncated", "capturedAt", "main", "system", "events");
     private static final Set<String> LOG_BUFFER_FIELDS = Set.of("status", "reason", "truncated", "capturedAt", "lines");
     private static final Set<String> CRASH_MEMORY_FIELDS = Set.of("status", "reason", "truncated", "capturedAt", "javaHeapUsedBytes", "javaHeapMaxBytes", "javaHeapPssBytes", "nativeHeapPssBytes", "nativeHeapAllocatedBytes", "totalPssBytes", "rssBytes", "vssBytes", "swapBytes", "meminfo", "statusText", "limits");
@@ -97,6 +113,7 @@ public class EventSchemaValidator {
         requireText(payload, "kind");
         requireBoolean(payload, "fatal");
         validateCrashDiagnostics(payload.get("diagnostics"));
+        validateNativeCrash(payload.get("nativeCrash"));
         JsonNode chain = payload.get("throwableChain");
         if (chain == null || chain.isNull()) {
             return;
@@ -147,8 +164,24 @@ public class EventSchemaValidator {
                 rejectUnknown(thread, OTHER_THREAD_FIELDS, "otherThread");
                 threadFields(thread);
                 requireBoolean(thread, "truncated");
+                requireInteger(thread, "systemTid");
+                requireText(thread, "relationToCrash");
                 JsonNode frames = optionalArray(thread, "frames");
                 if (frames != null) for (JsonNode frame : frames) validateStackFrame(frame);
+            }
+        }
+        JsonNode nativeThreads = optionalPartition(diagnostics, "nativeThreads", NATIVE_THREADS_FIELDS);
+        if (nativeThreads != null) {
+            requireInteger(nativeThreads, "observedCount");
+            requireInteger(nativeThreads, "omittedCount");
+            JsonNode threads = optionalArray(nativeThreads, "threads");
+            if (threads != null) for (JsonNode thread : threads) {
+                requireObject(thread, "nativeThread");
+                rejectUnknown(thread, NATIVE_THREAD_FIELDS, "nativeThread");
+                requireInteger(thread, "systemTid");
+                requireText(thread, "name");
+                requireBoolean(thread, "mainThread");
+                validateNativeTrace(thread, "backtrace", false);
             }
         }
         JsonNode logcat = optionalPartition(diagnostics, "logcat", LOGCAT_FIELDS);
@@ -184,6 +217,57 @@ public class EventSchemaValidator {
             requireInteger(device, "apiLevel");
             textArray(device, "abis");
             for (String name : List.of("manufacturer", "brand", "buildFingerprint")) requireText(device, name);
+        }
+    }
+
+    /** 在模型绑定前检查 Native 对象的类型和递归白名单。 */
+    private void validateNativeCrash(JsonNode value) {
+        if (value == null || value.isNull()) return;
+        requireObject(value, "nativeCrash");
+        rejectUnknown(value, NATIVE_CRASH_FIELDS, "nativeCrash");
+        requireText(value, "abi");
+        requireInteger(value, "systemTid");
+        requireText(value, "threadName");
+        requireBoolean(value, "mainThread");
+        JsonNode signal = optionalObject(value, "signal");
+        if (signal != null) {
+            rejectUnknown(signal, NATIVE_SIGNAL_FIELDS, "signal");
+            requireInteger(signal, "number");
+            requireInteger(signal, "code");
+            for (String field : List.of("name", "codeName", "faultAddress", "abortMessage")) requireText(signal, field);
+        }
+        JsonNode registers = optionalPartition(value, "registers", NATIVE_REGISTERS_FIELDS);
+        if (registers != null) {
+            JsonNode values = optionalObject(registers, "values");
+            if (values != null) values.properties().forEach(entry -> {
+                if (!entry.getValue().isString()) throw new InvalidBatchException("寄存器数值必须是字符串");
+            });
+        }
+        JsonNode modules = optionalArray(value, "modules");
+        if (modules != null) for (JsonNode module : modules) {
+            requireObject(module, "nativeModule");
+            rejectUnknown(module, NATIVE_MODULE_FIELDS, "nativeModule");
+            for (String field : List.of("id", "name", "path", "abi", "elfBuildId")) requireText(module, field);
+        }
+        validateNativeTrace(value, "backtrace", false);
+        validateNativeTrace(value, "javaStack", true);
+    }
+
+    /** 校验回溯分区字段，具体数量和语义由事件级校验处理。 */
+    private void validateNativeTrace(JsonNode parent, String name, boolean javaFrames) {
+        JsonNode trace = optionalPartition(parent, name, NATIVE_TRACE_FIELDS);
+        if (trace == null) return;
+        JsonNode frames = optionalArray(trace, "frames");
+        if (frames == null) return;
+        for (JsonNode frame : frames) {
+            if (javaFrames) {
+                validateStackFrame(frame);
+            } else {
+                requireObject(frame, "nativeFrame");
+                rejectUnknown(frame, NATIVE_FRAME_FIELDS, "nativeFrame");
+                requireInteger(frame, "index");
+                for (String field : List.of("moduleId", "relativePc", "functionName", "functionOffset")) requireText(frame, field);
+            }
         }
     }
 

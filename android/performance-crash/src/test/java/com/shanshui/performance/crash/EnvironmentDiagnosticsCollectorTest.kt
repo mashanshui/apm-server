@@ -88,6 +88,20 @@ class EnvironmentDiagnosticsCollectorTest {
         assertEquals(false, state.current())
     }
 
+    /** Native 回调读取原进程堆并保留零值，proc/FD 不由回调重复读取。 */
+    @Test
+    fun capturesNativeJavaHeapWithoutReadingProcOrFiles() {
+        val source = FakeSource().apply { unreadable = "/proc/meminfo"; vanished = 3 }
+        val result = collector(source).collectNativeJava(100)
+        assertEquals("ok", result.memory.status)
+        assertEquals(0L, result.memory.javaHeapUsedBytes)
+        assertEquals(7L * 1024, result.memory.javaHeapPssBytes)
+        assertEquals(0L, result.memory.nativeHeapAllocatedBytes)
+        assertEquals(42, result.process.pid)
+        assertEquals(29, result.device.apiLevel)
+        assertNull(result.memory.meminfo)
+    }
+
     /** 为纯 JVM 测试注入静态设备与时间。 */
     private fun collector(source: FakeSource): EnvironmentDiagnosticsCollector = EnvironmentDiagnosticsCollector(
         source = source,

@@ -13,6 +13,8 @@ class CrashEventFactoryTest {
         val input = "path=/data/user/0/com.example/files/private sentinel.txt\n" +
             "Cookie: session=secret-one; other=secret-two\n" +
             "Authorization: Bearer secret-three\n" +
+            "X-App-Key: apm_ak_AbCdefGHijkLmnoPQRstuVwXYZ\n" +
+            "standalone apm_qt_AbCdefGHijkLmnoPQRstuVwXYZ\n" +
             "reference https://example.invalid/#secret-fragment"
         val sanitized = CrashSanitizer.sanitize(input, 4096)
         assertFalse(sanitized.contains("sentinel"))
@@ -20,6 +22,8 @@ class CrashEventFactoryTest {
         assertFalse(sanitized.contains("secret-two"))
         assertFalse(sanitized.contains("secret-three"))
         assertFalse(sanitized.contains("secret-fragment"))
+        assertFalse(sanitized.contains("apm_ak_AbCdefGHijkLmnoPQRstuVwXYZ"))
+        assertFalse(sanitized.contains("apm_qt_AbCdefGHijkLmnoPQRstuVwXYZ"))
     }
 
     @Test
@@ -59,12 +63,13 @@ class CrashEventFactoryTest {
         assertNotNull(crash)
         assertTrue(crash!!.fatal)
         assertEquals("jvm", crash.kind)
-        assertTrue(crash.throwableChain.size <= 16)
-        assertTrue(crash.throwableChain.sumOf { it.frames.size } <= 200)
-        assertFalse(crash.throwableChain.first().message.orEmpty().contains("alice@example.com"))
-        assertFalse(crash.throwableChain.first().message.orEmpty().contains("secret-value"))
-        assertFalse(crash.throwableChain.first().message.orEmpty().contains("https://"))
-        assertTrue(crash.throwableChain.first().frames.first().applicationFrame == true)
+        val chain = requireNotNull(crash.throwableChain)
+        assertTrue(chain.size <= 16)
+        assertTrue(chain.sumOf { it.frames.size } <= 200)
+        assertFalse(chain.first().message.orEmpty().contains("alice@example.com"))
+        assertFalse(chain.first().message.orEmpty().contains("secret-value"))
+        assertFalse(chain.first().message.orEmpty().contains("https://"))
+        assertTrue(chain.first().frames.first().applicationFrame == true)
     }
 
     @Test

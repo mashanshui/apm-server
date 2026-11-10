@@ -18,6 +18,8 @@ data class CrashConfig(
     val maxBatchBytes: Int = 512 * 1024,
     /** 上传间隔。 */
     val uploadIntervalMillis: Long = 30_000L,
+    /** 是否监控 Native 致命信号；关闭后仍恢复以前提交的 Native 事件。 */
+    val nativeEnabled: Boolean = true,
 ) {
     /** 校验 Crash 上传配置。 */
     init {

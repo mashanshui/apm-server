@@ -7,7 +7,7 @@
 | 应用 | 状态 | 说明 |
 |---|---|---|
 | 工程形态 | 已落地 | 独立的 Vue 3 + TypeScript + Vite 单页应用 |
-| 页面范围 | 登录、应用工作区、JVM Crash、本地单事件分析、卡顿、内存分析、符号表和查询 Token 管理 | 设置页的 Owner/Admin 可创建、列出、撤销应用只读查询 Token；完整值只在创建结果中短暂展示 |
+| 页面范围 | 登录、应用工作区、JVM/Native Crash 原始详情、JVM 单事件分析、卡顿、内存分析、符号表和查询 Token 管理 | 设置页的 Owner/Admin 可创建、列出、撤销应用只读查询 Token；完整值只在创建结果中短暂展示 |
 | 数据访问 | 已落地 | 统一 HTTP 客户端携带同源 Session Cookie 和 CSRF；已具备管理、Crash、卡顿及内存 summary/trend API 客户端，不直连 ClickHouse |
 | 图表 | 已落地 | ECharts 展示 Crash/卡顿问题趋势、多算法指标趋势和 PSS/VSS/Java 堆趋势；原生 SVG 展示采样估算火焰图 |
 | 视觉范围 | 已落地 | 浅色语义 Token、固定 1280px PC 设计基线；不承诺移动端适配 |

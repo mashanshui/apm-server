@@ -7,7 +7,7 @@ import type {
   CrashTrendResponse,
 } from '../types/crash'
 import { ApiError, errorMessage as sharedErrorMessage, isAbortError as sharedIsAbortError, pathSegment, requestJson as request } from './http'
-import { validDiagnostics } from './crashDiagnostics'
+import { validDiagnostics, validNativeCrash } from './crashDiagnostics'
 
 export { ApiError as CrashApiError }
 
@@ -132,13 +132,22 @@ function validStatus(value: unknown): boolean { return ['pending', 'failed', 'sy
 export function requireCurrentCrash(value: CrashEventDetailResponse): CrashEventDetailResponse {
   if (!value || 'rawCrash' in value || 'symbolicatedStackText' in value || !validStatus(value.symbolicationStatus)
       || !validGrouping(value.groupingKind) || typeof value.crashKind !== 'string' || typeof value.fatal !== 'boolean') throw protocolError()
+  if (value.crashKind === 'native') {
+    if (!value.fatal || value.symbolicationStatus !== 'pending' || value.groupingKind !== 'temporary'
+        || value.symbolicationReason !== 'native_symbolication_deferred' || value.stack?.format !== 'raw_native'
+        || !validNativeCrash(value.stack.content) || value.symbolFileId != null || value.symbolFileRevision != null
+        || value.symbolFileSha256 != null || value.processedAt != null || !validDiagnostics(value.diagnostics, value.stack.content)) throw protocolError()
+    return value
+  }
+  if (value.crashKind !== 'jvm' || !value.fatal) throw protocolError()
   if (value.symbolicationStatus === 'symbolicated') {
     if (value.groupingKind !== 'resolved' || value.stack?.format !== 'retrace_text' || typeof value.stack.content !== 'string' || !value.stack.content.trim()
         || !value.symbolFileId || !Number.isInteger(value.symbolFileRevision) || (value.symbolFileRevision ?? 0) < 1
         || !/^[a-f0-9]{64}$/.test(value.symbolFileSha256 ?? '') || !value.processedAt) throw protocolError()
   } else if (value.groupingKind !== 'temporary' || value.stack?.format !== 'raw_chain'
       || !Array.isArray(value.stack.content?.throwableChain) || !value.stack.content.throwableChain.length
-      || 'diagnostics' in value.stack.content) throw protocolError()
+      || value.stack.content.kind !== 'jvm' || !value.stack.content.fatal
+      || 'nativeCrash' in value.stack.content || 'diagnostics' in value.stack.content) throw protocolError()
   if (!validDiagnostics(value.diagnostics)) throw protocolError()
   return value
 }

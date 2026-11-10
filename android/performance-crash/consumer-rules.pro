@@ -6,3 +6,8 @@
 -keepclassmembers class com.shanshui.performance.crash.** {
     <fields>;
 }
+# JNI 按固定类名和方法名查找信号桥与普通工作者回调。
+-keep class com.shanshui.performance.crash.NativeCrashBridge {
+    native <methods>;
+    boolean onNativeCaptureCompleted(long, int, int, long);
+}

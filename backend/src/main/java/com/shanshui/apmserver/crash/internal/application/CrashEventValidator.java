@@ -22,10 +22,22 @@ import java.util.List;
 @Service
 public class CrashEventValidator {
 
+    /** 拒绝诊断文本中显式转储段及常见原始内存或映射行。 */
+    private static final java.util.regex.Pattern FORBIDDEN_DUMP = java.util.regex.Pattern.compile(
+            "(?im)^[ \\t]*(?:[\\w.$-]{1,64}[ \\t]*:[ \\t]*)?(?:"
+                    + "(?:stack|memory map|memory near [^:\\r\\n]+):[ \\t]*$"
+                    + "|[0-9a-f]{8,16}-[0-9a-f]{8,16}[ \\t]+[rwxps-]{4}(?:[ \\t]|$)"
+                    + "|(?:#\\d+[ \\t]+)?[0-9a-f]{8,16}[ \\t]+[0-9a-f]{8,16}(?:[ \\t]|$)"
+                    + "|\\*\\*\\*[ \\t]+\\*\\*\\*[ \\t]+\\*\\*\\*[ \\t]+\\*\\*\\*)");
+    /** Native 通用属性不得另设转储字段。 */
+    private static final java.util.regex.Pattern FORBIDDEN_ATTRIBUTE = java.util.regex.Pattern.compile(
+            "(?i)^(?:stack|memory[_. -]?near|memory[_. -]?map|tombstone)$");
     private final CrashIngestConfiguration properties;
     private final ObjectMapper objectMapper;
     /** 诊断资源和字段校验，独立于主异常帧配额。 */
     private final CrashDiagnosticsValidator diagnosticsValidator;
+    /** Native 原始材料和跨线程引用校验。 */
+    private final NativeCrashValidator nativeValidator;
     private final Clock clock;
 
     @Autowired
@@ -37,6 +49,7 @@ public class CrashEventValidator {
         this.properties = properties;
         this.objectMapper = objectMapper;
         this.diagnosticsValidator = new CrashDiagnosticsValidator(objectMapper);
+        this.nativeValidator = new NativeCrashValidator(objectMapper);
         this.clock = clock;
     }
 
@@ -93,6 +106,9 @@ public class CrashEventValidator {
                 issues.add(issue("INVALID_CRASH_PAYLOAD", "crash 事件必须且只能携带 crash 载荷"));
             } else {
                 validateCrash(event.crash(), issues);
+                if ("native".equals(event.crash().kind()) && containsForbiddenDump(event)) {
+                    issues.add(issue("INVALID_NATIVE_CRASH", "Native 诊断包含禁止的内存转储"));
+                }
             }
         } else if ("app_start".equals(event.eventType())) {
             if (payloadCount != 0) {
@@ -111,18 +127,47 @@ public class CrashEventValidator {
         }
     }
 
+    /** 检查 Native 现场及通用属性中的禁止转储，不记录或回显原文。 */
+    private boolean containsForbiddenDump(CrashIngestCommand event) {
+        if (event.attributes() != null && event.attributes().keySet().stream()
+                .anyMatch(key -> key != null && FORBIDDEN_ATTRIBUTE.matcher(key).matches())) return true;
+        return containsDumpText(objectMapper.valueToTree(event.crash()))
+                || containsDumpText(objectMapper.valueToTree(event.attributes()));
+    }
+
+    /** 递归扫描允许的文本值；结构化十六进制地址不会匹配内存转储行。 */
+    private boolean containsDumpText(tools.jackson.databind.JsonNode value) {
+        if (value == null || value.isNull()) return false;
+        if (value.isString()) return FORBIDDEN_DUMP.matcher(value.asText()).find();
+        if (value.isArray()) {
+            for (var item : value) if (containsDumpText(item)) return true;
+        } else if (value.isObject()) {
+            for (var field : value.properties()) if (containsDumpText(field.getValue())) return true;
+        }
+        return false;
+    }
+
     private void validateCrash(CrashPayload crash, List<ValidationIssue> issues) {
         if (crash == null) {
             issues.add(issue("MISSING_CRASH_PAYLOAD", "crash 载荷不能为空"));
             return;
         }
-        if (!"jvm".equals(crash.kind())) {
-            issues.add(issue("UNSUPPORTED_CRASH_KIND", "首期仅支持 crash.kind=jvm"));
+        boolean nativeCrash = "native".equals(crash.kind());
+        if (!nativeCrash && !"jvm".equals(crash.kind())) {
+            issues.add(issue("UNSUPPORTED_CRASH_KIND", "仅支持 JVM 或 Native 致命 Crash"));
         }
         if (!Boolean.TRUE.equals(crash.fatal())) {
-            issues.add(issue("NON_FATAL_CRASH", "首期仅支持 fatal JVM Crash"));
+            issues.add(issue("NON_FATAL_CRASH", "仅支持 fatal Crash"));
         }
-        diagnosticsValidator.validate(crash.diagnostics(), issues);
+        diagnosticsValidator.validate(crash.diagnostics(), nativeCrash, issues);
+        if (nativeCrash) {
+            if (crash.throwableChain() != null) issues.add(issue("INVALID_CRASH_PAYLOAD", "Native Crash 不能携带 JVM 异常链"));
+            nativeValidator.validate(crash.nativeCrash(), crash.diagnostics(), issues);
+            return;
+        }
+        if (crash.nativeCrash() != null || crash.diagnostics() != null && crash.diagnostics().nativeThreads() != null) {
+            issues.add(issue("INVALID_CRASH_PAYLOAD", "JVM Crash 不能携带 Native 材料"));
+        }
         if (crash.throwableChain() == null || crash.throwableChain().isEmpty()) {
             issues.add(issue("MISSING_THROWABLE_CHAIN", "throwableChain 不能为空"));
             return;

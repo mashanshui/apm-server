@@ -20,7 +20,12 @@
     <string name="memory_leak_test_leak_status">已选择泄漏销毁：返回主页面后等待检测器重检</string>
     <string name="memory_leak_test_cleared_status">已清理静态泄漏引用</string>
     <string name="crash_cases_entry">崩溃测试页面</string>
-    <string name="crash_cases_title">JVM 崩溃测试</string>
+    <string name="crash_cases_title">崩溃测试</string>
+    <string name="crash_native_description">Native 致命信号测试：每次触发后需要重新启动应用。</string>
+    <string name="crash_native_main">主线程 JNI SIGSEGV</string>
+    <string name="crash_native_background">后台 Java 线程 JNI SIGSEGV</string>
+    <string name="crash_native_pure">纯 Native 线程 SIGSEGV</string>
+    <string name="crash_native_abort">主线程 SIGABRT</string>
     <string name="crash_cases_description">仅用于测试。第 1、2、3、6 项立即崩溃；第 4、5 项先输入测试数据。每次崩溃后重新启动应用。请另行记录触发输入、时间与构建版本，勿填写真实敏感数据。</string>
     <string name="crash_cases_explicit">1. 主动抛出异常</string>
     <string name="crash_cases_null">2. 空指针异常</string>

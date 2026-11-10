@@ -55,7 +55,7 @@ class MemoryPeakHttpIntegrationTests {
         bootstrap.setDatabase("default");
         var client = new ClickHouseHttpClient(bootstrap);
         client.execute("CREATE DATABASE IF NOT EXISTS apm");
-        for (String migration : List.of("008_background_crash_symbolication.sql", "009_memory_runtime_peaks.sql", "010_crash_diagnostics.sql")) {
+        for (String migration : List.of("008_background_crash_symbolication.sql", "009_memory_runtime_peaks.sql", "010_crash_diagnostics.sql", "011_native_crash_state.sql")) {
             String ddl = Files.readString(Path.of("src/main/resources/db/clickhouse", migration));
             for (String statement : ddl.split(";")) if (!statement.isBlank()) client.execute(statement);
         }

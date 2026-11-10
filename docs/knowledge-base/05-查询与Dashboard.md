@@ -2,7 +2,7 @@
 
 ## 查询 API
 
-当前已实现的 JVM Crash 查询接口如下：
+当前已实现的 Crash 查询接口如下；服务端、网页和 MCP 源码支持 JVM 与 Native 原始状态，Android Native 已完成 API 29/35 模拟器与隔离服务联调，真机和生产验收仍待完成：
 
 ```http
 GET /api/v1/apps/{appId}/crashes/overview
@@ -128,7 +128,7 @@ Grafana 适合趋势、排行、筛选、临时分析和告警；Vue 更适合�
 
 ## JVM Crash 查询与 Dashboard 实现
 
-已增加以下查询语义：Crash 总览、小时或天趋势、问题排行、按指纹的事件列表和单事件详情。查询支持版本、渠道、环境、Android 版本、设备型号和指纹筛选，并限制时间范围、limit、游标和超时。比例使用 `app_start` 会话分母；分母为空时返回 `null` 和 `denominator_insufficient` 状态；没有任何事件时状态为 `no_data`。Crash 接收先保存 pending/raw_chain 与事实，后台以固定文件租约处理；详情仅只读当前单份 stack，不调用 R8。首次成功以 retrace_text、resolved-v1 及实际 ID/revision/SHA-256/时间固定，管理操作不重算。临时 tmp-v1 按构建隔离，正式问题可跨版本合并；归组回填到原发生日期，总数/会话/设备/当前启动分母不增加。旧临时指纹可能为空，返回总览刷新，分页不提供快照。上传/替换/删除和进度契约见[符号表管理 API](../api/symbol-api.md)。
+已增加以下查询语义：Crash 总览、小时或天趋势、问题排行、按指纹的事件列表和单事件详情。查询支持版本、渠道、环境、Android 版本、设备型号和指纹筛选，并限制时间范围、limit、游标和超时。比例使用 `app_start` 会话分母；分母为空时返回 `null` 和 `denominator_insufficient` 状态；没有任何事件时状态为 `no_data`。JVM 接收先保存 pending/raw_chain 与事实，后台以固定文件租约处理；详情仅只读当前单份 stack，不调用 R8。首次成功以 retrace_text、resolved-v1 及实际 ID/revision/SHA-256/时间固定，管理操作不重算。Native 使用 raw_native 和 `native-tmp-v1` 临时归组，不进入 JVM 后台；两类事件共用统计分母。归组回填到原发生日期，总数/会话/设备/当前启动分母不增加。分页不提供快照。上传/替换/删除和进度契约见[符号表管理 API](../api/symbol-api.md)。
 
 Grafana JSON 位于 `backend/src/main/resources/grafana/dashboards/jvm-crash.json`，包含总览卡片、趋势、问题排行、版本对比、状态说明和下钻链接，当前数据源类型为 `vertamedia-clickhouse-datasource`。Dashboard 验收应覆盖固定数据集中的正常、无数据、分母不足和堆栈下钻状态；这些验收不等同于多租户生产权限或大规模性能验收。
 

@@ -1,6 +1,7 @@
 package com.shanshui.apmserver.crash.internal.application;
 
 import com.shanshui.apmserver.crash.api.CrashPayload;
+import com.shanshui.apmserver.crash.api.NativeCrash;
 import com.shanshui.apmserver.telemetry.api.StackFrame;
 import com.shanshui.apmserver.crash.api.ThrowableNode;
 import com.shanshui.apmserver.symbol.api.RetraceFingerprintInput;
@@ -64,6 +65,30 @@ public class CrashFingerprintService {
     /** 临时指纹显式绑定构建，混淆名称巧合相同也不能跨构建归组。 */
     public String temporary(java.util.UUID appId, String packageName, String buildId, CrashPayload crash) {
         return sha256("tmp-v1|" + appId + "|" + buildId + "|" + fingerprint(appId, packageName, crash));
+    }
+
+    /** 按构建、ABI、信号及模块相对地址生成 Native 临时指纹。 */
+    public String nativeTemporary(java.util.UUID appId, String packageName, String buildId, NativeCrash crash) {
+        // 长度前缀避免可控包名和模块名称中的分隔符造成身份碰撞。
+        StringBuilder identity = new StringBuilder("native-tmp-v1");
+        appendIdentity(identity, appId.toString());
+        appendIdentity(identity, packageName);
+        appendIdentity(identity, buildId);
+        appendIdentity(identity, crash.abi());
+        appendIdentity(identity, Integer.toString(crash.signal().number()));
+        appendIdentity(identity, Integer.toString(crash.signal().code()));
+        var modules = new java.util.HashMap<String, NativeCrash.Module>();
+        crash.modules().forEach(module -> modules.put(module.id(), module));
+        var frames = crash.backtrace().frames().stream().limit(MAX_FRAMES).filter(frame -> frame.moduleId() != null
+                && frame.relativePc() != null && modules.containsKey(frame.moduleId())).toList();
+        appendIdentity(identity, frames.isEmpty() ? "insufficient-v1" : "frames-v1");
+        for (var frame : frames) {
+            var module = modules.get(frame.moduleId());
+            appendIdentity(identity, module.elfBuildId() == null ? "name" : "elf-build-id");
+            appendIdentity(identity, module.elfBuildId() == null ? module.name() : module.elfBuildId());
+            appendIdentity(identity, frame.relativePc());
+        }
+        return sha256(identity.toString());
     }
 
     /** 正式指纹只使用还原后的身份；包含一个候选组时保留该组全部候选。 */

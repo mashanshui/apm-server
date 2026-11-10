@@ -62,7 +62,7 @@ GET /api/v1/apps/{appId}/memory-leaks/trend?interval=5m|hour|day
 
 符号表使用 `src/api/symbolApi.ts` 调用 `/api/v1/apps/{appId}/symbols` 的列表、multipart 首次上传、`expectedRevision` 替换/删除及单构建进度接口。`http.ts` 对 `FormData` 不设置 JSON `Content-Type`，继续携带同源 Session/CSRF；`ApiError.details` 保存冲突响应的当前元数据，页面据此展示摘要并等待明确确认。Crash 详情只包含单份 stack、当前三态、归组和实际来源；API 明确拒绝旧双份字段、旧状态与无来源的成功响应，不作转换。符号表支持 expectedRevision DELETE 和单构建进度接口。
 
-Crash 详情另有独立 `diagnostics` 对象或 null；`src/types/crashDiagnostics.ts` 和 `src/api/crashDiagnostics.ts` 校验七类分区、Java 字符串 ID、空帧、独立状态及 raw_frames/retrace_text。未知状态/格式或损坏结构显示协议错误，不把旧响应猜成空现场；零值保留。主 stack 和版本 3 分析证据不嵌入诊断。
+Crash 详情另有独立 `diagnostics` 对象或 null；`src/types/crashDiagnostics.ts` 和 `src/api/crashDiagnostics.ts` 校验分区、Java 字符串 ID、Native 系统 TID、空帧、独立状态及 raw_frames/retrace_text。Native 主栈使用 raw_native，模块引用、位宽、十六进制字符串和延后还原状态均有联合校验；未知状态/格式或损坏结构显示协议错误，不把旧响应猜成空现场，零值保留。主 stack 和版本 3 分析证据不嵌入诊断。
 
 ## 请求约定
 

@@ -1,4 +1,4 @@
-import type { StackFrame } from './crash'
+import type { NativeBacktrace, StackFrame } from './crash'
 
 /** 设备现场各分区的采集状态。 */
 export type DiagnosticStatus = 'ok' | 'partial' | 'unavailable' | 'skipped'
@@ -39,6 +39,8 @@ export interface DiagnosticThread {
   /** 是否守护线程。 */ daemon: boolean
   /** 是否 Android 主线程。 */ mainThread: boolean
   /** 源端是否裁剪该线程帧。 */ truncated: boolean
+  /** 可可靠获得的系统 TID。 */ systemTid?: number | null
+  /** 与 Native 崩溃线程的关系，不能按名称推断。 */ relationToCrash?: 'other' | 'unknown' | null
   /** 当前唯一堆栈。 */ stack: DiagnosticThreadStack
   /** 此线程独立处理状态。 */ symbolicationStatus: 'pending' | 'failed' | 'symbolicated' | 'not_applicable'
   /** 安全处理原因。 */ symbolicationReason?: string | null
@@ -46,6 +48,21 @@ export interface DiagnosticThread {
   /** 实际 mapping 版本。 */ symbolFileRevision?: number | null
   /** 实际 mapping 摘要。 */ symbolFileSha256?: string | null
   /** 实际处理时间。 */ processedAt?: string | null
+}
+
+/** Native 其他线程使用系统 TID 区分。 */
+export interface DiagnosticNativeThread {
+  /** 系统 TID。 */ systemTid: number
+  /** 可取得的线程名。 */ name?: string | null
+  /** 可判断时是否为主线程。 */ mainThread?: boolean | null
+  /** 此线程独立的原始回溯。 */ backtrace: NativeBacktrace
+}
+
+/** Native 线程集合和观测数量。 */
+export interface DiagnosticNativeThreads extends DiagnosticPartition {
+  /** 可知观测数。 */ observedCount?: number | null
+  /** 可知遗漏数。 */ omittedCount?: number | null
+  /** 按 TID 区分的线程快照。 */ threads: DiagnosticNativeThread[]
 }
 
 /** 有界线程集合及已知计数。 */
@@ -112,6 +129,7 @@ export interface CrashDiagnostics {
   /** 主异常是否在源端被裁剪。 */ coreTruncation?: { truncated: boolean; reason?: string | null } | null
   /** 崩溃线程。 */ crashedThread?: CrashedThread | null
   /** 其他线程。 */ otherThreads?: DiagnosticThreads | null
+  /** Native 其他线程。 */ nativeThreads?: DiagnosticNativeThreads | null
   /** 日志。 */ logcat?: DiagnosticLogcat | null
   /** 内存。 */ memory?: DiagnosticMemory | null
   /** 文件描述符。 */ openFiles?: DiagnosticOpenFiles | null

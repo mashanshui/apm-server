@@ -134,6 +134,57 @@ class CrashBackgroundProcessorTests {
         verify(symbols, never()).retrace(any(), any());
     }
 
+    /** mapping 的存在、替换、删除与后台重启都不能修改同构建 Native 现场。 */
+    @Test
+    void ignoresNativeAcrossMappingChangesAndRestarts() throws Exception {
+        var mapper = new ObjectMapper();
+        var states = new InMemoryCrashStateStore(CrashTestSupport.storageProperties(), mapper);
+        var jobs = mock(CrashSymbolicationJobs.class);
+        var publications = mock(CrashSymbolicationPublications.class);
+        var symbols = mock(SymbolRegistry.class);
+        var firstMapping = mock(SymbolFileLease.class);
+        var replacement = mock(SymbolFileLease.class);
+        UUID app = UUID.randomUUID();
+        Instant now = Instant.now().truncatedTo(ChronoUnit.MILLIS);
+        var metadata = new EventMetadata(app, "com.example", "native", "crash", now.minusSeconds(1), now, 2,
+                "session", CrashTestSupport.PROCESS_ID, "device", "1", 1, "build", "test", "test", "35", "test",
+                "wifi", Map.of(), Map.of());
+        var nativeState = new CrashState(app, "native", "build", metadata.occurredAt(), 0, "pending",
+                "native_symbolication_deferred", "raw_native", "{}", "SIGSEGV", "fp", "native-tmp-v1",
+                "temporary", null, null, null, null, null, "a".repeat(64), "{}");
+        states.accept(new CrashFact(metadata, "native", true, "{}", "a".repeat(64)), nativeState);
+        var lease = new CrashSymbolicationJobs.Lease(app, "build", UUID.randomUUID(), 1, 1);
+        when(jobs.claim(any(), any())).thenReturn(Optional.of(lease));
+        when(symbols.acquire(app, "build")).thenReturn(Optional.of(firstMapping), Optional.of(replacement),
+                Optional.empty(), Optional.of(replacement));
+        when(firstMapping.symbolId()).thenReturn(UUID.randomUUID());
+        when(replacement.symbolId()).thenReturn(UUID.randomUUID());
+        when(firstMapping.revision()).thenReturn(1);
+        when(replacement.revision()).thenReturn(2);
+        var processor = new CrashBackgroundProcessor(jobs, states, publications, symbols, new CrashFingerprintService(),
+                new CrashSanitizer(CrashTestSupport.ingestProperties()), mapper, 100);
+        processor.runOnce();
+        processor.runOnce();
+        processor.runOnce();
+        processor.stop();
+        var restarted = new CrashBackgroundProcessor(jobs, states, publications, symbols, new CrashFingerprintService(),
+                new CrashSanitizer(CrashTestSupport.ingestProperties()), mapper, 100);
+        restarted.runOnce();
+        // 即使存储适配器错误返回 Native 候选，后台入口也必须直接跳过。
+        var incorrectStore = spy(states);
+        doReturn(java.util.List.of(new CrashWorkItem(nativeState, metadata.packageName())))
+                .when(incorrectStore).candidates(eq(app), eq("build"), any(), anyInt(), any(), any(), anyInt());
+        var guarded = new CrashBackgroundProcessor(jobs, incorrectStore, publications, symbols, new CrashFingerprintService(),
+                new CrashSanitizer(CrashTestSupport.ingestProperties()), mapper, 100);
+        guarded.runOnce();
+        assertEquals(nativeState, states.current(app, "native").orElseThrow());
+        verify(symbols, never()).retrace(any(), anyList());
+        verify(symbols, never()).retraceAuxiliary(any(), anyList(), anyLong(), any());
+        verify(publications, never()).register(any(), any());
+        verify(publications, never()).failureVersion(any(), anyString());
+        verify(publications, never()).existing(any(), anyString());
+    }
+
     /** 主异常相同时辅助线程内容不同，正式指纹仍一致且各线程状态独立固定。 */
     @Test
     void symbolicatesAuxiliaryStacksWithoutChangingMainFingerprint() {

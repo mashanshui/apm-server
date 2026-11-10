@@ -1,4 +1,4 @@
-# JVM Crash 上报错误码
+# Crash 上报错误码
 
 首期上报接口为 `POST /ingest/v1/batches`，客户端需要根据错误是否可重试处理本地队列。永久错误丢弃当前事件；临时错误保留事件，并使用原始 `eventId` 重试。
 
@@ -13,8 +13,10 @@
 | `UNSUPPORTED_SCHEMA_VERSION` | 200/400 | 单条 | 否 | 服务端不支持该事件 Schema 版本 |
 | `MISSING_PROCESS_ID` / `INVALID_PROCESS_ID` | 200 | 单条 | 否 | `processId` 缺失、为空、不是标准连字符 UUID v4 或使用数值 PID |
 | `MISSING_*` | 200 | 单条 | 否 | 其他缺少统计必需字段 |
-| `UNSUPPORTED_CRASH_KIND` | 200 | 单条 | 否 | 首期不接受 native 等 Crash 类型 |
-| `NON_FATAL_CRASH` | 200 | 单条 | 否 | 首期只接受 JVM 致命 Crash |
+| `UNSUPPORTED_CRASH_KIND` | 200 | 单条 | 否 | 仅接受 `jvm` 和 `native` Crash 类型 |
+| `NON_FATAL_CRASH` | 200 | 单条 | 否 | 仅接受致命 Crash |
+| `INVALID_CRASH_PAYLOAD` | 200 | 单条 | 否 | JVM 与 Native 专属载荷混用或事件载荷不合法 |
+| `INVALID_NATIVE_CRASH` | 200 | 单条 | 否 | Native 信号、架构位宽、模块引用、采集状态或禁止转储不合法 |
 | `EVENT_TIME_TOO_OLD` / `EVENT_TIME_IN_FUTURE` | 200 | 单条 | 否 | 事件时间超出窗口 |
 | `TOO_MANY_STACK_FRAMES` / `MESSAGE_TOO_LONG` / `EVENT_TOO_LARGE` | 200 | 单条 | 否 | 超出字段或事件大小限制 |
 | `INVALID_CRASH_DIAGNOSTICS` | 200 | 单条 | 否 | 诊断状态、字段关系、数量或实际 JSON 字节超出限制 |
@@ -37,7 +39,7 @@
       "index": 1,
       "eventId": "bad-event",
       "code": "UNSUPPORTED_CRASH_KIND",
-      "message": "首期仅支持 crash.kind=jvm",
+      "message": "仅支持 JVM 或 Native 致命 Crash",
       "retryable": false
     }
   ]

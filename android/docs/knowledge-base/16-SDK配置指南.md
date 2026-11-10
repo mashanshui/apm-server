@@ -120,6 +120,7 @@ val performance = PerformanceSdk.initialize(
 | 字段 | 默认值 | 说明 |
 | --- | --- | --- |
 | `enabled` | `true` | 是否启用 Crash 捕获和上传 |
+| `nativeEnabled` | `true` | 是否启用新 Native 信号监听；关闭后仍恢复已提交的 Native 暂存 |
 | `appVersion` | 从 Application 版本名解析 | Crash 事件中的版本名 |
 | `versionCode` | 从 Application 解析 | 允许覆盖为非负整数 |
 | `buildId` | `versionName-versionCode` | 允许覆盖，最长 256 个字符 |
@@ -129,6 +130,8 @@ val performance = PerformanceSdk.initialize(
 | `uploadIntervalMillis` | `30000` | 周期上传间隔，必须为正数 |
 
 `enabled=true` 时同时启用受限 Crash 诊断采集，目前没有单独的线程、logcat 或内存分区开关。单事件在冻结前还受 240 KiB 目标与各分区预算约束，并须装入实际 `maxBatchBytes`；开启成本、失败状态和时间边界见 [Crash 专题](03-Crash采集与上报.md)。
+
+Native 开启时宿主需启用原生库解压，例如 `packaging { jniLibs.useLegacyPackaging = true }`；不满足安装路径或执行条件时 Native 初始化失败，JVM Crash 不受影响。`enabled=false` 关闭整个 Crash 组件；仅关闭 Native 新监听应使用 `CrashConfig(nativeEnabled = false)`。
 
 应用元数据默认自动解析。上传的 `packageName` 必须与 App Key 绑定的 Application ID
 一致，不单独提供覆盖项。只有需要替换版本信息或堆栈包名判断规则时，才需要覆盖

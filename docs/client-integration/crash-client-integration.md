@@ -1,6 +1,6 @@
-# Android JVM Crash 上传接入
+# Android Crash 上传接入
 
-本文维护 JVM 致命 Crash 的客户端捕获、持久化与确认流程。正式字段和示例见 [Crash API](../api/crash-api.md#批量上报)，错误码见[上报错误码](../api/crash-error-codes.md)，完整字段约束见 [JVM Crash v2 JSON Schema](../../backend/src/main/resources/schema/crash-event-v2.schema.json)。
+本文维护 JVM 与 Native 致命 Crash 的客户端捕获、持久化与确认流程。正式字段和示例见 [Crash API](../api/crash-api.md#批量上报)，错误码见[上报错误码](../api/crash-error-codes.md)，完整字段约束见 [Crash v2 JSON Schema](../../backend/src/main/resources/schema/crash-event-v2.schema.json)。Native 已完成 API 29/35 模拟器重启补传和隔离服务查询；其他设备与生产边界以[分阶段验证](../validation/native-crash/README.md)为准。
 
 ## 使用现有 SDK
 
@@ -27,7 +27,15 @@ flowchart TD
 1. `UncaughtExceptionHandler` 保留异常线程和系统 TID，先将已脱敏的核心异常及线程/进程身份原子写入 `capturing`，再等待预建工作者采集其他线程、日志、内存、FD 和设备环境，冻结到可上传的 `events`。主异常与各分区的 JSON 契约、状态和字节限额见 [Crash API](../api/crash-api.md#批量上报)。
 2. 处理器最多等待辅助采集 1500ms；logcat 共享最多 500ms。等待结束后冻结一次，不接纳迟到快照。原子写入完成后，处理器可同步尝试上传最多一批、等待最多 3500ms；正常启动和网络恢复也会触发后台上传。等待预算不是 ART 栈采集、文件系统或进程终止的硬中断保证。
 3. 处理结束交回此前的系统异常 Handler，保持 Android 原有进程终止语义。下次启动先恢复未冻结核心，再安排上传；保留原事件身份和发生时间，未完成分区标记 interrupted，不把新进程现场冒充旧现场。
-4. 当前只接收 `crash.kind=jvm`、`fatal=true`；NDK/native Crash、完整 ANR 和非致命异常各有独立能力边界，不包装成 JVM 致命 Crash。
+4. Native 使用 `crash.kind=native` 和独立 `nativeCrash`，不携带 JVM 异常链；完整 ANR 和非致命异常不包装成致命 Crash。
+
+### Native 接入与上传字段
+
+默认 `CrashConfig(nativeEnabled = true)`；如不启用新 Native 监听，可设置为 `false`，已有 Native 暂存仍会在启动时恢复。宿主需启用原生库解压，例如在应用打包配置中设置 `packaging { jniLibs.useLegacyPackaging = true }`，确保 `libapm_crash_dumper.so` 可从安装目录执行；不需要单独引入 Native Tools。支持的 ABI、信号和截止边界见 [Android Crash 专题](../../android/docs/knowledge-base/03-Crash采集与上报.md#native-信号与原始现场)。
+
+Native 事件尽力上传原始信号/code、故障地址、寄存器、ABI、崩溃 TID、主回溯、模块名称与 ELF Build ID；SIGABRT 可附安全取得的有限 abort 消息。共享诊断包括其他 Native 回溯、Java 线程快照及可可靠关联的主 Java 栈、logcat main/system/events、Java/Native 堆与进程内存用量、受限 meminfo/status/limits、FD 类别、进程和设备信息。未知的 Java/Native 对应关系标记 `unknown`，各分区携带实际采集状态和时间。
+
+SDK 不生成或上传原始 `stack` 内存、`memory near` 和完整 `memory map` 转储，也不先保存完整 tombstone 再过滤。日志与 abort 消息在首次落盘前过滤已识别的凭据和转储样式；abort 消息仅保留完整、最多 255 字节的可打印 ASCII，其余情况省略。Native 事件在下次启动冻结并复用既有批量响应和重试；暂存读取等瞬时失败会在后续后台上传前再次恢复，正常退出或被系统结束后遗留的空预留会在确认原进程退出后回收。重试不重新采集，不因 mapping 变化重写。Native SO 符号文件上传和符号还原留待后续实现。
 
 事件身份、App Key 和隐私规则统一见[接入公共规则](README.md#事件身份生命周期)。不要把原始硬件标识、账号、令牌、业务请求正文或完整 URL 放入设备标识、异常消息和属性中。
 

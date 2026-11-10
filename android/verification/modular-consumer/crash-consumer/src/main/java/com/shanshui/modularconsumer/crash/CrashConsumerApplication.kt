@@ -53,10 +53,14 @@ class CrashConsumerApplication : Application() {
     /** 创建共享上下文、Transport 和 Crash 组件。 */
     private fun initializeComponents() {
         val context = PerformanceEventContextFactory.create(this, SharedMetadataConfig())
-        val transport = TransportSession.create(NetworkConfig("https://apm.example.com", "consumer-key"))
+        // 烟测默认只连接模拟器回环地址，避免向外部服务发送合成事件。
+        val transport = TransportSession.create(NetworkConfig("http://127.0.0.1:1/", "consumer-key"))
         eventContext = context
         session = transport
-        crashHandle = CrashComponent.start(this, CrashConfig(), context, transport, 2)
+        // 下次启动可单独关闭 Native，新进程仍应恢复此前已提交的暂存。
+        val nativeEnabled = getSharedPreferences("native-probe", MODE_PRIVATE).getBoolean("enabled", true)
+        crashHandle = CrashComponent.start(this, CrashConfig(nativeEnabled = nativeEnabled), context, transport, 2)
+        android.util.Log.i("CrashConsumerSmoke", "native capture configured: enabled=$nativeEnabled")
     }
 
     /** 按组件所有权逆序关闭 Crash 和 Transport。 */

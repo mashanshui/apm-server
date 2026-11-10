@@ -26,6 +26,7 @@ object CrashComponent {
             versionCode = config.versionCode ?: metadata.versionCode,
             buildId = config.buildId ?: context.buildId,
             applicationPackage = config.applicationPackage ?: metadata.packageName,
+            nativeEnabled = config.nativeEnabled,
         )
         val serviceConfig = CrashServiceConfig(
             schemaVersion = schemaVersion,

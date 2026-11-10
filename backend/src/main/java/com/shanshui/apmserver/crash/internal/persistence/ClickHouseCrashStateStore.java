@@ -48,6 +48,11 @@ public class ClickHouseCrashStateStore implements CrashStatePort {
     public void requireCurrentSchema() {
         query("SELECT app_id,event_id,build_id,event_time,received_time,event_type,crash_kind,crash_fatal,diagnostics_payload,capture_sha256 FROM apm_crash_fact LIMIT 0 FORMAT JSONEachRow");
         query("SELECT state_version,symbolication_status,symbolication_reason,stack_format,stack_payload,exception_type,fingerprint,fingerprint_version,grouping_kind,symbol_id,symbol_revision,symbol_sha256,processed_at,retry_at,thread_stacks_payload,capture_sha256 FROM apm_crash_state LIMIT 0 FORMAT JSONEachRow");
+        // 新代码不能连接尚未放行 raw_native 的旧状态表，否则 Native 接收会持续失败。
+        var definitions = query("SELECT create_table_query FROM system.tables WHERE database=currentDatabase() AND name='apm_crash_state' LIMIT 1 FORMAT JSONEachRow");
+        if (definitions.isEmpty() || !definitions.getFirst().path("create_table_query").asText().contains("native_symbolication_deferred")) {
+            throw new com.shanshui.apmserver.platform.api.EventStoreUnavailableException("Crash 状态表尚未执行 Native 约束迁移 011");
+        }
     }
 
     /** 每次接收同步确认两侧；重放版本 0 不能覆盖后台更高版本。 */
@@ -55,9 +60,11 @@ public class ClickHouseCrashStateStore implements CrashStatePort {
     public synchronized boolean accept(CrashFact fact, CrashState initialState) {
         // 同一实例串行化初始身份检查；后台只追加版本，不更改事实。
         var metadata = fact.metadata();
-        if (!("crash".equals(metadata.eventType()) && initialState != null && "jvm".equals(fact.crashKind()) && fact.fatal())
+        if (!("crash".equals(metadata.eventType()) && initialState != null && fact.fatal()
+                && ("jvm".equals(fact.crashKind()) && "raw_chain".equals(initialState.stackFormat())
+                || "native".equals(fact.crashKind()) && "raw_native".equals(initialState.stackFormat())))
                 && !("app_start".equals(metadata.eventType()) && initialState == null)) {
-            throw new IllegalArgumentException("当前事实必须是有初始状态的 JVM fatal Crash 或启动事件");
+            throw new IllegalArgumentException("当前事实必须是类型与状态一致的 fatal Crash 或启动事件");
         }
         String identity = "app_id=" + quote(metadata.appId().toString()) + " AND event_id=" + quote(metadata.eventId());
         List<JsonNode> existing = query("SELECT build_id,event_time,capture_sha256 FROM apm_crash_fact FINAL WHERE "
@@ -72,7 +79,8 @@ public class ClickHouseCrashStateStore implements CrashStatePort {
             }
             if (initialState != null) {
                 String storedDigest = stored.path("capture_sha256").asText("");
-                CrashCaptureIdentity.requireCompatible(storedDigest, initialState.captureSha256(), !fact.diagnosticsPayload().isEmpty());
+                CrashCaptureIdentity.requireCompatible(storedDigest, initialState.captureSha256(),
+                        !fact.diagnosticsPayload().isEmpty() || "native".equals(fact.crashKind()));
                 legacy = storedDigest.isEmpty();
             }
         }
@@ -94,7 +102,8 @@ public class ClickHouseCrashStateStore implements CrashStatePort {
                 if (!existing.isEmpty() && !existing.getFirst().path("capture_sha256").asText("").equals(storedDigest)) {
                     throw new com.shanshui.apmserver.platform.api.EventStoreUnavailableException("Crash 事实与状态摘要不一致");
                 }
-                CrashCaptureIdentity.requireCompatible(storedDigest, initialState.captureSha256(), !fact.diagnosticsPayload().isEmpty());
+                CrashCaptureIdentity.requireCompatible(storedDigest, initialState.captureSha256(),
+                        !fact.diagnosticsPayload().isEmpty() || "native".equals(fact.crashKind()));
                 legacy |= storedDigest.isEmpty();
             }
             if (previousState.isEmpty()) {

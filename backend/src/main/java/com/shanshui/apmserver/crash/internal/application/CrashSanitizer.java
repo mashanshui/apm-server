@@ -4,6 +4,7 @@ import com.shanshui.apmserver.crash.api.CrashIngestConfiguration;
 import com.shanshui.apmserver.crash.api.CrashIngestCommand;
 import com.shanshui.apmserver.crash.api.CrashPayload;
 import com.shanshui.apmserver.crash.api.CrashDiagnostics;
+import com.shanshui.apmserver.crash.api.NativeCrash;
 import com.shanshui.apmserver.crash.api.ThrowableNode;
 import com.shanshui.apmserver.telemetry.api.StackFrame;
 import org.springframework.stereotype.Service;
@@ -28,11 +29,13 @@ public class CrashSanitizer {
     /** 私有路径可能含空格或用户文件名，因此移除该行剩余部分。 */
     private static final Pattern PRIVATE_PATH = Pattern.compile("(?i)(?:/data/(?:user(?:_de)?/\\d+|data)/|/storage/emulated/\\d+/|/sdcard/|/mnt/user/\\d+/|/Users/|/home/)[^\\r\\n]*");
     /** 凭据请求头可能含多个 cookie 项。 */
-    private static final Pattern CREDENTIAL_HEADER = Pattern.compile("(?i)\\b(?:authorization|cookie|set-cookie)\\s*[:=]\\s*[^\\r\\n]*");
+    private static final Pattern CREDENTIAL_HEADER = Pattern.compile("(?i)\\b(?:authorization|cookie|set-cookie|x[-_]?app[-_]?key|app[-_]?key)\\s*[:=]\\s*[^\\r\\n]*");
     /** 独立 Bearer 值。 */
     private static final Pattern BEARER = Pattern.compile("(?i)\\bBearer\\s+[A-Za-z0-9._~+/=-]+");
     /** 其他常见凭据赋值形式。 */
-    private static final Pattern SECRET = Pattern.compile("(?i)\\b(token|password|secret|api[-_]?key)\\s*[:=]\\s*[^\\s,;]+");
+    private static final Pattern SECRET = Pattern.compile("(?i)\\b(token|password|secret|api[-_]?key|app[-_]?key)\\s*[:=]\\s*[^\\s,;]+");
+    /** 单独出现的上报和查询凭据也必须脱敏。 */
+    private static final Pattern APM_CREDENTIAL = Pattern.compile("(?i)\\bapm_(?:ak|qt)_[A-Za-z0-9_-]+");
 
     private final CrashIngestConfiguration properties;
 
@@ -65,14 +68,47 @@ public class CrashSanitizer {
     }
 
     public CrashPayload sanitizeCrash(CrashPayload crash) {
-        List<ThrowableNode> chain = crash.throwableChain().stream()
+        List<ThrowableNode> chain = crash.throwableChain() == null ? null : crash.throwableChain().stream()
                 .map(node -> new ThrowableNode(
                         sanitizeText(node.type(), 512),
                         sanitizeText(node.message(), properties.getMaxMessageLength()),
                         node.frames().stream().map(this::sanitizeFrame).toList()))
                 .toList();
         return new CrashPayload(sanitizeIdentifier(crash.kind(), 32), crash.fatal(), chain,
-                sanitizeDiagnostics(crash.diagnostics()));
+                sanitizeDiagnostics(crash.diagnostics()), sanitizeNative(crash.nativeCrash()));
+    }
+
+    /** 清洗 Native 自由文本，地址、寄存器和 ELF 身份始终按原字符串保留。 */
+    private NativeCrash sanitizeNative(NativeCrash value) {
+        if (value == null) return null;
+        var signal = value.signal();
+        var safeSignal = new NativeCrash.Signal(signal.number(), signal.name(), signal.code(),
+                sanitizeText(signal.codeName(), 128), signal.faultAddress(), sanitizeText(signal.abortMessage(), 4096));
+        var registers = value.registers();
+        // 稳定寄存器键顺序，避免语义相同的重试仅因 JSON 对象顺序不同产生冲突。
+        var safeRegisters = new NativeCrash.Registers(registers.status(), registers.reason(), registers.truncated(),
+                registers.capturedAt(), new java.util.TreeMap<>(registers.values()));
+        var modules = value.modules().stream().map(module -> new NativeCrash.Module(module.id(),
+                sanitizeText(module.name(), 512), sanitizeNativeModulePath(module.path()), module.abi(), module.elfBuildId())).toList();
+        var javaStack = value.javaStack();
+        var safeJavaStack = javaStack == null ? null : new NativeCrash.JavaStack(javaStack.status(), javaStack.reason(),
+                javaStack.truncated(), javaStack.capturedAt(), javaStack.frames().stream().map(this::sanitizeDiagnosticFrame).toList());
+        return new NativeCrash(value.abi(), value.systemTid(), sanitizeText(value.threadName(), 512), value.mainThread(),
+                safeSignal, safeRegisters, modules, sanitizeNativeTrace(value.backtrace()), safeJavaStack);
+    }
+
+    /** 应用安装目录中的随机路径不用于模块身份，统一隐藏后再存储。 */
+    private String sanitizeNativeModulePath(String path) {
+        if (path == null) return null;
+        return path.startsWith("/data/") ? "[path]" : sanitizeText(path, 2048);
+    }
+
+    /** 只脱敏原生帧中的可读函数名，不改变模块引用和地址。 */
+    private NativeCrash.Backtrace sanitizeNativeTrace(NativeCrash.Backtrace trace) {
+        if (trace == null) return null;
+        return new NativeCrash.Backtrace(trace.status(), trace.reason(), trace.truncated(), trace.capturedAt(),
+                trace.frames().stream().map(frame -> new NativeCrash.Frame(frame.index(), frame.moduleId(),
+                        frame.relativePc(), sanitizeText(frame.functionName(), 2048), frame.functionOffset())).toList());
     }
 
     /** 对不可信客户端提交的全部诊断文本再次脱敏，结构化数值和身份保持原值。 */
@@ -89,7 +125,14 @@ public class CrashSanitizer {
                 threads.observedCount(), threads.omittedCount(), threads.threads().stream().map(thread ->
                 new CrashDiagnostics.OtherThread(thread.javaId(), sanitizeText(thread.name(), 512), thread.state(),
                         thread.priority(), thread.daemon(), thread.mainThread(), thread.truncated(),
-                        thread.frames().stream().map(this::sanitizeDiagnosticFrame).toList())).toList());
+                        thread.frames().stream().map(this::sanitizeDiagnosticFrame).toList(),
+                        thread.systemTid(), thread.relationToCrash())).toList());
+        var nativeThreads = value.nativeThreads();
+        var safeNativeThreads = nativeThreads == null ? null : new CrashDiagnostics.NativeThreads(nativeThreads.status(),
+                nativeThreads.reason(), nativeThreads.truncated(), nativeThreads.capturedAt(), nativeThreads.observedCount(),
+                nativeThreads.omittedCount(), nativeThreads.threads().stream().map(thread ->
+                        new CrashDiagnostics.NativeThread(thread.systemTid(), sanitizeText(thread.name(), 512),
+                                thread.mainThread(), sanitizeNativeTrace(thread.backtrace()))).toList());
         var logs = value.logcat();
         var safeLogs = logs == null ? null : new CrashDiagnostics.Logcat(logs.status(), logs.reason(), logs.truncated(),
                 logs.capturedAt(), sanitizeBuffer(logs.main()), sanitizeBuffer(logs.system()), sanitizeBuffer(logs.events()));
@@ -115,7 +158,7 @@ public class CrashSanitizer {
                 sanitizeText(device.manufacturer(), 256), sanitizeText(device.brand(), 256),
                 sanitizeText(device.buildFingerprint(), 1024));
         return new CrashDiagnostics(value.coreTruncation(), safeCrashed, safeThreads, safeLogs, safeMemory,
-                safeFiles, safeProcess, safeDevice);
+                safeFiles, safeProcess, safeDevice, safeNativeThreads);
     }
 
     /** 清洗单个日志缓冲区，不改变采集状态和时间。 */
@@ -145,6 +188,7 @@ public class CrashSanitizer {
         sanitized = PRIVATE_PATH.matcher(sanitized).replaceAll("[path]");
         sanitized = CREDENTIAL_HEADER.matcher(sanitized).replaceAll("[credential]");
         sanitized = BEARER.matcher(sanitized).replaceAll("Bearer [credential]");
+        sanitized = APM_CREDENTIAL.matcher(sanitized).replaceAll("[credential]");
         sanitized = SECRET.matcher(sanitized).replaceAll("$1=[redacted]");
         sanitized = HOME_PATH.matcher(sanitized).replaceAll("[path]");
         sanitized = URL.matcher(sanitized).replaceAll("[url]");

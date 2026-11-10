@@ -47,9 +47,11 @@ public class InMemoryCrashStateStore implements CrashStatePort {
         available();
         // 仅允许两个当前事实类型，不接受旧联合存储数据。
         var metadata = fact.metadata();
-        if (!("crash".equals(metadata.eventType()) && initialState != null && "jvm".equals(fact.crashKind()) && fact.fatal())
+        if (!("crash".equals(metadata.eventType()) && initialState != null && fact.fatal()
+                && ("jvm".equals(fact.crashKind()) && "raw_chain".equals(initialState.stackFormat())
+                || "native".equals(fact.crashKind()) && "raw_native".equals(initialState.stackFormat())))
                 && !("app_start".equals(metadata.eventType()) && initialState == null)) {
-            throw new IllegalArgumentException("当前事实必须是有初始状态的 JVM fatal Crash 或启动事件");
+            throw new IllegalArgumentException("当前事实必须是类型与状态一致的 fatal Crash 或启动事件");
         }
         String key = key(metadata.appId(), metadata.eventId());
         CrashFact existing = facts.get(key);
@@ -60,7 +62,7 @@ public class InMemoryCrashStateStore implements CrashStatePort {
         }
         if (existing != null && initialState != null) {
             CrashCaptureIdentity.requireCompatible(existing.captureSha256(), initialState.captureSha256(),
-                    !fact.diagnosticsPayload().isEmpty());
+                    !fact.diagnosticsPayload().isEmpty() || "native".equals(fact.crashKind()));
         }
         if (initialState != null) {
             if (initialState.stateVersion() != 0 || !"pending".equals(initialState.status())
@@ -79,7 +81,7 @@ public class InMemoryCrashStateStore implements CrashStatePort {
                     throw new EventStoreUnavailableException("Crash 事实与状态摘要不一致");
                 }
                 CrashCaptureIdentity.requireCompatible(previous.captureSha256(), initialState.captureSha256(),
-                        !fact.diagnosticsPayload().isEmpty());
+                        !fact.diagnosticsPayload().isEmpty() || "native".equals(fact.crashKind()));
                 legacy |= previous.captureSha256().isEmpty();
             }
             states.putIfAbsent(key, legacy ? CrashCaptureIdentity.withoutDigest(initialState) : initialState);
@@ -126,6 +128,8 @@ public class InMemoryCrashStateStore implements CrashStatePort {
         return states.values().stream().filter(state -> state.appId().equals(appId) && state.buildId().equals(buildId))
                 .filter(state -> !state.eventTime().isBefore(from) && state.eventTime().isBefore(now.plusSeconds(901)))
                 .filter(state -> current(appId, state.eventId()).isPresent())
+                .filter(state -> "jvm".equals(facts.get(key(appId, state.eventId())).crashKind())
+                        && "raw_chain".equals(state.stackFormat()))
                 .filter(state -> "pending".equals(state.status()) || ("failed".equals(state.status())
                         && (!symbolId.equals(state.symbolId()) || !Integer.valueOf(revision).equals(state.symbolRevision())
                         || (state.retryAt() != null && !state.retryAt().isAfter(now)))))

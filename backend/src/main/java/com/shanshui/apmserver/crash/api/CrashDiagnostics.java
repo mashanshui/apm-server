@@ -5,7 +5,7 @@ import com.shanshui.apmserver.telemetry.api.StackFrame;
 
 import java.util.List;
 
-/** 入站 JVM 崩溃现场；未采集的分区为 null，不合成成功的空快照。 */
+/** 入站崩溃现场；未采集的分区为 null，不合成成功的空快照。 */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record CrashDiagnostics(
         /** 主异常因本地预算被裁剪时的说明。 */ CoreTruncation coreTruncation,
@@ -15,7 +15,14 @@ public record CrashDiagnostics(
         /** 内存快照。 */ Memory memory,
         /** 当前进程文件描述符。 */ OpenFiles openFiles,
         /** 数值进程与生命周期信息。 */ Process process,
-        /** 设备和系统构建信息。 */ Device device) {
+        /** 设备和系统构建信息。 */ Device device,
+        /** 其他 Native 线程及其原始回溯。 */ NativeThreads nativeThreads) {
+
+    /** 构造只有 JVM 分区的诊断现场。 */
+    public CrashDiagnostics(CoreTruncation coreTruncation, CrashedThread crashedThread, OtherThreads otherThreads,
+                            Logcat logcat, Memory memory, OpenFiles openFiles, Process process, Device device) {
+        this(coreTruncation, crashedThread, otherThreads, logcat, memory, openFiles, process, device, null);
+    }
 
     /** 核心异常裁剪信息。 */
     @JsonInclude(JsonInclude.Include.NON_NULL)
@@ -59,7 +66,34 @@ public record CrashDiagnostics(
             /** 是否为守护线程。 */ Boolean daemon,
             /** 是否为 Android 主线程。 */ Boolean mainThread,
             /** 此线程的帧是否裁剪。 */ Boolean truncated,
-            /** 原始 Java 帧。 */ List<StackFrame> frames) { }
+            /** 原始 Java 帧。 */ List<StackFrame> frames,
+            /** 可可靠取得的系统 TID。 */ Integer systemTid,
+            /** Native 崩溃时与崩溃线程的关系。 */ String relationToCrash) {
+        /** 构造已有 JVM 线程快照。 */
+        public OtherThread(String javaId, String name, String state, Integer priority, Boolean daemon,
+                           Boolean mainThread, Boolean truncated, List<StackFrame> frames) {
+            this(javaId, name, state, priority, daemon, mainThread, truncated, frames, null, null);
+        }
+    }
+
+    /** 不含崩溃线程的 Native 线程集合。 */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record NativeThreads(
+            /** 采集状态。 */ String status,
+            /** 安全原因类别。 */ String reason,
+            /** 是否裁剪。 */ Boolean truncated,
+            /** 原采集时间，Unix 毫秒。 */ Long capturedAt,
+            /** 可知的线程总数。 */ Integer observedCount,
+            /** 可知的遗漏数。 */ Integer omittedCount,
+            /** 按系统 TID 区分的线程快照。 */ List<NativeThread> threads) { }
+
+    /** 单个 Native 线程和原始回溯。 */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record NativeThread(
+            /** 系统线程编号。 */ Integer systemTid,
+            /** 已脱敏线程名。 */ String name,
+            /** 可可靠判断时的主线程标记。 */ Boolean mainThread,
+            /** 原始回溯及其采集状态。 */ NativeCrash.Backtrace backtrace) { }
 
     /** 三个日志缓冲区各自保留状态。 */
     @JsonInclude(JsonInclude.Include.NON_NULL)

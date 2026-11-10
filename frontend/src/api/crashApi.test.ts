@@ -119,4 +119,37 @@ describe('crashApi', () => {
     expect(() => requireCurrentCrash({ ...detail, diagnostics: { ...detail.diagnostics, openFiles: { status: 'ok', truncated: false, count: -1, entries: [] } } } as never)).toThrow('协议错误')
   })
 
+  /** Native 保留 64 位和零地址，拒绝混合来源、悬空模块及未知线程关系。 */
+  it('validates native detail and independent thread identities', () => {
+    const native = {
+      abi: 'arm64-v8a', systemTid: 7, signal: { number: 11, name: 'SIGSEGV', code: 1, faultAddress: '0x0' },
+      registers: { status: 'ok', truncated: false, values: { pc: '0xffffffffffffffff' } },
+      modules: [{ id: 'm1', name: 'liba.so', abi: 'arm64-v8a', elfBuildId: 'abcdef12' }],
+      backtrace: { status: 'ok', truncated: false, frames: [{ index: 0, moduleId: 'm1', relativePc: '0x11' }] },
+      javaStack: { status: 'unavailable', reason: 'unsupported', truncated: false, frames: [] },
+    }
+    const diagnostics = {
+      crashedThread: { status: 'ok', truncated: false, systemTid: 7, name: 'same' },
+      otherThreads: { status: 'ok', truncated: false, threads: [{ javaId: '9', name: 'same', state: 'RUNNABLE', priority: 5,
+        daemon: false, mainThread: false, truncated: false, relationToCrash: 'unknown', symbolicationStatus: 'not_applicable',
+        stack: { format: 'raw_frames', content: [] } }] },
+      nativeThreads: { status: 'ok', truncated: false, threads: [{ systemTid: 8, name: 'same', mainThread: true,
+        backtrace: { status: 'ok', truncated: false, frames: [{ index: 0, moduleId: 'm1', relativePc: '0x0' }] } }] },
+    }
+    const detail = { crashKind: 'native', fatal: true, symbolicationStatus: 'pending', groupingKind: 'temporary',
+      symbolicationReason: 'native_symbolication_deferred', stack: { format: 'raw_native', content: native }, diagnostics }
+    const accepted = requireCurrentCrash(detail as never)
+    expect(accepted.stack.format === 'raw_native' && accepted.stack.content.signal.faultAddress).toBe('0x0')
+    expect(accepted.stack.format === 'raw_native' && accepted.stack.content.registers.values.pc).toBe('0xffffffffffffffff')
+    expect(() => requireCurrentCrash({ ...detail, symbolFileId: 'mapping' } as never)).toThrow('协议错误')
+    expect(() => requireCurrentCrash({ ...detail, stack: { ...detail.stack, content: { ...native,
+      backtrace: { ...native.backtrace, frames: [{ index: 0, moduleId: 'missing', relativePc: '0x0' }] } } } } as never)).toThrow('协议错误')
+    expect(() => requireCurrentCrash({ ...detail, diagnostics: { ...diagnostics, nativeThreads: { ...diagnostics.nativeThreads,
+      threads: [{ ...diagnostics.nativeThreads.threads[0], systemTid: 7 }] } } } as never)).toThrow('协议错误')
+    expect(() => requireCurrentCrash({ ...detail, diagnostics: { ...diagnostics, otherThreads: { ...diagnostics.otherThreads,
+      threads: [{ ...diagnostics.otherThreads.threads[0], relationToCrash: undefined }] } } } as never)).toThrow('协议错误')
+    const noFrames = { ...native, modules: [], backtrace: { status: 'unavailable', reason: 'io_error', truncated: false, frames: [] } }
+    expect(requireCurrentCrash({ ...detail, stack: { format: 'raw_native', content: noFrames }, diagnostics: null } as never).stack.format).toBe('raw_native')
+  })
+
 })

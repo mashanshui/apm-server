@@ -36,6 +36,25 @@ class CrashDiagnosticsStorageTests {
     /** 每个测试实例固定发生时间，避免跨越自然日导致摘要变化。 */
     private final long occurredAt = Instant.now().truncatedTo(java.time.temporal.ChronoUnit.DAYS).toEpochMilli();
 
+    /** 已保存 Native 主栈包含未知字段时必须报存储错误，不能静默丢弃。 */
+    @Test
+    void rejectsUnknownNativeStackFieldsOnRead() {
+        UUID app = UUID.randomUUID();
+        Instant now = Instant.now().truncatedTo(java.time.temporal.ChronoUnit.MILLIS);
+        var properties = new StorageProperties();
+        var stateStore = new InMemoryCrashStateStore(properties, mapper);
+        var repository = new InMemoryCrashRepository(properties, stateStore);
+        var metadata = new EventMetadata(app, "com.example.app", "bad-native", "crash", now, now, 2, "session",
+                "11111111-1111-4111-8111-111111111111", "device", "1", 1, "build", "test", "test",
+                "35", "synthetic", null, Map.of(), Map.of());
+        var state = new CrashState(app, "bad-native", "build", now, 0, "pending", "native_symbolication_deferred",
+                "raw_native", "{\"abi\":\"arm64-v8a\",\"unknown\":\"sentinel\"}", "SIGSEGV", "fp",
+                "native-tmp-v1", "temporary", null, null, null, null, null, "a".repeat(64), "");
+        assertTrue(stateStore.accept(new CrashFact(metadata, "native", true, "", "a".repeat(64)), state));
+        var queries = new CrashQueryService(repository, new QueryProperties(), properties, mock(CrashMetrics.class));
+        assertThrows(com.shanshui.apmserver.platform.api.EventStoreUnavailableException.class, () -> queries.event(app, "bad-native"));
+    }
+
     /** 原始线程帧不混入不变上下文；摘要不受 Map 插入顺序影响。 */
     @Test
     void separatesFramesAndUsesStableIdentityDigest() {

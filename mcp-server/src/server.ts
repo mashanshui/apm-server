@@ -1,7 +1,7 @@
 import { createMcpHandler, McpServer } from '@modelcontextprotocol/server';
 import { z } from 'zod';
 import { ApmClient, ApmError, digest, isRecord } from './apm.js';
-import { validDiagnostics } from './crashDiagnostics.js';
+import { validDiagnostics, validNativeCrash } from './crashDiagnostics.js';
 
 /** 输入参数全集；工具只领取实际支持的字段。 */
 const fields = {
@@ -195,18 +195,26 @@ function project(name: string, body: unknown, query: Record<string, string>, arg
 function requireCurrentCrash(body: unknown): void {
   // 这些字段之间的关系属于当前契约，不能把成功材料误标成原始材料。
   const invalid = () => { throw new ApmError('QUERY_BACKEND_INVALID_RESPONSE', 503, false); };
-  if (!isRecord(body) || !isRecord(body.stack) || !validDiagnostics(body.diagnostics)
+  if (!isRecord(body) || !isRecord(body.stack)
       || 'rawCrash' in body || 'symbolicatedStackText' in body
       || !['pending','failed','symbolicated'].includes(String(body.symbolicationStatus))
       || typeof body.crashKind !== 'string' || typeof body.fatal !== 'boolean') return invalid();
   const stack = body.stack;
+  if (body.crashKind === 'native') {
+    if (!body.fatal || body.symbolicationStatus !== 'pending' || body.groupingKind !== 'temporary'
+        || body.symbolicationReason !== 'native_symbolication_deferred' || stack.format !== 'raw_native'
+        || !validNativeCrash(stack.content) || body.symbolFileId != null || body.symbolFileRevision != null
+        || body.symbolFileSha256 != null || body.processedAt != null || !validDiagnostics(body.diagnostics, stack.content)) return invalid();
+    return;
+  }
+  if (body.crashKind !== 'jvm' || !body.fatal || !validDiagnostics(body.diagnostics)) return invalid();
   if (body.symbolicationStatus === 'symbolicated') {
     if (body.groupingKind !== 'resolved' || stack.format !== 'retrace_text' || typeof stack.content !== 'string' || !stack.content.trim()
         || typeof body.symbolFileId !== 'string' || !Number.isInteger(body.symbolFileRevision) || Number(body.symbolFileRevision) < 1
         || typeof body.symbolFileSha256 !== 'string' || !/^[a-f0-9]{64}$/.test(body.symbolFileSha256)
         || typeof body.processedAt !== 'string' || !Number.isFinite(Date.parse(body.processedAt))) return invalid();
   } else if (body.groupingKind !== 'temporary' || stack.format !== 'raw_chain' || !isRecord(stack.content)
-      || 'diagnostics' in stack.content
+      || stack.content.kind !== 'jvm' || stack.content.fatal !== true || 'nativeCrash' in stack.content || 'diagnostics' in stack.content
       || !Array.isArray(stack.content.throwableChain) || !stack.content.throwableChain.length
       || stack.content.throwableChain.some((node) => !isRecord(node) || typeof node.type !== 'string'
         || !Array.isArray(node.frames) || !node.frames.length)) return invalid();

@@ -10,6 +10,14 @@ import com.shanshui.performance.network.CrashPayload
 import com.shanshui.performance.network.CrashProcess
 import com.shanshui.performance.network.CrashedThread
 import com.shanshui.performance.network.LogcatBuffer
+import com.shanshui.performance.network.NativeBacktrace
+import com.shanshui.performance.network.NativeCrash
+import com.shanshui.performance.network.NativeFrame
+import com.shanshui.performance.network.NativeModule
+import com.shanshui.performance.network.NativeRegisters
+import com.shanshui.performance.network.NativeSignal
+import com.shanshui.performance.network.NativeThread
+import com.shanshui.performance.network.NativeThreads
 import com.shanshui.performance.network.OpenFile
 import com.shanshui.performance.network.OpenFiles
 import com.shanshui.performance.network.OtherThread
@@ -42,8 +50,8 @@ class CrashEventBudgetTest {
         val frozen = budget.freeze(core, CrashDiagnostics())
         val batchBytes = gson.toJson(CrashBatchRequest(requestId, listOf(frozen))).toByteArray(StandardCharsets.UTF_8).size
         assertTrue(batchBytes <= 16 * 1024)
-        assertTrue(requireNotNull(frozen.crash).throwableChain.isNotEmpty())
-        assertTrue(frozen.crash!!.throwableChain.first().frames.isNotEmpty())
+        assertTrue(requireNotNull(frozen.crash?.throwableChain).isNotEmpty())
+        assertTrue(requireNotNull(frozen.crash?.throwableChain).first().frames.isNotEmpty())
         assertTrue(frozen.crash!!.diagnostics!!.coreTruncation!!.truncated)
     }
 
@@ -99,6 +107,62 @@ class CrashEventBudgetTest {
         assertEquals(staged.crashedThread, result.crashedThread)
         assertEquals(staged.process, result.process)
         assertTrue(gson.toJson(CrashBatchRequest(requestId, listOf(frozen))).toByteArray(StandardCharsets.UTF_8).size <= 16 * 1024)
+    }
+
+    /** 多字节与转义文本下，Native 核心裁剪后仍保留原始身份并符合小批次。 */
+    @Test
+    fun preservesNativeSignalRegistersAndModuleReferencesUnderSmallBatch() {
+        val budget = CrashEventBudget(16 * 1024)
+        val modules = List(140) { index -> NativeModule("m$index", "lib$index.so", abi = "arm64-v8a") }
+        val native = NativeCrash(abi = "arm64-v8a", systemTid = 42,
+            signal = NativeSignal(11, "SIGSEGV", 1, faultAddress = "0x0", abortMessage = "中文\"\\".repeat(1000)),
+            registers = NativeRegisters(status = "ok", values = mapOf("pc" to "0xffffffffffffffff", "sp" to "0x0")),
+            modules = modules, backtrace = NativeBacktrace(status = "ok", frames = List(140) { index ->
+                NativeFrame(index, "m$index", "0x11", functionName = "方法\"\\".repeat(100))
+            }))
+        val core = budget.prepareCore(event(CrashPayload(kind = "native", nativeCrash = native)))
+        val frozen = budget.freeze(core, CrashDiagnostics())
+        val saved = requireNotNull(frozen.crash?.nativeCrash)
+        val knownModules = saved.modules.map { it.id }.toSet()
+        assertEquals("0x0", saved.signal.faultAddress)
+        assertEquals("0xffffffffffffffff", saved.registers.values["pc"])
+        assertEquals(42, saved.systemTid)
+        assertTrue(saved.backtrace.frames.size <= 128)
+        assertTrue(saved.modules.size <= 128)
+        assertTrue(saved.backtrace.frames.all { it.moduleId == null || it.moduleId in knownModules })
+        assertTrue(requireNotNull(frozen.crash?.diagnostics?.coreTruncation).truncated)
+        assertTrue(gson.toJson(CrashBatchRequest(requestId, listOf(frozen))).toByteArray(StandardCharsets.UTF_8).size <= 16 * 1024)
+    }
+
+    /** 两类线程共用数量和字节限额，不能因同名或 ID 不同误合并。 */
+    @Test
+    fun sharesNativeAndJavaThreadBudgetAndKeepsMainThreads() {
+        val budget = CrashEventBudget(240 * 1024)
+        val native = NativeCrash(abi = "arm64-v8a", systemTid = 42, signal = NativeSignal(11, "SIGSEGV", 1),
+            registers = NativeRegisters(status = "ok", values = mapOf("pc" to "0x1")),
+            modules = listOf(NativeModule("m0", "liba.so", abi = "arm64-v8a")),
+            backtrace = NativeBacktrace(status = "ok", frames = listOf(NativeFrame(0, "m0", "0x1"))))
+        val core = budget.prepareCore(event(CrashPayload(kind = "native", nativeCrash = native)))
+        val java = List(50) { index -> OtherThread(javaId = (index + 1).toString(), name = "same", state = "WAITING",
+            priority = 5, daemon = false, mainThread = index == 49, relationToCrash = "unknown",
+            frames = List(40) { StackFrame("类".repeat(80), "方法\"\\".repeat(20)) }) }
+        val otherNative = List(50) { index -> NativeThread(systemTid = index + 100, name = "same", mainThread = index == 49,
+            backtrace = NativeBacktrace(status = "ok", frames = List(40) { frame ->
+                NativeFrame(frame, if (frame == 0) "missing" else "m0", "0x11", functionName = "函数".repeat(80))
+            })) }
+        val snapshot = CrashDiagnostics(otherThreads = OtherThreads(status = "ok", observedCount = 50, omittedCount = 0, threads = java),
+            nativeThreads = NativeThreads(status = "ok", observedCount = 50, omittedCount = 0, threads = otherNative))
+        val diagnostics = requireNotNull(budget.freeze(core, snapshot).crash?.diagnostics)
+        val javaResult = requireNotNull(diagnostics.otherThreads)
+        val nativeResult = requireNotNull(diagnostics.nativeThreads)
+        assertTrue(javaResult.threads.size + nativeResult.threads.size <= 64)
+        assertTrue(budget.encodedBytes(javaResult) + budget.encodedBytes(nativeResult) <= 48 * 1024)
+        assertTrue(javaResult.threads.any { it.mainThread })
+        assertTrue(nativeResult.threads.any { it.mainThread == true })
+        assertTrue(javaResult.threads.all { it.frames.size <= 32 })
+        assertTrue(nativeResult.threads.all { it.backtrace.frames.size <= 32 })
+        assertTrue(nativeResult.threads.flatMap { it.backtrace.frames }.all { it.moduleId == null || it.moduleId == "m0" })
+        assertTrue(javaResult.truncated && nativeResult.truncated)
     }
 
     /** 构造固定的安全测试事件。 */

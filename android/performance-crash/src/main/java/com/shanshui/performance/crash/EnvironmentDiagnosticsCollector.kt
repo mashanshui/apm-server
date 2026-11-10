@@ -131,6 +131,13 @@ internal data class EnvironmentDiagnostics(
     /** 设备与系统环境。 */ val device: CrashDevice,
 )
 
+/** Native 回调中只能由原进程 Java 运行时提供的环境。 */
+internal data class NativeJavaEnvironment(
+    /** Java 与 Native 堆数值。 */ val memory: CrashMemory,
+    /** 原进程信息。 */ val process: CrashProcess,
+    /** 原设备信息。 */ val device: CrashDevice,
+)
+
 /** 采集内存、FD 和缓存环境，未知值保持为空。 */
 internal class EnvironmentDiagnosticsCollector(
     /** 当前进程读取器。 */ private val source: CrashEnvironmentSource,
@@ -146,16 +153,39 @@ internal class EnvironmentDiagnosticsCollector(
         val memory = memory(capturedAt, deadlineNanos, skipExpensive)
         val files = openFiles(capturedAt, deadlineNanos, skipExpensive)
         val process = process(capturedAt)
-        val device = CrashDevice(status = "ok", capturedAt = capturedAt, apiLevel = environment.apiLevel,
-            abis = environment.abis.map { CrashSanitizer.sanitize(it, 128) },
-            manufacturer = environment.manufacturer?.let { CrashSanitizer.sanitize(it, 256) },
-            brand = environment.brand?.let { CrashSanitizer.sanitize(it, 256) },
-            buildFingerprint = environment.buildFingerprint?.let { CrashSanitizer.sanitize(it, 1024) })
-        return EnvironmentDiagnostics(memory, files, process, device)
+        return EnvironmentDiagnostics(memory, files, process, device(capturedAt))
     }
 
     /** 在处理器入口冻结缓存的进程身份，采集中断后仍可恢复。 */
     fun captureProcess(): CrashProcess = process(clock())
+
+    /** 在原进程工作者中读取堆数值；proc、FD 和日志由独立回溯进程负责。 */
+    fun collectNativeJava(deadlineNanos: Long): NativeJavaEnvironment {
+        val capturedAt = clock()
+        val runtime = if (nanoTime() < deadlineNanos) runCatching { source.runtimeHeap() }.getOrNull() else null
+        val debug = if (nanoTime() < deadlineNanos) runCatching { source.debugMemory() }.getOrNull() else null
+        val timedOut = nanoTime() >= deadlineNanos
+        val complete = runtime != null && debug != null && safeBytes(runtime.usedBytes) != null &&
+            safeBytes(runtime.maxBytes) != null && kibToBytes(debug.javaPssKib) != null &&
+            kibToBytes(debug.nativePssKib) != null && kibToBytes(debug.totalPssKib) != null &&
+            safeBytes(debug.nativeAllocatedBytes) != null
+        val memory = CrashMemory(status = if (complete && !timedOut) "ok" else if (runtime != null || debug != null) "partial" else "unavailable",
+            reason = if (complete && !timedOut) null else if (timedOut) "timeout" else "io_error", capturedAt = capturedAt,
+            javaHeapUsedBytes = safeBytes(runtime?.usedBytes), javaHeapMaxBytes = safeBytes(runtime?.maxBytes),
+            javaHeapPssBytes = kibToBytes(debug?.javaPssKib), nativeHeapPssBytes = kibToBytes(debug?.nativePssKib),
+            nativeHeapAllocatedBytes = safeBytes(debug?.nativeAllocatedBytes), totalPssBytes = kibToBytes(debug?.totalPssKib))
+        return NativeJavaEnvironment(memory, process(capturedAt), device(capturedAt))
+    }
+
+    /** 初始化阶段保存安全的静态设备信息，以便 Java 回调中断时恢复原设备。 */
+    fun captureDevice(): CrashDevice = device(clock())
+
+    /** 从初始化缓存构造已脱敏设备分区。 */
+    private fun device(capturedAt: Long): CrashDevice = CrashDevice(status = "ok", capturedAt = capturedAt,
+        apiLevel = environment.apiLevel, abis = environment.abis.map { CrashSanitizer.sanitize(it, 128) },
+        manufacturer = environment.manufacturer?.let { CrashSanitizer.sanitize(it, 256) },
+        brand = environment.brand?.let { CrashSanitizer.sanitize(it, 256) },
+        buildFingerprint = environment.buildFingerprint?.let { CrashSanitizer.sanitize(it, 1024) })
 
     /** 使用缓存环境和已观察到的生命周期快照构造进程分区。 */
     private fun process(capturedAt: Long): CrashProcess {

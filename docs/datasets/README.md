@@ -4,7 +4,7 @@
 
 | 数据集 | 主要口径 |
 |---|---|
-| [Crash 固定验收数据](crash-fixed-dataset.md) | 会话分母、去重、Crash 率与 Issue |
+| [Crash 固定验收数据](crash-fixed-dataset.md) | JVM/Native 混合会话分母、去重、Crash 率与 Issue |
 | [卡顿固定数据](jank-fixed-dataset.md) | 个例质量、耗时、FPS 与设备日挂起率 |
 | [内存指标固定数据](memory-fixed-dataset.md) | 合法零值、缺失值、插值分位数和去重 |
 | [内存报告固定数据](memory-leak-fixed-dataset.md) | 报告与路径去重、问题计数和趋势 |

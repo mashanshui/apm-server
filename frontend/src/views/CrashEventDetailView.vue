@@ -8,6 +8,7 @@ import { useSessionStore } from '../stores/session'
 import AppLayout from '../components/AppLayout.vue'
 import EventIdentityFields from '../components/EventIdentityFields.vue'
 import StackTrace from '../components/StackTrace.vue'
+import NativeCrashPanel from '../components/NativeCrashPanel.vue'
 import StatusMessage from '../components/StatusMessage.vue'
 import { crashApi, errorMessage, isAbortError } from '../api/crashApi'
 import type { CrashEventDetailResponse } from '../types/crash'
@@ -129,7 +130,7 @@ onBeforeUnmount(() => {
 <template>
   <AppLayout :app-id="appId">
     <div class="breadcrumb">
-      <RouterLink :to="backToOverview">JVM Crash</RouterLink>
+      <RouterLink :to="backToOverview">Crash</RouterLink>
       <template v-if="backToIssue">
         <span class="breadcrumb-separator">/</span>
         <RouterLink :to="backToIssue">问题事件</RouterLink>
@@ -157,7 +158,8 @@ onBeforeUnmount(() => {
     <StatusMessage v-else-if="loading" kind="loading" message="正在加载事件详情…" />
 
     <template v-else-if="event">
-      <div v-if="event.symbolicationStatus === 'pending'" class="notice">
+      <div v-if="event.crashKind === 'native'" class="notice">原始 Native 堆栈；本期未提供符号还原。</div>
+      <div v-else-if="event.symbolicationStatus === 'pending'" class="notice">
         {{ symbolicationReason(event.symbolicationReason) }}。以下为待处理的脱敏原始异常链。
       </div>
       <div v-else-if="event.symbolicationStatus === 'failed'" class="notice notice-warning">
@@ -171,12 +173,13 @@ onBeforeUnmount(() => {
             <p>App {{ event.appId }} · 包名 {{ event.packageName }}</p>
           </div>
           <span class="badge" :class="event.symbolicationStatus === 'symbolicated' ? 'badge-success' : 'badge-warning'">
-            {{ { pending: '待处理', failed: '还原失败', symbolicated: '已还原' }[event.symbolicationStatus] }}
+            {{ event.crashKind === 'native' ? '原始 Native' : { pending: '待处理', failed: '还原失败', symbolicated: '已还原' }[event.symbolicationStatus] }}
           </span>
         </div>
         <dl class="meta-grid">
           <div class="meta-item"><dt>发生时间</dt><dd>{{ formatDateTime(event.occurredAt) }}</dd></div>
           <div class="meta-item"><dt>接收时间</dt><dd>{{ formatDateTime(event.receivedAt) }}</dd></div>
+          <div class="meta-item"><dt>崩溃类型</dt><dd>{{ event.crashKind === 'native' ? 'Native' : 'JVM' }}</dd></div>
           <div class="meta-item"><dt>异常类型</dt><dd>{{ event.exceptionType || '未知异常' }}</dd></div>
           <div class="meta-item"><dt>应用版本</dt><dd>{{ event.appVersion }}（{{ event.versionCode ?? '—' }}）</dd></div>
           <div class="meta-item"><dt>构建</dt><dd>{{ event.buildId || '—' }}</dd></div>
@@ -185,12 +188,14 @@ onBeforeUnmount(() => {
           <div class="meta-item"><dt>网络类型</dt><dd>{{ event.networkType || '—' }}</dd></div>
           <div class="meta-item"><dt>指纹</dt><dd class="fingerprint" :title="event.fingerprint">{{ event.fingerprint }}</dd></div>
           <div class="meta-item"><dt>指纹版本</dt><dd>{{ event.fingerprintVersion || '—' }}</dd></div>
-          <div class="meta-item"><dt>符号表版本</dt><dd>{{ event.symbolFileRevision ? `revision ${event.symbolFileRevision}` : '—' }}</dd></div>
-          <div class="meta-item"><dt>实际符号表 ID</dt><dd>{{ event.symbolFileId ?? '—' }}</dd></div>
-          <div class="meta-item"><dt>实际 SHA-256</dt><dd class="fingerprint">{{ event.symbolFileSha256 ?? '—' }}</dd></div>
-          <div class="meta-item"><dt>处理时间</dt><dd>{{ event.processedAt ? formatDateTime(event.processedAt) : '—' }}</dd></div>
+          <template v-if="event.crashKind === 'jvm'">
+            <div class="meta-item"><dt>符号表版本</dt><dd>{{ event.symbolFileRevision ? `revision ${event.symbolFileRevision}` : '—' }}</dd></div>
+            <div class="meta-item"><dt>实际符号表 ID</dt><dd>{{ event.symbolFileId ?? '—' }}</dd></div>
+            <div class="meta-item"><dt>实际 SHA-256</dt><dd class="fingerprint">{{ event.symbolFileSha256 ?? '—' }}</dd></div>
+            <div class="meta-item"><dt>处理时间</dt><dd>{{ event.processedAt ? formatDateTime(event.processedAt) : '—' }}</dd></div>
+            <div class="meta-item"><dt>处理原因</dt><dd>{{ symbolicationReason(event.symbolicationReason) }}</dd></div>
+          </template>
           <div class="meta-item"><dt>归组</dt><dd>{{ event.groupingKind === 'temporary' ? `临时问题 · ${event.buildId}` : '正式问题' }}</dd></div>
-          <div class="meta-item"><dt>处理原因</dt><dd>{{ symbolicationReason(event.symbolicationReason) }}</dd></div>
         </dl>
         <EventIdentityFields
           :anonymous-device-id="event.anonymousDeviceId"
@@ -199,15 +204,16 @@ onBeforeUnmount(() => {
         />
       </section>
 
-      <div v-if="event.diagnostics?.coreTruncation?.truncated" class="notice notice-warning">主异常在设备端因大小限制被裁剪，以下堆栈可能不完整。</div>
+      <div v-if="event.diagnostics?.coreTruncation?.truncated" class="notice notice-warning">{{ event.crashKind === 'native' ? '主崩溃信息' : '主异常' }}在设备端因大小限制被裁剪，以下堆栈可能不完整。</div>
       <section v-if="event.stack.format === 'retrace_text'" class="panel detail-card symbolicated-panel">
         <div class="panel-header" style="padding: 0 0 16px"><div><h2>还原堆栈</h2><p>首次成功结果已固定。完整保留内联与候选；成功不保证每一帧都准确。</p></div></div>
         <pre class="symbolicated-stack">{{ event.stack.content }}</pre>
       </section>
+      <NativeCrashPanel v-else-if="event.stack.format === 'raw_native'" :crash="event.stack.content" />
       <StackTrace v-else :crash="event.stack.content" />
-      <CrashDiagnosticsPanel :key="`${appId}:${eventId}`" :diagnostics="event.diagnostics" />
+      <CrashDiagnosticsPanel :key="`${appId}:${eventId}`" :diagnostics="event.diagnostics" :native-crash="event.stack.format === 'raw_native' ? event.stack.content : null" />
       <CrashAnalysisPanel v-if="event.crashKind === 'jvm' && event.fatal" :app-id="appId" :event-id="eventId" :can-create="canAnalyze" :can-manage="canManageAnalysis" :user-id="session.user?.id ?? null" />
-      <div v-if="canManageAnalysis && event.symbolicationStatus !== 'symbolicated'" class="detail-actions"><RouterLink class="button" :to="{ name: 'app-symbols', params: { appId }, query: { buildId: event.buildId } }">上传此 buildId 的 mapping</RouterLink></div>
+      <div v-if="event.crashKind === 'jvm' && canManageAnalysis && event.symbolicationStatus !== 'symbolicated'" class="detail-actions"><RouterLink class="button" :to="{ name: 'app-symbols', params: { appId }, query: { buildId: event.buildId } }">上传此 buildId 的 mapping</RouterLink></div>
     </template>
   </AppLayout>
 </template>

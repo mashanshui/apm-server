@@ -16,8 +16,9 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class CrashValidationServiceTests {
 
+    /** 未知 Crash 类型和非致命事件仍按永久错误拒绝。 */
     @Test
-    void rejectsNativeAndNonFatalCrashWithoutRetry() {
+    void rejectsUnknownAndNonFatalCrashWithoutRetry() {
         var properties = CrashTestSupport.ingestProperties();
         var repository = new com.shanshui.apmserver.crash.internal.persistence.InMemoryCrashRepository(
                 CrashTestSupport.storageProperties());
@@ -29,7 +30,7 @@ class CrashValidationServiceTests {
                 event.sessionId(), event.processId(), event.anonymousDeviceId(), event.packageName(), event.appVersion(), event.versionCode(),
                 event.buildId(), event.environment(), event.channel(), event.osVersion(), event.deviceModel(),
                 event.networkType(), event.measurements(), event.attributes(),
-                new com.shanshui.apmserver.crash.api.CrashPayload("native", false, event.crash().throwableChain()));
+                new com.shanshui.apmserver.crash.api.CrashPayload("unknown", false, event.crash().throwableChain()));
 
         EventValidationException exception = assertThrows(EventValidationException.class,
                 () -> processor.ingest(TestAppIds.id("app-a"), CrashTestSupport.crashCommand(invalidEvent),

@@ -151,6 +151,10 @@ internal class FileCrashQueue(
         return true
     }
 
+    /** 确认目标队列已经包含完全相同的事件，避免把不同内容当作成功导入。 */
+    @Synchronized
+    fun containsIdentical(event: CrashEvent): Boolean = readRecord(eventFile(event.eventId))?.event == event
+
     @Synchronized
     fun peekBatch(
         limit: Int,

@@ -100,7 +100,7 @@ async function logout() {
             :to="{ name: 'crash-overview', params: { appId: props.appId } }"
           >
             <span class="nav-icon">⌁</span>
-            <span>JVM Crash</span>
+            <span>Crash</span>
           </RouterLink>
           <button
             type="button"

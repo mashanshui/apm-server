@@ -1,5 +1,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <application android:name=".CrashConsumerApplication">
+    <!-- 独立回溯程序从应用安装目录执行，需要提取原生库。 -->
+    <application android:name=".CrashConsumerApplication" android:extractNativeLibs="true" android:usesCleartextTraffic="true">
         <activity
             android:name=".SmokeActivity"
             android:exported="true">

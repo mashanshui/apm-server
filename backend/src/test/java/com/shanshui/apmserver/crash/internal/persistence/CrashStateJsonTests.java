@@ -10,10 +10,30 @@ import java.nio.charset.StandardCharsets;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /** 验证发布载荷迁移时仍能对账原有在途版本。 */
 class CrashStateJsonTests {
+    /** Native 空回溯、零地址和 64 位寄存器经过状态编解码仍保留原值。 */
+    @Test
+    void roundTripsNativeStateWithoutConvertingAddresses() {
+        var mapper = new ObjectMapper();
+        var codec = new CrashStateJson(mapper);
+        String raw = "{\"signal\":{\"faultAddress\":\"0x0\"},\"registers\":{\"pc\":\"0xffffffffffffffff\"},\"frames\":[]}";
+        var state = new CrashState(UUID.randomUUID(), "native", "build", Instant.parse("2026-01-01T00:00:00Z"),
+                0, "pending", "native_symbolication_deferred", "raw_native", raw, "SIGSEGV", "fp",
+                "native-tmp-v1", "temporary", null, null, null, null, null, "a".repeat(64), "{}");
+        assertEquals(state, codec.decode(mapper.readTree(codec.encode(state))));
+        assertThrows(IllegalArgumentException.class, () -> new CrashState(state.appId(), state.eventId(), state.buildId(),
+                state.eventTime(), 0, "failed", state.reason(), "raw_native", raw, "SIGSEGV", "fp", "native-tmp-v1",
+                "temporary", null, null, null, null, null));
+        assertThrows(IllegalArgumentException.class, () -> new CrashState(state.appId(), state.eventId(), state.buildId(),
+                state.eventTime(), 0, "pending", state.reason(), "raw_native", raw, "SIGSEGV", "fp", "native-tmp-v1",
+                "temporary", UUID.randomUUID(), 1, "a".repeat(64), state.eventTime(), null));
+    }
+
     /** 新状态包含诊断列，旧登记缺列时与数据库默认空值等价。 */
     @Test
     void comparesLegacyAndNewPublicationWithoutDroppingCurrentState() {

@@ -7,6 +7,20 @@ plugins {
 android {
     namespace = "com.shanshui.performance.crash"
 
+    defaultConfig {
+        // Crash 精简消费者独立覆盖四种 ABI，不扩大其他 Native 模块的架构范围。
+        ndk {
+            abiFilters.addAll(listOf("arm64-v8a", "armeabi-v7a", "x86", "x86_64"))
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path("src/main/cpp/CMakeLists.txt")
+            version = "3.22.1"
+        }
+    }
+
     kotlinOptions {
         jvmTarget = "11"
     }

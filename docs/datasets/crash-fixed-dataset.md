@@ -23,3 +23,19 @@
 后台回填仅改变问题归属，不增加事件、会话、设备或分母；按原发生日期统计趋势。成功后旧临时指纹事件页为空，返回总览刷新；分页不是快照。`CrashDatasetStatisticsTests` 同时验证回填前后三个/两个问题及全部统计不变。固定夹具不进入开发数据库；真实 ClickHouse 测试使用保留期内的受控日期。
 
 查询无 `app_start` 时，`crashRatePer1000Sessions` 和 `crashFreeSessionRate` 必须为 `null`，状态为 `denominator_insufficient`；不能以 `0` 代替未知值。
+
+## JVM 与 Native 混合集
+
+在原固定集基础上附加 `backend/src/test/resources/fixtures/native-crash-dataset.json`：两条 Native 事件使用同一构建、ABI、信号、ELF Build ID 与相对 PC，第一条与已有 JVM Crash 共享 `session-001`，第二条使用没有启动事件的 `session-009`；第一条再重复上报一次。两个寄存器值不同，但它们不参与 Native 归组。
+
+| 指标 | 人工期望 |
+|---|---:|
+| 启动会话 | 8 |
+| 唯一 Crash 事件 | 6 |
+| 崩溃会话 | 5 |
+| 受影响设备 | 5 |
+| 每千会话崩溃率 | 625 |
+| 无崩溃会话率 | 0.375 |
+| 临时问题 | 4，其中一个 `native-tmp-v1` 问题包含 2 条 Native 事件 |
+
+按发生时间降序查看 Native 问题时，`native-302` 在 `native-301` 之前；只查询 10:14～10:17 的窗口没有启动分母，比例为 null。`CrashDatasetStatisticsTests` 验证内存参考口径，`ClickHouseCrashQueryIntegrationTests` 使用保留期内的合成时间、重复上报和有界大诊断验证数据库统计与轻量投影；它们不代表真实设备或生产容量验收。

@@ -58,6 +58,8 @@ class ClickHouseCrashQueryIntegrationTests {
         for (String statement : ddl.split(";")) if (!statement.isBlank()) client.execute(statement);
         String diagnosticsDdl = new String(getClass().getResourceAsStream("/db/clickhouse/010_crash_diagnostics.sql").readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
         for (String statement : diagnosticsDdl.split(";")) if (!statement.isBlank()) client.execute(statement);
+        String nativeDdl = new String(getClass().getResourceAsStream("/db/clickhouse/011_native_crash_state.sql").readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+        for (String statement : nativeDdl.split(";")) if (!statement.isBlank()) client.execute(statement);
         properties.setDatabase("apm");
         UUID appId = UUID.fromString("11111111-1111-4111-8111-111111111111");
         UUID other = UUID.fromString("22222222-2222-4222-8222-222222222222");
@@ -197,6 +199,61 @@ class ClickHouseCrashQueryIntegrationTests {
         assertEquals(0, query.overview(appId, from, to, CrashQueryCommand.empty().withAppVersion("2.0")).stats().crashEvents());
         assertEquals(2, query.overview(appId, from, to, CrashQueryCommand.empty().withFingerprint("fp-a")).stats().crashEvents());
         assertEquals(1, query.overview(appId, from, to, CrashQueryCommand.empty().withFingerprint("fp-resolved")).stats().crashEvents());
+
+        // 两条 Native 与已有 JVM 事件混合，重复上报和大诊断不得改变计数或摘要读取列。
+        insertNative(client, appId, "native-1", "10:30:00", "s1", "d1");
+        insertNative(client, appId, "native-1", "10:30:00", "s1", "d1");
+        insertNative(client, appId, "native-2", "11:40:00", "s2", "d3");
+        var mixed = query.overview(appId, from, to, CrashQueryCommand.empty()).stats();
+        assertEquals(2, mixed.startedSessions());
+        assertEquals(6, mixed.crashEvents());
+        assertEquals(2, mixed.crashedSessions());
+        assertEquals(3, mixed.affectedDevices());
+        assertEquals(1000.0, mixed.crashRatePer1000Sessions());
+        assertEquals(0.0, mixed.crashFreeSessionRate());
+        var mixedTrend = query.trend(appId, from, to, "hour", CrashQueryCommand.empty()).points();
+        assertEquals(2, mixedTrend.get(0).stats().crashEvents());
+        assertEquals(4, mixedTrend.get(1).stats().crashEvents());
+        var nativeIssue = query.issues(appId, from, to, CrashQueryCommand.empty()).issues().stream()
+                .filter(item -> "native-fp".equals(item.fingerprint())).findFirst().orElseThrow();
+        assertEquals(2, nativeIssue.eventCount());
+        assertEquals("native-tmp-v1", nativeIssue.fingerprintVersion());
+        var nativeEvents = query.events(appId, "native-fp", from, to, CrashQueryCommand.empty()).events();
+        assertEquals(List.of("native-2", "native-1"), nativeEvents.stream().map(item -> item.eventId()).toList());
+        assertEquals(Instant.parse(DAY + "T11:40:00Z"), nativeEvents.getFirst().occurredAt());
+        var noNativeStart = query.overview(appId, DAY + "T11:30:00Z", to, CrashQueryCommand.empty()).stats();
+        assertEquals(2, noNativeStart.crashEvents());
+        assertNull(noNativeStart.crashRatePer1000Sessions());
+        client.execute("SYSTEM FLUSH LOGS");
+        var projection = new ObjectMapper().readTree(client.execute("SELECT count() AS n, "
+                + "countIf(position(query,'diagnostics_payload')>0 OR position(query,'stack_payload')>0) AS payload_reads "
+                + "FROM system.query_log WHERE type='QueryFinish' AND query_kind='Select' "
+                + "AND position(query,'apm_crash_fact')>0 AND position(query,'system.query_log')=0 FORMAT JSONEachRow"));
+        assertTrue(projection.path("n").asLong() > 5);
+        assertEquals(0, projection.path("payload_reads").asLong());
+        // 对实际生成的 Native 事件列表 SQL 执行计划检查，而非只检查手写近似 SQL。
+        var logged = new ObjectMapper().readTree(client.execute("SELECT query FROM system.query_log WHERE type='QueryFinish' "
+                + "AND query_kind='Select' AND position(query,'apm_crash_fact')>0 AND position(query,'native-fp')>0 "
+                + "AND position(query,'system.query_log')=0 ORDER BY event_time_microseconds DESC LIMIT 1 FORMAT JSONEachRow"));
+        String actualSql = logged.path("query").asText();
+        assertTrue(!actualSql.isBlank());
+        String plan = client.execute("EXPLAIN PLAN actions=1 " + actualSql);
+        assertTrue(!plan.contains("diagnostics_payload") && !plan.contains("stack_payload"));
+    }
+
+    /** 使用受控的大型合成诊断写入一个 Native 事件，重复提交保持相同摘要。 */
+    private void insertNative(ClickHouseHttpClient client, UUID app, String eventId, String time, String session, String device) {
+        var occurred = Instant.parse(DAY + "T" + time + "Z");
+        var metadata = new EventMetadata(app, "com.example.app", eventId, "crash", occurred,
+                Instant.parse(DAY + "T12:00:00Z"), 2, session, null, device, "1.0", 1, "build-1", "production",
+                "official", "16", "Pixel", "wifi", Map.of(), Map.of());
+        var state = new com.shanshui.apmserver.crash.internal.domain.CrashState(app, eventId, "build-1", occurred,
+                0, "pending", "native_symbolication_deferred", "raw_native", "{}", "SIGSEGV", "native-fp",
+                "native-tmp-v1", "temporary", null, null, null, null, null, "a".repeat(64), "{}");
+        String diagnostics = "{\"synthetic\":\"" + "x".repeat(100_000) + "\"}";
+        new com.shanshui.apmserver.crash.internal.persistence.ClickHouseCrashStateStore(client, new ObjectMapper(), CrashTestSupport.queryProperties())
+                .accept(new com.shanshui.apmserver.crash.internal.domain.CrashFact(metadata, "native", true,
+                        diagnostics, "a".repeat(64)), state);
     }
 
     /** 固定合成事件，仅覆盖查询使用的原始列。 */

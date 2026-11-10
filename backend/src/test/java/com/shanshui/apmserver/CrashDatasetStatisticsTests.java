@@ -36,6 +36,40 @@ class CrashDatasetStatisticsTests {
     private String from;
     private String to;
 
+    /** JVM 与 Native 共用启动分母，同会话多次崩溃和重复上报只按既有口径统计。 */
+    @Test
+    void mixedDatasetPreservesSessionDenominatorAndNativeIssue() throws Exception {
+        var app = TestAppIds.id("demo-app");
+        ingestion.ingest(app, fixture());
+        EventBatchRequest nativeBatch;
+        try (InputStream input = getClass().getResourceAsStream("/fixtures/native-crash-dataset.json")) {
+            nativeBatch = objectMapper.readValue(input, EventBatchRequest.class);
+        }
+        var accepted = ingestion.ingest(app, nativeBatch);
+        assertEquals(2, accepted.accepted());
+        assertEquals(1, accepted.duplicate());
+        var stats = query.overview(app, from, to, CrashQueryCommand.empty()).stats();
+        assertEquals(8, stats.startedSessions());
+        assertEquals(6, stats.crashEvents());
+        assertEquals(5, stats.crashedSessions());
+        assertEquals(5, stats.affectedDevices());
+        assertEquals(625.0, stats.crashRatePer1000Sessions());
+        assertEquals(0.375, stats.crashFreeSessionRate());
+        assertEquals(6, query.trend(app, from, to, "hour", CrashQueryCommand.empty()).points().getFirst().stats().crashEvents());
+        var issues = query.issues(app, from, to, CrashQueryCommand.empty()).issues();
+        assertEquals(4, issues.size());
+        var nativeIssue = issues.stream().filter(item -> "native-tmp-v1".equals(item.fingerprintVersion())).findFirst().orElseThrow();
+        assertEquals(2, nativeIssue.eventCount());
+        assertEquals("build-320", nativeIssue.buildId());
+        var events = query.events(app, nativeIssue.fingerprint(), from, to, CrashQueryCommand.empty()).events();
+        assertEquals(java.util.List.of("native-302", "native-301"), events.stream().map(item -> item.eventId()).toList());
+        assertEquals(Instant.ofEpochMilli(1786788960000L), events.getFirst().occurredAt());
+        var noStart = query.overview(app, "2026-08-15T10:14:00Z", "2026-08-15T10:17:00Z", CrashQueryCommand.empty()).stats();
+        assertEquals("denominator_insufficient", noStart.status());
+        assertEquals(2, noStart.crashEvents());
+        assertNull(noStart.crashRatePer1000Sessions());
+    }
+
     @BeforeEach
     void setUp() throws Exception {
         var ingestProperties = CrashTestSupport.ingestProperties();

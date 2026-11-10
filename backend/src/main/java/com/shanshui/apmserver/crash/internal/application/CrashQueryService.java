@@ -124,31 +124,61 @@ public class CrashQueryService implements CrashQueries {
                 .orElseThrow(() -> new QueryValidationException("EVENT_NOT_FOUND", "Crash 事件不存在", 404));
         // 从同一状态行取得所有当前字段，不能组合不同版本的堆栈和指纹。
         var state = event.state();
-        Object content = "retrace_text".equals(state.stackFormat()) ? state.stackPayload()
-                : new tools.jackson.databind.ObjectMapper().readValue(state.stackPayload(), com.shanshui.apmserver.crash.api.CrashPayload.class);
+        var stackMapper = new tools.jackson.databind.ObjectMapper();
+        Object content;
+        try {
+            content = switch (state.stackFormat()) {
+                case "retrace_text" -> state.stackPayload();
+                case "raw_chain" -> stackMapper.readValue(state.stackPayload(), com.shanshui.apmserver.crash.api.CrashPayload.class);
+                case "raw_native" -> stackMapper.readerFor(com.shanshui.apmserver.crash.api.NativeCrash.class)
+                        .with(tools.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES).readValue(state.stackPayload());
+                default -> throw new IllegalStateException("未知栈格式");
+            };
+        } catch (RuntimeException invalid) {
+            // 损坏或未知字段不得伪装成有效原始现场，也不在日志中回显材料。
+            throw new com.shanshui.apmserver.platform.api.EventStoreUnavailableException("Crash 原始栈不完整");
+        }
+        if ("native".equals(event.crashKind()) != "raw_native".equals(state.stackFormat())) {
+            throw new com.shanshui.apmserver.platform.api.EventStoreUnavailableException("Crash 类型与栈格式不一致");
+        }
         return new CrashEventDetailResponse(event.appId(), event.eventId(), event.packageName(), event.occurredAt(), event.receivedAt(),
                 event.sessionId(), event.processId(), event.anonymousDeviceId(), event.appVersion(), event.versionCode(), event.buildId(),
                 event.channel(), event.environment(), event.osVersion(), event.deviceModel(), event.networkType(), state.exceptionType(),
                 state.fingerprint(), state.fingerprintVersion(), state.status(), new com.shanshui.apmserver.crash.api.CrashStack(state.stackFormat(), content),
                 state.symbolId(), state.symbolRevision(), state.reason(), event.crashKind(), event.fatal(), state.groupingKind(), state.symbolSha256(), state.processedAt(),
-                diagnostics(event.diagnosticsPayload(), state.threadStacksPayload()));
+                diagnostics(event.crashKind(), event.diagnosticsPayload(), state.threadStacksPayload()));
     }
 
     /** 按 Java ID 组合不可变线程元数据和同一状态版本的当前堆栈。 */
-    private com.shanshui.apmserver.crash.api.CrashDiagnosticsResponse diagnostics(String payload, String stackPayload) {
+    private com.shanshui.apmserver.crash.api.CrashDiagnosticsResponse diagnostics(String kind, String payload, String stackPayload) {
         if (payload == null || payload.isEmpty()) return null;
         try {
             var mapper = new tools.jackson.databind.ObjectMapper();
             var value = mapper.readValue(payload, com.shanshui.apmserver.crash.api.CrashDiagnostics.class);
             var threads = value.otherThreads();
+            var nativeThreads = value.nativeThreads();
+            var javaStates = new java.util.ArrayList<com.shanshui.apmserver.crash.api.CrashThreadStack>();
+            var nativeStates = new java.util.ArrayList<com.shanshui.apmserver.crash.api.NativeAuxiliaryStacks.NativeThreadStack>();
+            if (stackPayload != null && !stackPayload.isEmpty()) {
+                if ("native".equals(kind)) {
+                    com.shanshui.apmserver.crash.api.NativeAuxiliaryStacks stored = mapper
+                            .readerFor(com.shanshui.apmserver.crash.api.NativeAuxiliaryStacks.class)
+                            .with(tools.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES).readValue(stackPayload);
+                    if (stored.javaThreads() == null || stored.nativeThreads() == null) throw new IllegalStateException("辅助线程状态缺失");
+                    javaStates.addAll(stored.javaThreads());
+                    nativeStates.addAll(stored.nativeThreads());
+                } else {
+                    javaStates.addAll(java.util.Arrays.asList(mapper.readValue(stackPayload,
+                            com.shanshui.apmserver.crash.api.CrashThreadStack[].class)));
+                }
+            }
             com.shanshui.apmserver.crash.api.CrashDiagnosticsResponse.OtherThreads combined = null;
             if (threads != null) {
                 if (stackPayload == null || stackPayload.isEmpty() || threads.threads() == null) {
                     throw new IllegalStateException("线程诊断不完整");
                 }
-                var states = mapper.readValue(stackPayload, com.shanshui.apmserver.crash.api.CrashThreadStack[].class);
                 var byId = new java.util.LinkedHashMap<String, com.shanshui.apmserver.crash.api.CrashThreadStack>();
-                for (var state : states) if (byId.put(state.javaId(), state) != null) throw new IllegalStateException("线程身份重复");
+                for (var state : javaStates) if (byId.put(state.javaId(), state) != null) throw new IllegalStateException("线程身份重复");
                 var results = new java.util.ArrayList<com.shanshui.apmserver.crash.api.CrashDiagnosticsResponse.OtherThread>();
                 for (var thread : threads.threads()) {
                     var state = byId.remove(thread.javaId());
@@ -156,16 +186,40 @@ public class CrashQueryService implements CrashQueries {
                     results.add(new com.shanshui.apmserver.crash.api.CrashDiagnosticsResponse.OtherThread(thread.javaId(),
                             thread.name(), thread.state(), thread.priority(), thread.daemon(), thread.mainThread(), thread.truncated(),
                             state.stack(), state.symbolicationStatus(), state.symbolicationReason(), state.symbolFileId(),
-                            state.symbolFileRevision(), state.symbolFileSha256(), state.processedAt()));
+                            state.symbolFileRevision(), state.symbolFileSha256(), state.processedAt(),
+                            thread.systemTid(), thread.relationToCrash()));
                 }
                 if (!byId.isEmpty()) throw new IllegalStateException("多余线程状态");
                 combined = new com.shanshui.apmserver.crash.api.CrashDiagnosticsResponse.OtherThreads(threads.status(),
                         threads.reason(), threads.truncated(), threads.capturedAt(), threads.observedCount(), threads.omittedCount(), results);
-            } else if (stackPayload != null && !stackPayload.isEmpty()) {
+            } else if (!javaStates.isEmpty()) {
                 throw new IllegalStateException("缺少线程元数据");
             }
+            com.shanshui.apmserver.crash.api.CrashDiagnostics.NativeThreads combinedNative = null;
+            if (nativeThreads != null) {
+                if (!"native".equals(kind) || stackPayload == null || stackPayload.isEmpty() || nativeThreads.threads() == null) {
+                    throw new IllegalStateException("Native 线程诊断不完整");
+                }
+                var byTid = new java.util.LinkedHashMap<Integer, com.shanshui.apmserver.crash.api.NativeAuxiliaryStacks.NativeThreadStack>();
+                for (var state : nativeStates) if (state.systemTid() == null || byTid.put(state.systemTid(), state) != null) {
+                    throw new IllegalStateException("Native 线程身份重复");
+                }
+                var results = new java.util.ArrayList<com.shanshui.apmserver.crash.api.CrashDiagnostics.NativeThread>();
+                for (var thread : nativeThreads.threads()) {
+                    var state = byTid.remove(thread.systemTid());
+                    if (state == null || state.backtrace() == null) throw new IllegalStateException("Native 线程状态缺失");
+                    results.add(new com.shanshui.apmserver.crash.api.CrashDiagnostics.NativeThread(thread.systemTid(),
+                            thread.name(), thread.mainThread(), state.backtrace()));
+                }
+                if (!byTid.isEmpty()) throw new IllegalStateException("多余 Native 线程状态");
+                combinedNative = new com.shanshui.apmserver.crash.api.CrashDiagnostics.NativeThreads(nativeThreads.status(),
+                        nativeThreads.reason(), nativeThreads.truncated(), nativeThreads.capturedAt(),
+                        nativeThreads.observedCount(), nativeThreads.omittedCount(), results);
+            } else if (!nativeStates.isEmpty()) {
+                throw new IllegalStateException("缺少 Native 线程元数据");
+            }
             return new com.shanshui.apmserver.crash.api.CrashDiagnosticsResponse(value.coreTruncation(), value.crashedThread(),
-                    combined, value.logcat(), value.memory(), value.openFiles(), value.process(), value.device());
+                    combined, value.logcat(), value.memory(), value.openFiles(), value.process(), value.device(), combinedNative);
         } catch (RuntimeException invalid) {
             // 不输出原始诊断，损坏状态作为存储不可用处理。
             throw new com.shanshui.apmserver.platform.api.EventStoreUnavailableException("Crash 诊断状态不完整");

@@ -45,6 +45,6 @@ Inspector CLI 2.8.0 可用 --transport http --protocol-era modern --header "Auth
 
 ## 当前 Crash 堆栈契约
 
-Crash 详情包含独立主 `stack:{format,content}` 和 `diagnostics`，未采集诊断为 null；其他线程各有当前栈与独立状态。主异常首次成功固定，mapping 删除重传不改写旧结果。Issue 显示 temporary 与 buildId 或 resolved；旧临时指纹可能变为空列表，分页不是快照。
+Crash 详情包含独立主 `stack:{format,content}` 和 `diagnostics`，未采集诊断为 null；JVM 使用 raw_chain 或 retrace_text，Native 使用 raw_native 和 `native_symbolication_deferred`。Native 地址不转为 JavaScript 数字，Native 线程按系统 TID、Java 线程按 Java ID 区分。JVM 主异常首次成功固定，mapping 删除重传不改写旧结果；Native 不提供 SO 符号还原或分析任务。Issue 显示 temporary 与 buildId 或 resolved；旧临时指纹可能变为空列表，分页不是快照。
 
 MCP 的 Crash 大片段名称为 `stack` 和 `diagnostics`，摘要不夹带两者正文。续读绑定对应 JSON 字节摘要，内容变化返回 EVIDENCE_CHANGED。未知状态或格式返回 QUERY_BACKEND_INVALID_RESPONSE。冻结分析证据版本 3 仍只包含主异常片段，报告版本 4 未扩展；授权查询现场与冻结证据不是同一份材料。

@@ -6,7 +6,7 @@ agent 域提供单事件任务、应用 Worker 身份、Task/Run 和停止审计
 
 新任务创建时写 contract_version=3，只有当前契约任务能被列出、访问、领取及维护。证据 schemaVersion=3，报告只接受版本 4。旧任务/证据/报告原字节及审计保留，但不进入当前接口，不提供只读展示或自动升级。
 
-prepare 读取已发布的单事件详情，不调用 Retrace 或获取当前 mapping 锁。证据仅含一份 `crash-stack`：raw_chain 为完整脱敏原始链，retrace_text 为完整固定还原文本；状态、指纹、格式与实际来源一起冻结。pending/failed/symbolicated 均可创建，冻结后后台推进、mapping 修改或删除不改写证据。准备短事务只核对应用/事件身份、代次、取消和大小上限；超限明确失败，不截断。
+prepare 读取已发布的 JVM fatal 单事件详情，不调用 Retrace 或获取当前 mapping 锁。证据仅含一份 `crash-stack`：raw_chain 为完整脱敏原始链，retrace_text 为完整固定还原文本；状态、指纹、格式与实际来源一起冻结。JVM 的 pending/failed/symbolicated 均可创建，冻结后后台推进、mapping 修改或删除不改写证据。Native 详情可由授权查询读取，但创建分析任务仍返回 `UNSUPPORTED_ANALYSIS_EVENT`。准备短事务只核对应用/事件身份、代次、取消和大小上限；超限明确失败，不截断。
 
 Worker 凭据只限应用，30 天到期、可撤销，完整值只显示一次，独立安全链不接收 Cookie、App Key 或 Query Token。事务按应用、凭据、任务顺序锁定。列表/历史数据库分页且有上限；万条合成历史的索引检查不代表生产容量。
 

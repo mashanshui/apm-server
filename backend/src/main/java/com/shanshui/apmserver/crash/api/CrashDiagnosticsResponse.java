@@ -13,7 +13,10 @@ public record CrashDiagnosticsResponse(
         /** 内存快照。 */ CrashDiagnostics.Memory memory,
         /** 文件描述符。 */ CrashDiagnostics.OpenFiles openFiles,
         /** 进程信息。 */ CrashDiagnostics.Process process,
-        /** 设备信息。 */ CrashDiagnostics.Device device) {
+        /** 设备信息。 */ CrashDiagnostics.Device device,
+        /** Native 线程及同版本原始回溯。 */
+        @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
+        CrashDiagnostics.NativeThreads nativeThreads) {
 
     /** 保留采集状态与顺序的其他线程集合。 */
     public record OtherThreads(
@@ -40,5 +43,9 @@ public record CrashDiagnosticsResponse(
             /** 实际符号表身份。 */ UUID symbolFileId,
             /** 实际符号表版本。 */ Integer symbolFileRevision,
             /** 实际符号表摘要。 */ String symbolFileSha256,
-            /** 实际处理时间。 */ Instant processedAt) { }
+            /** 实际处理时间。 */ Instant processedAt,
+            /** 可可靠取得的系统 TID。 */
+            @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL) Integer systemTid,
+            /** Native 事件中与崩溃线程的关系。 */
+            @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL) String relationToCrash) { }
 }

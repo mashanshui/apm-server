@@ -64,6 +64,53 @@ class ThreadDiagnosticsCollectorTest {
         assertEquals(1, calls)
     }
 
+    /** 主线程 Native 崩溃可按 PID/TID 可靠关联 Java，其他同名线程不合并。 */
+    @Test
+    fun associatesOnlyTheKnownNativeMainThread() {
+        val main = Thread({}, "same")
+        val worker = Thread({}, "same")
+        val frames = arrayOf(StackTraceElement("com.example.Main", "run", "Main.kt", 12))
+        val result = collector({ linkedMapOf(worker to emptyArray(), main to frames) }, main).collectNative(42, 42, 100)
+        assertEquals(main.id.toString(), result.crashedThread!!.javaId)
+        assertEquals(42, result.crashedThread!!.systemTid)
+        assertEquals("run", result.javaStack.frames.single().methodName)
+        assertEquals(worker.id.toString(), result.otherThreads.threads.single().javaId)
+        assertEquals("other", result.otherThreads.threads.single().relationToCrash)
+    }
+
+    /** 无法证明 Java 与 Native 线程关联时，包含回调线程在内的所有快照均保留。 */
+    @Test
+    fun keepsAllJavaThreadsWhenNativeIdentityIsUnknown() {
+        val main = Thread({}, "same")
+        val callback = Thread({}, "same")
+        val result = collector({ linkedMapOf(callback to emptyArray(), main to emptyArray()) }, main)
+            .collectNative(42, 123, 100)
+        assertNull(result.crashedThread)
+        assertEquals("unavailable", result.javaStack.status)
+        assertEquals(2, result.otherThreads.observedCount)
+        assertEquals(main.id.toString(), result.otherThreads.threads.first().javaId)
+        assertEquals(42, result.otherThreads.threads.first().systemTid)
+        assertEquals(callback.id.toString(), result.otherThreads.threads.last().javaId)
+        assertTrue(result.otherThreads.threads.all { it.relationToCrash == "unknown" })
+    }
+
+    /** Native Java 快照受控内存不足或超时时保留独立失败状态和原采集时间。 */
+    @Test
+    fun reportsNativeMemoryPressureAndDeadlineIndependently() {
+        /** 模拟可关联的主线程。 */
+        val main = Thread({}, "main")
+        /** 受控内存不足时的 Native Java 快照。 */
+        val oom = collector({ throw OutOfMemoryError("synthetic") }, main).collectNative(42, 42, 100)
+        assertEquals("unavailable", oom.otherThreads.status)
+        assertEquals("memory_pressure", oom.otherThreads.reason)
+        assertEquals("memory_pressure", oom.javaStack.reason)
+        assertEquals(1L, oom.javaStack.capturedAt)
+        /** 截止时间已到的 Native Java 快照。 */
+        val timeout = collector({ error("不应在截止后读取线程") }, main).collectNative(42, 42, 0)
+        assertEquals("timeout", timeout.otherThreads.reason)
+        assertEquals("timeout", timeout.javaStack.reason)
+    }
+
     /** 注入稳定时钟和 JVM 快照，避免依赖 Android 运行时。 */
     private fun collector(
         snapshot: () -> Map<Thread, Array<StackTraceElement>>,

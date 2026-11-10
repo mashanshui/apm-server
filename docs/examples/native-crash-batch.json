@@ -1,0 +1,80 @@
+{
+  "requestId": "native-example-request",
+  "events": [
+    {
+      "schemaVersion": 2,
+      "eventId": "native-example-event",
+      "eventType": "crash",
+      "occurredAt": 1794200000000,
+      "sessionId": "native-example-session",
+      "processId": "11111111-1111-4111-8111-111111111111",
+      "anonymousDeviceId": "synthetic-device",
+      "packageName": "com.example.app",
+      "appVersion": "1.0",
+      "versionCode": 1,
+      "buildId": "example-app-build",
+      "environment": "test",
+      "channel": "example",
+      "osVersion": "35",
+      "deviceModel": "synthetic",
+      "networkType": "wifi",
+      "crash": {
+        "kind": "native",
+        "fatal": true,
+        "nativeCrash": {
+          "abi": "arm64-v8a",
+          "systemTid": 123,
+          "threadName": "worker",
+          "mainThread": false,
+          "signal": {
+            "number": 11,
+            "name": "SIGSEGV",
+            "code": 1,
+            "codeName": "SEGV_MAPERR",
+            "faultAddress": "0x0"
+          },
+          "registers": {
+            "status": "ok",
+            "truncated": false,
+            "capturedAt": 1794200000000,
+            "values": {"pc": "0xffffffffffffffff", "sp": "0x1234"}
+          },
+          "modules": [
+            {"id": "m0", "name": "libexample.so", "abi": "arm64-v8a", "elfBuildId": "abcdef12"}
+          ],
+          "backtrace": {
+            "status": "ok",
+            "truncated": false,
+            "capturedAt": 1794200000000,
+            "frames": [{"index": 0, "moduleId": "m0", "relativePc": "0xb884"}]
+          },
+          "javaStack": {"status": "unavailable", "reason": "unsupported", "truncated": false, "frames": []}
+        },
+        "diagnostics": {
+          "crashedThread": {"status": "ok", "truncated": false, "systemTid": 123, "name": "worker", "mainThread": false},
+          "otherThreads": {
+            "status": "ok", "truncated": false, "observedCount": 1, "omittedCount": 0,
+            "threads": [{"javaId": "2", "name": "worker", "state": "RUNNABLE", "priority": 5,
+              "daemon": false, "mainThread": true, "truncated": false, "frames": [], "relationToCrash": "unknown"}]
+          },
+          "nativeThreads": {
+            "status": "ok", "truncated": false, "observedCount": 1, "omittedCount": 0,
+            "threads": [{"systemTid": 124, "name": "worker", "mainThread": true,
+              "backtrace": {"status": "ok", "truncated": false,
+                "frames": [{"index": 0, "moduleId": "m0", "relativePc": "0x11"}]}}]
+          },
+          "logcat": {
+            "status": "partial", "reason": "unsupported", "truncated": false,
+            "main": {"status": "ok", "truncated": false, "lines": ["synthetic log"]},
+            "system": {"status": "unavailable", "reason": "permission_denied", "truncated": false, "lines": []},
+            "events": {"status": "unavailable", "reason": "permission_denied", "truncated": false, "lines": []}
+          },
+          "memory": {"status": "partial", "reason": "unsupported", "truncated": false, "javaHeapUsedBytes": 0},
+          "openFiles": {"status": "ok", "truncated": false, "count": 0, "entries": []},
+          "process": {"status": "ok", "truncated": false, "pid": 123, "name": "com.example.app"},
+          "device": {"status": "ok", "truncated": false, "apiLevel": 35, "abis": ["arm64-v8a"]}
+        }
+      }
+    }
+  ]
+}

@@ -187,6 +187,62 @@ class AgentQueryApiIntegrationTests extends AppIngestApiTestSupport {
         assertTrue(!agent.getResponse().getContentAsString().contains("synthetic-secret"));
     }
 
+    /** Native 原始现场与较大诊断由 Agent 原样读取，其他应用的 Token 不能访问。 */
+    @Test
+    void nativeDetailMatchesWebAndRespectsTokenScope() throws Exception {
+        MockHttpSession owner = login();
+        String secret = token(owner);
+        String eventId = "agent-native-" + System.nanoTime();
+        var fixture = mapper.readTree(getClass().getResourceAsStream("/fixtures/native-crash-dataset.json"));
+        ObjectNode event = ((ObjectNode) fixture.path("events").get(0)).deepCopy();
+        event.put("eventId", eventId);
+        event.put("packageName", "com.example.agentquery");
+        ObjectNode crash = (ObjectNode) event.path("crash");
+        ((ObjectNode) crash.path("nativeCrash").path("registers").path("values")).put("pc", "0xffffffffffffffff");
+        ObjectNode diagnostics = (ObjectNode) mapper.readTree("""
+                {"nativeThreads":{"status":"ok","truncated":false,"threads":[{"systemTid":124,"name":"worker",
+                  "backtrace":{"status":"ok","truncated":false,"frames":[{"index":0,"moduleId":"m0","relativePc":"0x11"}]}}]}}
+                """);
+        crash.set("diagnostics", diagnostics);
+        var lines = mapper.createArrayNode();
+        for (int index = 0; index < 40; index++) lines.add("合成日志-" + index + " " + "x".repeat(800));
+        ObjectNode main = mapper.createObjectNode();
+        main.put("status", "ok");
+        main.put("truncated", false);
+        main.set("lines", lines);
+        ObjectNode logcat = mapper.createObjectNode();
+        logcat.put("status", "ok");
+        logcat.put("truncated", false);
+        logcat.set("main", main);
+        diagnostics.set("logcat", logcat);
+        ObjectNode batch = mapper.createObjectNode();
+        batch.put("requestId", "agent-native-request-" + System.nanoTime());
+        batch.set("events", mapper.createArrayNode().add(event));
+        mvc.perform(MockMvcRequestBuilders.post("/ingest/v1/batches").header("X-App-Key", appKey())
+                        .contentType(MediaType.APPLICATION_JSON).content(mapper.writeValueAsString(batch)))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.accepted").value(1));
+        var web = mvc.perform(MockMvcRequestBuilders.get("/api/v1/apps/" + appId() + "/crashes/events/" + eventId)
+                .session(owner)).andExpect(status().isOk()).andReturn();
+        var agent = mvc.perform(MockMvcRequestBuilders.get("/api/agent/v1/crashes/events/" + eventId)
+                        .header("Authorization", "Bearer " + secret))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.stack.format").value("raw_native"))
+                .andExpect(jsonPath("$.stack.content.signal.faultAddress").value("0x0"))
+                .andExpect(jsonPath("$.stack.content.registers.values.pc").value("0xffffffffffffffff"))
+                .andExpect(jsonPath("$.diagnostics.nativeThreads.threads[0].systemTid").value(124))
+                .andExpect(jsonPath("$.diagnostics.logcat.main.lines.length()").value(40)).andReturn();
+        assertEquals(mapper.readTree(web.getResponse().getContentAsString()), mapper.readTree(agent.getResponse().getContentAsString()));
+        var user = users.findByEmailNormalized("test@example.com").orElseThrow();
+        var other = apps.create(user.getId(), new AppCreateRequest("com.example.nativeother"));
+        var tokenResult = mvc.perform(MockMvcRequestBuilders.post("/api/v1/apps/" + other.appId() + "/query-tokens")
+                        .session(owner).with(SecurityMockMvcRequestPostProcessors.csrf()).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"other-native-reader\"}"))
+                .andExpect(status().isCreated()).andReturn();
+        String otherSecret = mapper.readTree(tokenResult.getResponse().getContentAsString()).path("token").asText();
+        mvc.perform(MockMvcRequestBuilders.get("/api/agent/v1/crashes/events/" + eventId)
+                        .header("Authorization", "Bearer " + otherSecret))
+                .andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value("EVENT_NOT_FOUND"));
+    }
+
     /** 相同静态卡顿数据中，页大小只影响列表，网页与 Agent 统计逐字段一致。 */
     @Test void jankStatisticsAndCursorPagesMatchWithRealData() throws Exception {
         MockHttpSession owner=login();

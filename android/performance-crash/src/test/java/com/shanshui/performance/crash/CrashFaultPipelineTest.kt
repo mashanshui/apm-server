@@ -169,7 +169,7 @@ class CrashFaultPipelineTest {
             assertEquals(1, delegated.get())
             assertEquals(0, calls.get())
             assertEquals(0, stackReads.get())
-            assertEquals("java.lang.OutOfMemoryError", frozen.crash!!.throwableChain.first().type)
+            assertEquals("java.lang.OutOfMemoryError", requireNotNull(frozen.crash!!.throwableChain).first().type)
             assertEquals("memory_pressure", frozen.crash!!.diagnostics!!.logcat!!.reason)
             assertEquals(123, frozen.crash!!.diagnostics!!.process!!.pid)
             assertEquals(456, frozen.crash!!.diagnostics!!.crashedThread!!.systemTid)

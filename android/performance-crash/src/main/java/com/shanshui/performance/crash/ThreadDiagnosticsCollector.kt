@@ -6,6 +6,7 @@ import com.google.gson.GsonBuilder
 import com.shanshui.performance.network.CrashedThread
 import com.shanshui.performance.network.OtherThread
 import com.shanshui.performance.network.OtherThreads
+import com.shanshui.performance.network.NativeJavaStack
 import com.shanshui.performance.network.StackFrame
 import java.nio.charset.StandardCharsets
 
@@ -13,6 +14,13 @@ import java.nio.charset.StandardCharsets
 internal data class ThreadDiagnostics(
     /** 处理器收到的线程及系统 TID。 */ val crashedThread: CrashedThread,
     /** 其他线程的有界近似快照。 */ val otherThreads: OtherThreads,
+)
+
+/** Native 崩溃只在能证明主线程身份时关联 Java 崩溃栈。 */
+internal data class NativeThreadDiagnostics(
+    /** 可可靠关联的主线程身份。 */ val crashedThread: CrashedThread?,
+    /** 与崩溃线程关联的 Java 栈，不能关联时明确不可用。 */ val javaStack: NativeJavaStack,
+    /** 其他线程或关系未知的 Java 快照。 */ val otherThreads: OtherThreads,
 )
 
 /** 通过公开 JVM 接口采集线程，不将 Java 线程 ID 冒充系统 TID。 */
@@ -48,6 +56,37 @@ internal class ThreadDiagnosticsCollector(
     fun captureCrashed(crashed: Thread, systemTid: Int?): CrashedThread =
         crashedInfo(crashed, systemTid, clock(), runCatching { mainThread() }.getOrNull())
 
+    /** 以系统主线程 TID 唯一可靠关联主 Java 栈，其他情况保留全部 Java 快照。 */
+    fun collectNative(pid: Int, tid: Int, deadlineNanos: Long): NativeThreadDiagnostics {
+        val capturedAt = clock()
+        val main = runCatching { mainThread() }.getOrNull()
+        val associated = main?.takeIf { pid > 0 && tid == pid }
+        if (nanoTime() >= deadlineNanos) return nativeUnavailable(associated, tid, capturedAt, "timeout")
+        val snapshot = try {
+            allThreads()
+        } catch (_: SecurityException) {
+            return nativeUnavailable(associated, tid, capturedAt, "permission_denied")
+        } catch (_: OutOfMemoryError) {
+            return nativeUnavailable(associated, tid, capturedAt, "memory_pressure")
+        } catch (_: Throwable) {
+            return nativeUnavailable(associated, tid, capturedAt, "io_error")
+        }
+        val frames = associated?.let { snapshot[it] }
+        val javaStack = if (frames == null) NativeJavaStack(status = "unavailable", reason = "interrupted", capturedAt = capturedAt)
+            else NativeJavaStack(status = if (frames.size > MAX_FRAMES) "partial" else "ok",
+                reason = if (frames.size > MAX_FRAMES) "count_limit" else null, truncated = frames.size > MAX_FRAMES,
+                capturedAt = capturedAt, frames = frames.take(MAX_FRAMES).map(::frame))
+        return NativeThreadDiagnostics(associated?.let { crashedInfo(it, tid, capturedAt, main) }, javaStack,
+            buildOtherThreads(snapshot, associated, main, capturedAt, deadlineNanos, native = true,
+                maxBytes = MAX_NATIVE_THREAD_BYTES, nativePid = pid))
+    }
+
+    /** JVM 无法提供快照时不伪造 Java 身份或成功的空栈。 */
+    private fun nativeUnavailable(main: Thread?, tid: Int, capturedAt: Long, reason: String): NativeThreadDiagnostics =
+        NativeThreadDiagnostics(main?.let { crashedInfo(it, tid, capturedAt, main) },
+            NativeJavaStack(status = "unavailable", reason = reason, capturedAt = capturedAt),
+            OtherThreads(status = "unavailable", reason = reason, capturedAt = capturedAt))
+
     /** 将崩溃线程属性映射为独立分区。 */
     private fun crashedInfo(crashed: Thread, systemTid: Int?, capturedAt: Long, main: Thread?): CrashedThread = try {
             CrashedThread(
@@ -71,6 +110,13 @@ internal class ThreadDiagnosticsCollector(
         } catch (_: Throwable) {
             return OtherThreads(status = "unavailable", reason = "io_error", capturedAt = capturedAt)
         }
+        return buildOtherThreads(snapshot, crashed, main, capturedAt, deadlineNanos, native = false, maxBytes = MAX_THREAD_BYTES)
+    }
+
+    /** 对已取得的线程快照按身份保留；Native 无关联时不得按名称排除线程。 */
+    private fun buildOtherThreads(snapshot: Map<Thread, Array<StackTraceElement>>, crashed: Thread?, main: Thread?,
+                                  capturedAt: Long, deadlineNanos: Long, native: Boolean, maxBytes: Int,
+                                  nativePid: Int? = null): OtherThreads {
         val observed = snapshot.keys.count { it !== crashed }
         val ordered = sequence {
             // 先取主线程，再按快照迭代顺序保存其余线程。
@@ -90,6 +136,8 @@ internal class ThreadDiagnosticsCollector(
                     javaId = thread.id.toString(), name = CrashSanitizer.sanitize(thread.name, MAX_TEXT),
                     state = thread.state.name, priority = thread.priority, daemon = thread.isDaemon,
                     mainThread = thread === main, truncated = frames.size > MAX_FRAMES, frames = mapped,
+                    systemTid = if (native && thread === main) nativePid?.takeIf { it > 0 } else null,
+                    relationToCrash = if (!native) null else if (crashed == null) "unknown" else "other",
                 )
             } catch (_: Throwable) {
                 reason = reason ?: "io_error"
@@ -97,11 +145,11 @@ internal class ThreadDiagnosticsCollector(
             }
             if (current.truncated) reason = reason ?: "count_limit"
             // 每增加一条之前检查实际 JSON 字节，必要时减少本线程帧。
-            while (encodedSize(retained + current, observed, capturedAt) > MAX_THREAD_BYTES && current.frames.isNotEmpty()) {
+            while (encodedSize(retained + current, observed, capturedAt) > maxBytes && current.frames.isNotEmpty()) {
                 current = current.copy(frames = current.frames.dropLast(1), truncated = true)
                 reason = reason ?: "size_limit"
             }
-            if (encodedSize(retained + current, observed, capturedAt) > MAX_THREAD_BYTES) {
+            if (encodedSize(retained + current, observed, capturedAt) > maxBytes) {
                 reason = reason ?: "size_limit"
                 break
             }
@@ -143,6 +191,7 @@ internal class ThreadDiagnosticsCollector(
         const val MAX_FRAMES = 32
         const val MAX_TEXT = 512
         const val MAX_THREAD_BYTES = 48 * 1024
+        const val MAX_NATIVE_THREAD_BYTES = 20 * 1024
         const val MAX_LINE_NUMBER = 1_000_000_000
     }
 }

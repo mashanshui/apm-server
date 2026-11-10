@@ -35,6 +35,11 @@ final class CrashDiagnosticsValidator {
 
     /** 校验各分区结构、关联计数和实际编码字节。 */
     void validate(CrashDiagnostics diagnostics, List<ValidationIssue> issues) {
+        validate(diagnostics, false, issues);
+    }
+
+    /** 按崩溃类型校验 Java 身份，Native 线程不要求虚构 Java ID。 */
+    void validate(CrashDiagnostics diagnostics, boolean nativeCrash, List<ValidationIssue> issues) {
         if (diagnostics == null) return;
         var core = diagnostics.coreTruncation();
         if (core != null && (core.truncated() == null || (Boolean.TRUE.equals(core.truncated()) && !"size_limit".equals(core.reason()))
@@ -47,7 +52,8 @@ final class CrashDiagnosticsValidator {
             partition(crashed.status(), crashed.reason(), crashed.truncated(), crashed.capturedAt(), issues);
             if (crashed.javaId() != null && !threadId(crashed.javaId(), threadIds)) invalid(issues, "崩溃线程 Java ID 不合法或重复");
             if (("ok".equals(crashed.status()) || "partial".equals(crashed.status()))
-                    && (crashed.javaId() == null || crashed.name() == null || crashed.state() == null)) {
+                    && (nativeCrash ? crashed.systemTid() == null
+                    : crashed.javaId() == null || crashed.name() == null || crashed.state() == null)) {
                 invalid(issues, "已采集崩溃线程缺少身份");
             }
             text(crashed.name(), 512, issues);
@@ -155,6 +161,10 @@ final class CrashDiagnosticsValidator {
         text(thread.name(), 512, issues);
         state(thread.state(), issues);
         priority(thread.priority(), issues);
+        if (thread.systemTid() != null && thread.systemTid() <= 0) invalid(issues, "Java 线程系统 TID 不合法");
+        if (thread.relationToCrash() != null && !Set.of("other", "unknown").contains(thread.relationToCrash())) {
+            invalid(issues, "Java 线程与崩溃的关系不合法");
+        }
         if (thread.frames() == null || thread.frames().size() > 32) {
             invalid(issues, "其他线程帧缺失或超限");
             return;

@@ -75,6 +75,31 @@ describe('CrashEventDetailView', () => {
     wrapper.unmount()
   })
 
+  /** Native 详情展示零地址和原始函数名，任何角色均不出现 JVM 操作入口。 */
+  it.each(['OWNER', 'ADMIN', 'DEVELOPER', 'VIEWER'])('shows native raw details without JVM actions for %s', async role => {
+    useAppStore().apps = [{ appId: 'app-1', role } as never]
+    mockedCrashApi.event.mockResolvedValue(eventResponse({
+      crashKind: 'native', symbolicationStatus: 'pending', groupingKind: 'temporary', symbolicationReason: 'native_symbolication_deferred',
+      symbolFileId: null, symbolFileRevision: null, symbolFileSha256: null, processedAt: null,
+      stack: { format: 'raw_native', content: { abi: 'arm64-v8a', systemTid: 7,
+        signal: { number: 11, name: 'SIGSEGV', code: 1, faultAddress: '0x0' },
+        registers: { status: 'ok', truncated: false, values: { pc: '0xffffffffffffffff' } },
+        modules: [{ id: 'm1', name: 'liba.so', abi: 'arm64-v8a', elfBuildId: 'abcdef12' }],
+        backtrace: { status: 'ok', truncated: false, frames: [{ index: 0, moduleId: 'm1', relativePc: '0x11', functionName: '<script>run</script>' }] } } },
+    }))
+    const wrapper = mount(CrashEventDetailView, { global: { stubs: { AppLayout: { template: '<div><slot /></div>' }, RouterLink: { template: '<a><slot /></a>' } } } })
+    await flushPromises()
+    expect(wrapper.text()).toContain('SIGSEGV')
+    expect(wrapper.text()).toContain('0x0')
+    expect(wrapper.text()).toContain('0xffffffffffffffff')
+    expect(wrapper.text()).toContain('<script>run</script>')
+    expect(wrapper.find('script').exists()).toBe(false)
+    expect(wrapper.text()).toContain('本期未提供符号还原')
+    expect(wrapper.text()).not.toContain('上传此 buildId 的 mapping')
+    expect(wrapper.find('.analysis-stub').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
   /** 未还原时保留原始内容和原因，并安全渲染服务端返回的文本。 */
   it('keeps raw fallback and escapes retraced text', async () => {
     mockedCrashApi.event.mockResolvedValue(eventResponse({

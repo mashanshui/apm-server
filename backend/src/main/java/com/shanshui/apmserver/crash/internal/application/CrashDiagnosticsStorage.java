@@ -3,6 +3,7 @@ package com.shanshui.apmserver.crash.internal.application;
 import com.shanshui.apmserver.crash.api.CrashDiagnostics;
 import com.shanshui.apmserver.crash.api.CrashIngestCommand;
 import com.shanshui.apmserver.crash.api.CrashThreadStack;
+import com.shanshui.apmserver.crash.api.NativeAuxiliaryStacks;
 import tools.jackson.databind.ObjectMapper;
 
 import java.security.MessageDigest;
@@ -29,21 +30,39 @@ final class CrashDiagnosticsStorage {
         if (value != null) {
             var threads = value.otherThreads();
             CrashDiagnostics.OtherThreads metadata = null;
+            List<CrashThreadStack> threadStacks = List.of();
             if (threads != null) {
                 // 事实只保留线程身份，原始帧只存在于当前状态。
                 var threadMetadata = threads.threads().stream().map(thread -> new CrashDiagnostics.OtherThread(
                         thread.javaId(), thread.name(), thread.state(), thread.priority(), thread.daemon(),
-                        thread.mainThread(), thread.truncated(), null)).toList();
+                        thread.mainThread(), thread.truncated(), null, thread.systemTid(), thread.relationToCrash())).toList();
                 metadata = new CrashDiagnostics.OtherThreads(threads.status(), threads.reason(), threads.truncated(),
                         threads.capturedAt(), threads.observedCount(), threads.omittedCount(), threadMetadata);
-                List<CrashThreadStack> threadStacks = threads.threads().stream().map(thread -> new CrashThreadStack(
-                        thread.javaId(), thread.frames().isEmpty() ? "not_applicable" : "pending", null,
+                threadStacks = threads.threads().stream().map(thread -> new CrashThreadStack(
+                        thread.javaId(), thread.frames().isEmpty() ? "not_applicable" : "pending",
+                        "native".equals(event.crash().kind()) && !thread.frames().isEmpty() ? "native_symbolication_deferred" : null,
                         new CrashThreadStack.Stack("raw_frames", thread.frames().stream().map(this::frameFields).toList()),
                         null, null, null, null)).toList();
+            }
+            var nativeThreads = value.nativeThreads();
+            CrashDiagnostics.NativeThreads nativeMetadata = null;
+            if (nativeThreads != null) {
+                // 事实只保存 Native 线程身份，实际回溯与主栈使用同一状态版本。
+                nativeMetadata = new CrashDiagnostics.NativeThreads(nativeThreads.status(), nativeThreads.reason(),
+                        nativeThreads.truncated(), nativeThreads.capturedAt(), nativeThreads.observedCount(),
+                        nativeThreads.omittedCount(), nativeThreads.threads().stream().map(thread ->
+                        new CrashDiagnostics.NativeThread(thread.systemTid(), thread.name(), thread.mainThread(), null)).toList());
+            }
+            if ("native".equals(event.crash().kind()) && (threads != null || nativeThreads != null)) {
+                var nativeStacks = nativeThreads == null ? List.<NativeAuxiliaryStacks.NativeThreadStack>of()
+                        : nativeThreads.threads().stream().map(thread -> new NativeAuxiliaryStacks.NativeThreadStack(
+                        thread.systemTid(), thread.backtrace())).toList();
+                stacks = mapper.writeValueAsString(new NativeAuxiliaryStacks(threadStacks, nativeStacks));
+            } else if (threads != null) {
                 stacks = mapper.writeValueAsString(threadStacks);
             }
             diagnostics = mapper.writeValueAsString(new CrashDiagnostics(value.coreTruncation(), value.crashedThread(),
-                    metadata, value.logcat(), value.memory(), value.openFiles(), value.process(), value.device()));
+                    metadata, value.logcat(), value.memory(), value.openFiles(), value.process(), value.device(), nativeMetadata));
         }
         // 将进程、会话等不可变身份也纳入摘要，防止状态单侧写入后用另一进程身份补事实。
         Map<String, Object> frozen = new LinkedHashMap<>();

@@ -44,6 +44,6 @@ Jank 的 limit 仅影响 Issue/事件页，默认 20/最大 100 保持；相同�
 
 ## 当前 Crash 堆栈契约
 
-Crash 详情返回单份主 `stack:{format,content}` 及独立 `diagnostics`：pending/failed 主栈为 raw_chain，symbolicated 为 retrace_text；诊断的其他线程各有独立当前栈与状态，未采集时 diagnostics 为 null。实际字段和限制见 [Crash API](crash-api.md#查询接口)。首次成功固定，mapping 删除重传不改写旧结果。Issue 显示 temporary 与 buildId 或 resolved；旧临时指纹可能变为空列表，分页不是快照。
+Crash 详情返回单份主 `stack:{format,content}` 及独立 `diagnostics`：JVM 的 pending/failed 主栈为 raw_chain、symbolicated 为 retrace_text；Native 为 raw_native 和 `native_symbolication_deferred`。Native 信号、寄存器、模块、主辅回溯及 Java 快照按授权原样返回，地址保留十六进制字符串，未采集诊断为 null。实际字段和限制见 [Crash API](crash-api.md#查询接口)。JVM 首次成功固定，mapping 删除重传不改写旧结果；Native 不进入 R8，也不能创建分析任务。Issue 显示 temporary 与 buildId 或 resolved；旧临时指纹可能变为空列表，分页不是快照。
 
 MCP 的 Crash 大片段为 `stack` 与 `diagnostics`，摘要不夹带堆栈或诊断正文。续读摘要绑定对应片段的完整 JSON 字节；后台内容变化时返回 EVIDENCE_CHANGED，须重新开始。未知状态或堆栈格式返回 QUERY_BACKEND_INVALID_RESPONSE。网页和 Agent 查询可见授权诊断；分析任务的版本 3 冻结证据仍只含主异常片段，版本 4 报告未扩展。19 个工具和应用授权不变。

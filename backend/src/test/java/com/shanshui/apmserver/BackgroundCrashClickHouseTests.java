@@ -54,6 +54,11 @@ class BackgroundCrashClickHouseTests {
                 .readAllBytes(), StandardCharsets.UTF_8);
         for (String statement : diagnosticsDdl.split(";")) if (!statement.isBlank()) client.execute(statement);
         for (String statement : diagnosticsDdl.split(";")) if (!statement.isBlank()) client.execute(statement);
+        // 在已有事实和状态上增量扩展约束，重复执行不能更改数据或 TTL。
+        String nativeDdl = new String(getClass().getResourceAsStream("/db/clickhouse/011_native_crash_state.sql")
+                .readAllBytes(), StandardCharsets.UTF_8);
+        for (String statement : nativeDdl.split(";")) if (!statement.isBlank()) client.execute(statement);
+        for (String statement : nativeDdl.split(";")) if (!statement.isBlank()) client.execute(statement);
         var historical = new ObjectMapper().readTree(client.execute("SELECT diagnostics_payload,capture_sha256 FROM apm.apm_crash_fact WHERE event_id='migration-old' FORMAT JSONEachRow"));
         assertEquals("", historical.path("diagnostics_payload").asText());
         assertEquals("", historical.path("capture_sha256").asText());
@@ -66,6 +71,7 @@ class BackgroundCrashClickHouseTests {
         client.execute("ALTER TABLE apm.apm_crash_state DELETE WHERE event_id='migration-old' SETTINGS mutations_sync=2");
         properties.setDatabase("apm");
         ClickHouseCrashStateStore store = new ClickHouseCrashStateStore(client, new ObjectMapper(), new QueryProperties());
+        store.requireCurrentSchema();
         UUID app = UUID.randomUUID();
         UUID symbol = UUID.randomUUID();
         Instant now = Instant.now().truncatedTo(ChronoUnit.MILLIS);
@@ -91,6 +97,46 @@ class BackgroundCrashClickHouseTests {
         assertTrue(store.candidates(app, "build", symbol, 1, now.minusSeconds(86400), now, 100).isEmpty());
         assertTrue(store.current(UUID.randomUUID(), "event").isEmpty());
         assertEquals(1, new ObjectMapper().readTree(client.execute("SELECT count() AS n FROM apm_crash_fact FINAL FORMAT JSONEachRow")).path("n").asInt());
+        // Native 共享构建时按原始状态保存，不进入 JVM mapping 候选。
+        EventMetadata nativeMetadata = new EventMetadata(app, metadata.packageName(), "native-event", "crash", occurred,
+                now, 2, "session", metadata.processId(), "device", "1", 1, "build", "production", "official",
+                "16", "test", "wifi", Map.of(), Map.of());
+        CrashState nativeState = new CrashState(app, "native-event", "build", occurred, 0, "pending",
+                "native_symbolication_deferred", "raw_native", "{\"abi\":\"arm64-v8a\"}", "SIGSEGV", "native-fp",
+                "native-tmp-v1", "temporary", null, null, null, null, null, "a".repeat(64), "{}");
+        CrashFact nativeFact = new CrashFact(nativeMetadata, "native", true, "{\"memory\":{}}", "a".repeat(64));
+        assertTrue(store.accept(nativeFact, nativeState));
+        assertFalse(store.accept(nativeFact, nativeState));
+        assertEquals(nativeState, store.current(app, "native-event").orElseThrow());
+        // Native 状态先落盘而事实缺失时，不同摘要不得与原状态拼接。
+        EventMetadata orphanNativeMetadata = new EventMetadata(app, metadata.packageName(), "native-orphan", "crash", occurred,
+                now, 2, "session", metadata.processId(), "device", "1", 1, "build", "production", "official",
+                "16", "test", "wifi", Map.of(), Map.of());
+        CrashState orphanNative = new CrashState(app, "native-orphan", "build", occurred, 0, "pending",
+                "native_symbolication_deferred", "raw_native", "{}", "SIGSEGV", "native-fp", "native-tmp-v1",
+                "temporary", null, null, null, null, null, "c".repeat(64), "{}");
+        store.publish(orphanNative);
+        CrashState otherNative = new CrashState(app, "native-orphan", "build", occurred, 0, "pending",
+                "native_symbolication_deferred", "raw_native", "{}", "SIGSEGV", "native-fp", "native-tmp-v1",
+                "temporary", null, null, null, null, null, "d".repeat(64), "{}");
+        assertThrows(com.shanshui.apmserver.telemetry.api.EventValidationException.class, () -> store.accept(
+                new CrashFact(orphanNativeMetadata, "native", true, "{}", "d".repeat(64)), otherNative));
+        assertTrue(store.current(app, "native-orphan").isEmpty());
+        assertTrue(store.accept(new CrashFact(orphanNativeMetadata, "native", true, "{}", "c".repeat(64)), orphanNative));
+        assertEquals(orphanNative, store.current(app, "native-orphan").orElseThrow());
+        assertTrue(store.candidates(app, "build", symbol, 1, now.minusSeconds(86400), now, 100).isEmpty());
+        assertEquals(1, new ObjectMapper().readTree(client.execute("SELECT count() AS n FROM apm_crash_fact FINAL WHERE event_id='native-event' FORMAT JSONEachRow")).path("n").asInt());
+        assertThrows(RuntimeException.class, () -> client.execute("INSERT INTO apm_crash_state(app_id,event_id,build_id,event_time,state_version,symbolication_status,symbolication_reason,stack_format,stack_payload,fingerprint,fingerprint_version,grouping_kind) VALUES ('" + app + "','invalid-native','build',now64(3),0,'failed','native_symbolication_deferred','raw_native','{}','fp','native-tmp-v1','temporary')"));
+        CrashState changedNative = new CrashState(app, "native-event", "build", occurred, 0, "pending",
+                "native_symbolication_deferred", "raw_native", "{\"abi\":\"x86_64\"}", "SIGSEGV", "native-fp",
+                "native-tmp-v1", "temporary", null, null, null, null, null, "b".repeat(64), "{}");
+        var nativeConflict = assertThrows(com.shanshui.apmserver.telemetry.api.EventValidationException.class,
+                () -> store.accept(new CrashFact(nativeMetadata, "native", true, "{}", "b".repeat(64)), changedNative));
+        assertEquals("CRASH_CONTENT_CONFLICT", nativeConflict.getIssues().getFirst().code());
+        client.execute("ALTER TABLE apm_crash_state DELETE WHERE event_id='native-event' SETTINGS mutations_sync=2");
+        assertTrue(store.current(app, "native-event").isEmpty());
+        assertFalse(store.accept(nativeFact, nativeState));
+        assertEquals(nativeState, store.current(app, "native-event").orElseThrow());
         // 模拟事实存在而状态丢失；原 eventId 重试必须补齐另一侧后才确认重复。
         client.execute("ALTER TABLE apm_crash_state DELETE WHERE event_id='event' SETTINGS mutations_sync=2");
         assertTrue(store.current(app, "event").isEmpty());

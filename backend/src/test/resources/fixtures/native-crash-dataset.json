@@ -1,0 +1,191 @@
+{
+  "requestId": "native-fixed-dataset",
+  "events": [
+    {
+      "schemaVersion": 2,
+      "eventId": "native-301",
+      "eventType": "crash",
+      "occurredAt": 1786788900000,
+      "sessionId": "session-001",
+      "processId": "11111111-1111-4111-8111-111111111111",
+      "anonymousDeviceId": "device-001",
+      "packageName": "com.example.app",
+      "appVersion": "3.2.0",
+      "versionCode": 320,
+      "buildId": "build-320",
+      "environment": "production",
+      "channel": "official",
+      "osVersion": "16",
+      "deviceModel": "Pixel-8",
+      "networkType": "wifi",
+      "crash": {
+        "kind": "native",
+        "fatal": true,
+        "nativeCrash": {
+          "abi": "arm64-v8a",
+          "systemTid": 123,
+          "threadName": "worker",
+          "mainThread": false,
+          "signal": {
+            "number": 11,
+            "name": "SIGSEGV",
+            "code": 1,
+            "codeName": "SEGV_MAPERR",
+            "faultAddress": "0x0"
+          },
+          "registers": {
+            "status": "ok",
+            "truncated": false,
+            "values": {
+              "pc": "0x1000",
+              "sp": "0x1234"
+            }
+          },
+          "modules": [
+            {
+              "id": "m0",
+              "name": "libexample.so",
+              "abi": "arm64-v8a",
+              "elfBuildId": "abcdef12"
+            }
+          ],
+          "backtrace": {
+            "status": "ok",
+            "truncated": false,
+            "frames": [
+              {
+                "index": 0,
+                "moduleId": "m0",
+                "relativePc": "0xb884"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "schemaVersion": 2,
+      "eventId": "native-302",
+      "eventType": "crash",
+      "occurredAt": 1786788960000,
+      "sessionId": "session-009",
+      "processId": "11111111-1111-4111-8111-111111111111",
+      "anonymousDeviceId": "device-009",
+      "packageName": "com.example.app",
+      "appVersion": "3.2.0",
+      "versionCode": 320,
+      "buildId": "build-320",
+      "environment": "production",
+      "channel": "official",
+      "osVersion": "16",
+      "deviceModel": "Pixel-8",
+      "networkType": "wifi",
+      "crash": {
+        "kind": "native",
+        "fatal": true,
+        "nativeCrash": {
+          "abi": "arm64-v8a",
+          "systemTid": 123,
+          "threadName": "worker",
+          "mainThread": false,
+          "signal": {
+            "number": 11,
+            "name": "SIGSEGV",
+            "code": 1,
+            "codeName": "SEGV_MAPERR",
+            "faultAddress": "0x0"
+          },
+          "registers": {
+            "status": "ok",
+            "truncated": false,
+            "values": {
+              "pc": "0x2000",
+              "sp": "0x1234"
+            }
+          },
+          "modules": [
+            {
+              "id": "m0",
+              "name": "libexample.so",
+              "abi": "arm64-v8a",
+              "elfBuildId": "abcdef12"
+            }
+          ],
+          "backtrace": {
+            "status": "ok",
+            "truncated": false,
+            "frames": [
+              {
+                "index": 0,
+                "moduleId": "m0",
+                "relativePc": "0xb884"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "schemaVersion": 2,
+      "eventId": "native-301",
+      "eventType": "crash",
+      "occurredAt": 1786788900000,
+      "sessionId": "session-001",
+      "processId": "11111111-1111-4111-8111-111111111111",
+      "anonymousDeviceId": "device-001",
+      "packageName": "com.example.app",
+      "appVersion": "3.2.0",
+      "versionCode": 320,
+      "buildId": "build-320",
+      "environment": "production",
+      "channel": "official",
+      "osVersion": "16",
+      "deviceModel": "Pixel-8",
+      "networkType": "wifi",
+      "crash": {
+        "kind": "native",
+        "fatal": true,
+        "nativeCrash": {
+          "abi": "arm64-v8a",
+          "systemTid": 123,
+          "threadName": "worker",
+          "mainThread": false,
+          "signal": {
+            "number": 11,
+            "name": "SIGSEGV",
+            "code": 1,
+            "codeName": "SEGV_MAPERR",
+            "faultAddress": "0x0"
+          },
+          "registers": {
+            "status": "ok",
+            "truncated": false,
+            "values": {
+              "pc": "0x1000",
+              "sp": "0x1234"
+            }
+          },
+          "modules": [
+            {
+              "id": "m0",
+              "name": "libexample.so",
+              "abi": "arm64-v8a",
+              "elfBuildId": "abcdef12"
+            }
+          ],
+          "backtrace": {
+            "status": "ok",
+            "truncated": false,
+            "frames": [
+              {
+                "index": 0,
+                "moduleId": "m0",
+                "relativePc": "0xb884"
+              }
+            ]
+          }
+        }
+      }
+    }
+  ]
+}

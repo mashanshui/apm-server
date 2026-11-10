@@ -57,7 +57,7 @@ function backToOverview() {
 <template>
   <AppLayout :app-id="appId">
     <div class="breadcrumb">
-      <RouterLink :to="backToOverview()">JVM Crash</RouterLink>
+      <RouterLink :to="backToOverview()">Crash</RouterLink>
       <span class="breadcrumb-separator">/</span>
       <span>问题事件</span>
     </div>

@@ -1,3 +1,5 @@
+import type { NativeCrash } from '../types/crash'
+
 /** 当前支持的采集状态。 */
 const statuses = new Set(['ok', 'partial', 'unavailable', 'skipped'])
 /** 接收和展示均使用的安全原因类别。 */
@@ -11,7 +13,6 @@ const symbolReasons = new Set(['parser_busy', 'mapping_unavailable', 'timeout', 
 function record(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
-
 /** 可选值允许缺失和 null，但存在时必须满足校验。 */
 function optional(value: unknown, valid: (value: unknown) => boolean): boolean {
   return value === null || value === undefined || valid(value)
@@ -50,12 +51,58 @@ function frame(value: unknown): boolean {
     && optional(value.applicationFrame, bool)
 }
 
+/** 地址始终是按 ABI 位宽限定的规范十六进制字符串。 */
+function nativeHex(value: unknown, abi: string): boolean {
+  const digits = abi === 'arm64-v8a' || abi === 'x86_64' ? 16 : 8
+  return typeof value === 'string' && new RegExp(`^0x(?:0|[1-9a-f][0-9a-f]{0,${digits - 1}})$`).test(value)
+}
+
+/** 验证原始 Native 帧及其事件内模块引用。 */
+function nativeBacktrace(value: unknown, abi: string, moduleIds: Set<string>, limit: number): boolean {
+  if (!partition(value) || !Array.isArray(value.frames) || value.frames.length > limit
+      || (value.status === 'ok' && !value.frames.length)
+      || (['unavailable', 'skipped'].includes(String(value.status)) && value.frames.length)) return false
+  return value.frames.every((item, index) => record(item) && item.index === index
+    && optional(item.moduleId, id => typeof id === 'string' && moduleIds.has(id))
+    && optional(item.relativePc, address => nativeHex(address, abi))
+    && optional(item.functionOffset, address => nativeHex(address, abi)) && optional(item.functionName, text))
+}
+
+/** 校验 Native 主现场，不将地址转换为 JavaScript 数值。 */
+export function validNativeCrash(value: unknown): value is NativeCrash {
+  if (!record(value) || 'throwableChain' in value || 'nativeCrash' in value || 'diagnostics' in value
+      || typeof value.abi !== 'string' || !['arm64-v8a', 'armeabi-v7a', 'x86', 'x86_64'].includes(value.abi)
+      || !nonNegative(value.systemTid) || value.systemTid === 0 || !optional(value.threadName, text) || !optional(value.mainThread, bool)
+      || !record(value.signal) || !nonNegative(value.signal.number) || value.signal.number === 0 || (value.signal.number as number) > 128
+      || typeof value.signal.name !== 'string' || !/^SIG[A-Z0-9]{1,16}$/.test(value.signal.name)
+      || typeof value.signal.code !== 'number' || !Number.isInteger(value.signal.code)
+      || !optional(value.signal.codeName, text) || !optional(value.signal.abortMessage, text)
+      || !optional(value.signal.faultAddress, address => nativeHex(address, value.abi as string))
+      || !partition(value.registers) || !record(value.registers.values) || Object.keys(value.registers.values).length > 64
+      || (value.registers.status === 'ok' && !Object.keys(value.registers.values).length)
+      || (['unavailable', 'skipped'].includes(String(value.registers.status)) && Object.keys(value.registers.values).length)
+      || !Object.entries(value.registers.values).every(([name, address]) => /^[a-z][a-z0-9_]{0,15}$/.test(name) && nativeHex(address, value.abi as string))
+      || !Array.isArray(value.modules) || value.modules.length > 128) return false
+  const moduleIds = new Set<string>()
+  for (const module of value.modules) {
+    if (!record(module) || typeof module.id !== 'string' || !/^[A-Za-z0-9_-]{1,64}$/.test(module.id) || moduleIds.has(module.id)
+        || typeof module.name !== 'string' || !module.name.trim() || /[/\\]/.test(module.name) || module.abi !== value.abi
+        || !optional(module.path, text) || !optional(module.elfBuildId, id => typeof id === 'string' && /^(?:[0-9a-f]{2}){1,64}$/.test(id))) return false
+    moduleIds.add(module.id)
+  }
+  if (!nativeBacktrace(value.backtrace, value.abi, moduleIds, 128)) return false
+  return optional(value.javaStack, stack => partition(stack) && Array.isArray(stack.frames) && stack.frames.length <= 128
+    && stack.frames.every(frame) && (!['unavailable', 'skipped'].includes(String(stack.status)) || !stack.frames.length))
+}
+
 /** 校验其他线程独立状态、当前栈和成功时的实际来源。 */
 function thread(value: unknown): value is Record<string, unknown> {
   if (!record(value) || !javaId(value.javaId) || typeof value.name !== 'string'
       || typeof value.state !== 'string' || !threadStates.has(value.state)
       || typeof value.priority !== 'number' || !Number.isInteger(value.priority) || value.priority < 1 || value.priority > 10
       || typeof value.daemon !== 'boolean' || typeof value.mainThread !== 'boolean' || typeof value.truncated !== 'boolean'
+      || !optional(value.systemTid, id => nonNegative(id) && id !== 0)
+      || !optional(value.relationToCrash, relation => relation === 'other' || relation === 'unknown')
       || !record(value.stack) || !optional(value.symbolicationReason, text)
       || !optional(value.symbolFileId, text) || !optional(value.symbolFileRevision, nonNegative)
       || !optional(value.symbolFileSha256, text) || !optional(value.processedAt, text)) return false
@@ -81,8 +128,8 @@ function logBuffer(value: unknown, limit: number): boolean {
 }
 
 /** 验证完整诊断视图；历史事件使用 null，未知状态或格式拒绝。 */
-export function validDiagnostics(value: unknown): boolean {
-  if (value === null) return true
+export function validDiagnostics(value: unknown, native?: NativeCrash): boolean {
+  if (value === null) return !native?.javaStack?.frames.length
   if (!record(value)) return false
   if (!optional(value.coreTruncation, core => record(core) && typeof core.truncated === 'boolean'
       && (core.truncated ? core.reason === 'size_limit' : core.reason === null || core.reason === undefined))) return false
@@ -94,8 +141,10 @@ export function validDiagnostics(value: unknown): boolean {
         || !optional(crashed.daemon, bool) || !optional(crashed.mainThread, bool)
         || !optional(crashed.systemTid, number => nonNegative(number) && number !== 0)) return false
     if (crashed.status === 'ok' || crashed.status === 'partial') {
-      if (!javaId(crashed.javaId) || typeof crashed.name !== 'string' || typeof crashed.state !== 'string') return false
+      if (native ? crashed.systemTid !== native.systemTid
+        : !javaId(crashed.javaId) || typeof crashed.name !== 'string' || typeof crashed.state !== 'string') return false
     }
+    if (native && crashed.systemTid != null && crashed.systemTid !== native.systemTid) return false
     if (javaId(crashed.javaId)) ids.add(crashed.javaId)
     return true
   })) return false
@@ -105,6 +154,9 @@ export function validDiagnostics(value: unknown): boolean {
     if (['skipped', 'unavailable'].includes(String(threads.status)) && threads.threads.length) return false
     for (const item of threads.threads) {
       if (!javaId(item.javaId) || ids.has(item.javaId)) return false
+      if (native && (!['other', 'unknown'].includes(String(item.relationToCrash)) || item.systemTid === native.systemTid
+          || !['pending', 'not_applicable'].includes(String(item.symbolicationStatus))
+          || item.symbolFileId != null || item.symbolFileRevision != null || item.symbolFileSha256 != null || item.processedAt != null)) return false
       ids.add(item.javaId)
     }
     if (typeof threads.observedCount === 'number' && threads.observedCount < threads.threads.length) return false
@@ -112,6 +164,27 @@ export function validDiagnostics(value: unknown): boolean {
         && threads.omittedCount + threads.threads.length > threads.observedCount) return false
     return true
   })) return false
+  if (!optional(value.nativeThreads, threads => {
+    if (!native || !partition(threads) || !optional(threads.observedCount, nonNegative) || !optional(threads.omittedCount, nonNegative)
+        || !Array.isArray(threads.threads) || threads.threads.length > 64
+        || (['unavailable', 'skipped'].includes(String(threads.status)) && threads.threads.length)
+        || (record(value.otherThreads) && Array.isArray(value.otherThreads.threads) && value.otherThreads.threads.length + threads.threads.length > 64)
+        || (typeof threads.observedCount === 'number' && threads.observedCount < threads.threads.length)
+        || (typeof threads.observedCount === 'number' && typeof threads.omittedCount === 'number'
+          && threads.omittedCount + threads.threads.length > threads.observedCount)) return false
+    const tids = new Set<number>()
+    const modules = new Set(native.modules.map(module => module.id))
+    return threads.threads.every(item => {
+      if (!record(item) || typeof item.systemTid !== 'number' || !nonNegative(item.systemTid) || item.systemTid === 0
+          || item.systemTid === native.systemTid || tids.has(item.systemTid) || !optional(item.name, text)
+          || !optional(item.mainThread, bool) || !nativeBacktrace(item.backtrace, native.abi, modules, 32)) return false
+      tids.add(item.systemTid)
+      return true
+    })
+  })) return false
+  if (native?.javaStack?.frames.length) {
+    if (!record(value.crashedThread) || !javaId(value.crashedThread.javaId) || value.crashedThread.systemTid !== native.systemTid) return false
+  }
   if (!optional(value.logcat, logs => partition(logs) && optional(logs.main, item => logBuffer(item, 200))
       && optional(logs.system, item => logBuffer(item, 50)) && optional(logs.events, item => logBuffer(item, 50)))) return false
   if (!optional(value.memory, memory => partition(memory)

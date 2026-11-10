@@ -20,7 +20,8 @@
 
 ## Crash 与卡顿语义
 
-- Crash 接收先持久化 pending 原始链和事实，再确认 accepted，不执行 R8。后台使用单批固定文件租约还原；首次成功以单份 retrace_text、resolved-v1 正式指纹和实际来源持久化。详情及分析证据仅读状态，不执行 R8。替换/删除/重传均不修改已有成功结果；选错 mapping 的首次成功无法通过重传纠正。
+- JVM Crash 接收先持久化 pending 原始链和事实，再确认 accepted，不执行 R8。后台使用单批固定文件租约还原；首次成功以单份 retrace_text、resolved-v1 正式指纹和实际来源持久化。详情及分析证据仅读状态，不执行 R8。替换/删除/重传均不修改已有成功结果；选错 mapping 的首次成功无法通过重传纠正。
+- Native Crash 接收不查询或唤醒 mapping；主栈使用 `raw_native` 和 `native_symbolication_deferred`，原生与 Java 辅助栈均不进入 R8。内存及 ClickHouse 候选按 JVM 类型排除 Native，后台入口也检查格式；SO 符号上传和还原尚未实现。
 - Jank ZIP 在 processor 解析回调中取得当前 mapping 租约，解析期间固定该文件；映射后的证据和指纹随事件保存。替换只影响之后上传的 ZIP，已保存事件不回算；无 mapping 注册记录时按可选 mapping 语义解析，已有记录对应文件丢失/不可读时返回可重试 503。
 
 ## 后台处理组件与恢复边界

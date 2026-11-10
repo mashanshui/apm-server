@@ -6,6 +6,8 @@ internal data class CrashReporterConfig(
     val versionCode: Int,
     val buildId: String,
     val applicationPackage: String = packageName,
+    /** 是否安装 Native 信号处理器。 */
+    val nativeEnabled: Boolean = true,
 ) {
     init {
         require(packageName.isNotBlank()) { "packageName must not be blank" }

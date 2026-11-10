@@ -72,7 +72,7 @@ class CrashApiIntegrationTests extends AppIngestApiTestSupport {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.accepted").value(1))
                 .andExpect(jsonPath("$.rejected").value(1))
-                .andExpect(jsonPath("$.errors[0].code").value("UNSUPPORTED_CRASH_KIND"));
+                .andExpect(jsonPath("$.errors[0].code").value("INVALID_CRASH_PAYLOAD"));
     }
 
     @Test

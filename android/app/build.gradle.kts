@@ -161,6 +161,13 @@ android {
         buildConfigField("boolean", "PERFORMANCE_MEMORY_JOINT_TEST", performanceMemoryJointTest.toString())
     }
 
+    externalNativeBuild {
+        cmake {
+            path("src/main/cpp/CMakeLists.txt")
+            version = "3.22.1"
+        }
+    }
+
     signingConfigs {
         // Release 使用本地原证书，缺少配置时不回退为另一张证书。
         create("release") {
@@ -185,6 +192,8 @@ android {
         targetCompatibility = JavaVersion.VERSION_11
     }
     packagingOptions {
+        // Native Crash 回溯程序必须从 APK 安装目录解压后执行。
+        jniLibs.useLegacyPackaging = true
         // Rhea 初始化依赖 ShadowHook；多依赖重复时只保留一个实现，不能排除。
         pickFirst("lib/*/libshadowhook.so")
         pickFirst("lib/*/libshadowhook_nothing.so")

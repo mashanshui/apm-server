@@ -14,8 +14,8 @@
 | Agent 查询 | [Agent 只读查询 HTTP API](agent-query-api.md) | Token 复用、19 个 GET 入口、配额和错误 |
 | 本地分析 | [单事件分析 API](analysis-api.md) | 单事件当前代码任务、应用 Worker、快照、有限修复结果与停止审计 |
 | MCP | [APM 查询 MCP 工具 API](mcp-api.md) | 19 个只读工具、结构化证据、片段续读和结果边界 |
-| JVM Crash | [Crash API 与统计公式](crash-api.md) | 批量上报、总览、趋势、Issue、事件详情和统计状态 |
-| JVM Crash | [Crash 上报错误码](crash-error-codes.md) | 批次级/事件级错误、部分接受和重试语义 |
+| Crash | [Crash API 与统计公式](crash-api.md) | JVM/Native 批量上报、总览、趋势、Issue、事件详情和统计状态 |
+| Crash | [Crash 上报错误码](crash-error-codes.md) | 批次级/事件级错误、部分接受和重试语义 |
 | 卡顿监控 | [卡顿监控服务端协议与查询 API](jank-server-api.md) | 卡顿 ZIP 落库、Issue、FPS、挂起率、趋势和多维查询 |
 | 卡顿接收 | [卡顿压缩包解析与落库 API](stack-artifact-api.md) | `.rheajank.zip`、应用 Key、服务端派生质量、幂等和错误语义 |
 | 内存指标 | [内存指标上传与查询 API](memory-metrics-api.md) | PSS、VSS、Java 堆采样上报、概览、趋势、筛选、统计和错误语义 |

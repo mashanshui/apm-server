@@ -101,6 +101,8 @@ KOOM 自身维护进程级 `mHasDumped`：第一次 `dumpAndAnalysis()` 在进�
 
 ## 关闭与取舍
 
+Crash 初始化先恢复 JVM 与 Native 未完成记录，再安排上传；`nativeEnabled=false` 仍恢复旧 Native 暂存。启用时预创建 Native 文件和工作者，安装失败保留 JVM 能力；关闭时只恢复仍由本模块持有的信号处理器。备用信号栈只覆盖安装线程，详见 [Crash 专题](03-Crash采集与上报.md#native-信号与原始现场)。
+
 `close` 使用原子标志保证重复调用无副作用，与初始化共用锁。实际释放顺序先关闭 Activity 泄漏 watcher，再停止本 SDK 启动的 KOOM 循环和 report 上传器，然后关闭内存 Reporter、FPS、Jank、Crash、本 SDK 启动的 Rhea 和共享网络。KOOM 的 `mHasDumped` 不会被重置。
 
 初始化失败的 `rollback()` 使用同样的泄漏 watcher → KOOM → 内存 → FPS → Jank → Crash → Rhea → 网络顺序，尽量释放已经创建的资源。FPS 关闭时把磁盘工作提交给专用线程，但会通过 `task.get()` 等待，因此调用线程仍可能等待持久化完成。泄漏 report 仍在生成后保存到独立队列。内存指标则只累计本轮峰值：新高立即保存 current，无新高按周期提交脏检查点，close 取消本实例任务并把最后检查点排到共享采样线程，不封存或上传当前轮。同进程重建须排在旧采样及最终检查点之后恢复原 eventId、身份和元数据；新进程才先可靠封存旧轮。内存 close 不在调用线程读写快照，但整个 SDK close 仍可能等待其他组件。关闭不承诺上传完成，不删除未确认历史任务；边界见[内存专题](13-内存指标采集与上传.md)。Crash close 恢复旧异常 handler 的前提是当前 handler 仍是自己安装的实例。

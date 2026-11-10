@@ -168,7 +168,7 @@ async function save() {
 <template>
   <AppLayout :app-id="appId">
     <div class="breadcrumb"><RouterLink :to="{ name: 'apps' }">我的应用</RouterLink><span class="breadcrumb-separator">/</span><span>{{ app?.name || appId }}</span><span class="breadcrumb-separator">/</span><span>应用设置</span></div>
-    <header class="page-header page-header-roomy"><div><p class="eyebrow">APP / SETTINGS</p><h1>应用设置</h1><p class="subtitle">维护应用的基础信息与当前访问角色。</p></div><RouterLink class="button button-primary" :to="{ name: 'crash-overview', params: { appId } }">进入 JVM Crash</RouterLink></header>
+    <header class="page-header page-header-roomy"><div><p class="eyebrow">APP / SETTINGS</p><h1>应用设置</h1><p class="subtitle">维护应用的基础信息与当前访问角色。</p></div><RouterLink class="button button-primary" :to="{ name: 'crash-overview', params: { appId } }">进入 Crash</RouterLink></header>
 
     <div v-if="loading" class="panel loading-state page-state"><p>正在加载应用设置…</p></div>
     <div v-else-if="error && !app" class="panel error-state page-state"><div><p>{{ error }}</p><button class="button" type="button" @click="router.go(0)">重试</button></div></div>

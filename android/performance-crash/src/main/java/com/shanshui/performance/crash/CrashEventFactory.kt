@@ -32,6 +32,21 @@ internal class CrashEventFactory(
         )
     }
 
+    /** 为下一次 Native 崩溃预留固定事件身份；发生时间由信号现场覆盖。 */
+    fun nativeIdentity(): CrashEvent = baseEvent(
+        eventId = idGenerator(),
+        eventType = EVENT_TYPE_CRASH,
+        occurredAt = clock(),
+    ).let { event ->
+        // 标识字段保持精确；其余可由设备或应用提供的文本在首次暂存前脱敏。
+        event.copy(appVersion = CrashSanitizer.sanitize(event.appVersion, MAX_TEXT_LENGTH),
+            environment = CrashSanitizer.sanitize(event.environment, MAX_TEXT_LENGTH),
+            channel = CrashSanitizer.sanitize(event.channel, MAX_CHANNEL_LENGTH),
+            osVersion = CrashSanitizer.sanitize(event.osVersion, MAX_TEXT_LENGTH),
+            deviceModel = CrashSanitizer.sanitize(event.deviceModel, MAX_DEVICE_MODEL_LENGTH),
+            networkType = event.networkType?.let { CrashSanitizer.sanitize(it, MAX_NETWORK_TYPE_LENGTH) })
+    }
+
     fun crash(throwable: Throwable): CrashEvent {
         return baseEvent(
             eventId = idGenerator(),
@@ -174,15 +189,17 @@ internal object CrashSanitizer {
         "(?i)(?:[A-Z]:\\\\Users\\\\|/data/(?:user(?:_de)?/\\d+|data)/|/storage/emulated/\\d+/|/sdcard/|/mnt/user/\\d+/|/Users/|/home/)[^\\r\\n]*",
     )
     /** 请求头可能包含多个以分号或空格分隔的凭据，应整体移除。 */
-    private val sensitiveHeaderPattern = Regex("(?i)\\b(?:authorization|cookie|set-cookie)\\s*[:=]\\s*[^\\r\\n]*")
+    private val sensitiveHeaderPattern = Regex("(?i)\\b(?:authorization|cookie|set-cookie|x[-_]?app[-_]?key|app[-_]?key)\\s*[:=]\\s*[^\\r\\n]*")
     private val emailPattern = Regex("(?i)\\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\\.[A-Z]{2,}\\b")
     private val phonePattern = Regex("(?<!\\d)\\+?\\d[\\d ()-]{7,}\\d(?!\\d)")
     private val urlPattern = Regex("(?i)\\bhttps?://[^\\s]+")
     private val uuidPattern = Regex("(?i)\\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\\b")
     private val bearerPattern = Regex("(?i)\\bBearer\\s+[A-Za-z0-9._~+/=-]+")
     private val secretAssignmentPattern = Regex(
-        "(?i)\\b(cookie|set-cookie|authorization|token|password|secret|api[-_]?key)\\s*[:=]\\s*[^\\s,;]+",
+        "(?i)\\b(cookie|set-cookie|authorization|token|password|secret|api[-_]?key|app[-_]?key)\\s*[:=]\\s*[^\\s,;]+",
     )
+    /** 已知上报和查询凭据即使脱离请求头也不能保存。 */
+    private val apmCredentialPattern = Regex("(?i)\\bapm_(?:ak|qt)_[A-Za-z0-9_-]+")
 
     fun sanitize(value: String, maxLength: Int): String {
         // 先限制参与规则匹配的输入，避免恶意长线程名或异常消息在核心落盘前无界分配。
@@ -195,6 +212,7 @@ internal object CrashSanitizer {
             .replace(urlPattern, "<redacted-url>")
             .replace(uuidPattern, "<redacted-uuid>")
             .replace(bearerPattern, "Bearer <redacted>")
+            .replace(apmCredentialPattern, "<redacted-credential>")
             .replace(secretAssignmentPattern) { match ->
                 "${match.groupValues[1]}=<redacted>"
             }

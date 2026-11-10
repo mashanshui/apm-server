@@ -4,12 +4,12 @@
 
 发布时将 APK、`build-info.json`、`buildId` 和 mapping 一起归档；当前自动导出范围与核对方法见 [Android 构建信息导出](../../android/docs/knowledge-base/11-构建测试与本地发布.md#打包时导出-buildid)。上传前确认 mapping 来自同次 R8/ProGuard 构建；AAB 的构建信息导出按该页边界另行核对。网页步骤、请求字段、错误码与替换规则统一见[符号表 API](../api/symbol-api.md)。
 
-Crash 上报保存 pending 原始脱敏异常链和事实后即可确认，详情不执行实时还原。上传或替换成功只表示文件已持久化且构建工作已登记，通过独立进度接口查看排队、运行、等待 mapping、退避及当前空闲；不必因后台等待或失败重新生成事件。
+JVM Crash 上报保存 pending 原始脱敏异常链和事实后即可确认，详情不执行实时还原。上传或替换成功只表示文件已持久化且构建工作已登记，通过独立进度接口查看排队、运行、等待 mapping、退避及当前空闲；不必因后台等待或失败重新生成事件。
 
 格式合法不能证明 mapping 与 APK 匹配。Crash 首次成功后的还原文本固定，错误 mapping 一旦得到成功结果，替换、删除和同构建重传均不会重算该事件。后台状态、文件租约和审计细节见[符号表实现](../../backend/docs/knowledge-base/symbol-mapping.md)，不据网页上传成功推断历史事件已重算。
 
-其他线程使用与主异常相同的固定 mapping 独立还原；每条线程可能成功、失败或因空帧不适用。主异常首次成功时一并固定辅助结果，辅助超时、资源繁忙或输出超限会保留原始帧，不改变主异常指纹。登记载荷单份上限为 4 MiB，必要时先回退辅助结果；详情字段见 [Crash API](../api/crash-api.md#查询接口)。
+JVM 事件的其他线程使用与主异常相同的固定 mapping 独立还原；每条线程可能成功、失败或因空帧不适用。主异常首次成功时一并固定辅助结果，辅助超时、资源繁忙或输出超限会保留原始帧，不改变主异常指纹。登记载荷单份上限为 4 MiB，必要时先回退辅助结果；详情字段见 [Crash API](../api/crash-api.md#查询接口)。
 
-当前材料为原始 raw_chain 或成功后的 retrace_text，不提供双份堆栈。卡顿仍在 ZIP 上传解析时使用当前 mapping；删除后按既有无 mapping 可选解析，既存卡顿事件和指纹不回算，也不进入 JVM Crash 后台队列。
+JVM 当前材料为原始 raw_chain 或成功后的 retrace_text；Native 使用 raw_native，主栈和 Java/Native 辅助栈均不使用 JVM mapping。SO 符号文件上传和 Native 符号还原尚未实现。卡顿仍在 ZIP 上传解析时使用当前 mapping；删除后按既有无 mapping 可选解析，既存卡顿事件和指纹不回算，也不进入 JVM Crash 后台队列。
 
 尚未成功的事件在 mapping 暂时不可用时仍可查看原始链；成功事件继续查看固定还原文本；卡顿上传会按已有的可选 mapping 规则继续或返回可重试的存储故障。客户端不应把网页上传 API 当作 Android 上报 API，也不应把 appKey 放入网页 URL、文件内容或日志。

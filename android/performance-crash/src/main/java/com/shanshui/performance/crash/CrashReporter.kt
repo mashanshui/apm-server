@@ -36,11 +36,19 @@ internal class CrashReporter private constructor(
     private val logcatCollector: LogcatDiagnosticsCollector,
     /** 可选前后台状态监听。 */
     private val foregroundTracker: CrashForegroundTracker?,
+    /** Native 有界暂存；不可用时 JVM 采集仍可运行。 */
+    private val nativeStaging: NativeCaptureStaging?,
+    /** 原进程 Java 线程采集器。 */
+    private val nativeThreads: ThreadDiagnosticsCollector,
+    /** 原进程环境采集器。 */
+    private val nativeEnvironment: EnvironmentDiagnosticsCollector,
     private val previousExceptionHandler: Thread.UncaughtExceptionHandler?,
 ) : Closeable {
     /** 后台和处理器上传复用同一个非等待互斥门。 */
     private val flushGate = CrashFlushGate()
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
+    /** 此 reporter 安装成功的 Native 所有权。 */
+    private var nativeHandle: NativeCaptureHandle? = null
 
     /** 只在发生异常的线程取得系统 TID，不能用 Java 线程 ID 代替。 */
     private val uncaughtExceptionHandler = CrashExceptionHandler(
@@ -63,6 +71,7 @@ internal class CrashReporter private constructor(
     fun pendingEventCount(): Int = queue.count()
 
     override fun close() {
+        releaseNativeCapture()
         unregisterNetworkCallback()
         runCatching { foregroundTracker?.close() }
         diagnosticWorker.shutdownNow()
@@ -82,6 +91,8 @@ internal class CrashReporter private constructor(
             throw failure
         }
         Log.i(TAG, "crash capture recovery complete: count=$recovered")
+        recoverNativeCaptures()
+        if (config.nativeEnabled) installNativeCapture()
         runCatching {
             queue.enqueue(eventFactory.appStart())
         }.onFailure {
@@ -98,6 +109,49 @@ internal class CrashReporter private constructor(
         )
     }
 
+    /** 在启动和后台上传前重试未完成的 Native 导入，不读取正在采集的现场。 */
+    private fun recoverNativeCaptures() {
+        if (NativeCrashBridge.captureInProgress()) return
+        runCatching { nativeStaging?.recover(queue, CrashEventBudget(serviceConfig.crashMaxBatchBytes)) ?: 0 }
+            .onSuccess { if (it > 0) Log.i(TAG, "native crash recovery complete: count=$it") }
+            .onFailure { Log.w(TAG, "native crash recovery deferred") }
+    }
+
+    /** 在信号前固定原事件身份，并只执行应用安装目录内的自有回溯程序。 */
+    private fun installNativeCapture() {
+        val staging = nativeStaging ?: return
+        var prepared: NativeCaptureHandle? = null
+        val installed = runCatching {
+            val directory = File(context.applicationInfo.nativeLibraryDir).canonicalFile
+            val dumper = File(directory, "libapm_crash_dumper.so").canonicalFile
+            if (dumper.parentFile != directory || !dumper.isFile || !dumper.canExecute()) return@runCatching false
+            val process = nativeEnvironment.captureProcess()
+            val pid = process.pid?.takeIf { it > 0 } ?: return@runCatching false
+            val handle = staging.prepare(eventFactory.nativeIdentity(), pid, process, nativeEnvironment.captureDevice())
+                ?: return@runCatching false
+            prepared = handle
+            val capture = NativeJavaDiagnosticsCapture(nativeThreads, nativeEnvironment, handle.javaFile)
+            if (!NativeCrashBridge.install(handle.coreFile, dumper, handle.traceFile, handle.diagnosticsFile,
+                    handle.decisionFile, capture::capture)) return@runCatching false
+            nativeHandle = handle
+            true
+        }.getOrDefault(false)
+        if (!installed) {
+            prepared?.let { runCatching { staging.discardUnused(it) } }
+            Log.w(TAG, "native crash initialization unavailable")
+        } else Log.i(TAG, "native crash initialization complete")
+    }
+
+    /** 只释放当前 reporter 的信号所有权；已提交核心由下一进程恢复。 */
+    private fun releaseNativeCapture() {
+        val handle = nativeHandle ?: return
+        NativeCrashBridge.uninstall()
+        runCatching { nativeStaging?.discardUnused(handle) }
+            .onFailure { Log.w(TAG, "native crash staging cleanup deferred") }
+        nativeHandle = null
+        Log.i(TAG, "native crash shutdown complete")
+    }
+
     /** 冻结的事件才能交给现有同步上传流程；失败时保留已持久化核心。 */
     private fun captureAndFlush(thread: Thread, systemTid: Int?, throwable: Throwable) {
         runCatching {
@@ -111,6 +165,8 @@ internal class CrashReporter private constructor(
     private fun flushInBackground() {
         flushGate.runIfAvailable {
             try {
+                // 上次导入遇到瞬时文件或队列错误时，复用既有周期及网络恢复触发器重试。
+                recoverNativeCaptures()
                 runBlocking {
                     uploader.flush()
                 }
@@ -206,6 +262,7 @@ internal class CrashReporter private constructor(
                 },
                 config = serviceConfig,
                 logger = { message -> Log.w(TAG, message) },
+                canSend = { !NativeCrashBridge.captureInProgress() },
             )
             val scheduler = Executors.newSingleThreadScheduledExecutor { runnable ->
                 Thread(runnable, "crash-upload").apply { isDaemon = true }
@@ -229,7 +286,10 @@ internal class CrashReporter private constructor(
                 foregroundTracker = tracker
                 val cached = AndroidCrashEnvironmentSource.cache(System.currentTimeMillis())
                 val environment = EnvironmentDiagnosticsCollector(AndroidCrashEnvironmentSource(), cached, { tracker?.current() })
-                val collector = CrashDiagnosticsCollector(ThreadDiagnosticsCollector(config.applicationPackage), environment, logs,
+                val threads = ThreadDiagnosticsCollector(config.applicationPackage)
+                val staging = runCatching { NativeCaptureStaging(File(queueRoot, "native-staging")) }
+                    .onFailure { Log.w(TAG, "native crash staging unavailable") }.getOrNull()
+                val collector = CrashDiagnosticsCollector(threads, environment, logs,
                     cached.pid, cached.apiLevel)
                 val coordinator = CrashCaptureCoordinator(queue, CrashEventBudget(serviceConfig.crashMaxBatchBytes), collector,
                     worker, logger = { message -> Log.i(TAG, message) })
@@ -245,6 +305,9 @@ internal class CrashReporter private constructor(
                     diagnosticWorker = worker,
                     logcatCollector = logs,
                     foregroundTracker = tracker,
+                    nativeStaging = staging,
+                    nativeThreads = threads,
+                    nativeEnvironment = environment,
                     previousExceptionHandler = previousExceptionHandler,
                 )
             } catch (throwable: Throwable) {

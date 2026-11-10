@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://apm.example.com/schema/crash-event-v2.json",
-  "title": "JVM Crash event v2",
+  "title": "JVM 与 Native Crash event v2",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -106,12 +106,14 @@
       "additionalProperties": false,
       "required": [
         "kind",
-        "fatal",
-        "throwableChain"
+        "fatal"
       ],
       "properties": {
         "kind": {
-          "const": "jvm"
+          "enum": [
+            "jvm",
+            "native"
+          ]
         },
         "fatal": {
           "const": true
@@ -133,8 +135,58 @@
               "type": "null"
             }
           ]
+        },
+        "nativeCrash": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/nativeCrash"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "jvm"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "throwableChain"
+            ],
+            "properties": {
+              "nativeCrash": {
+                "type": "null"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "native"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "nativeCrash"
+            ],
+            "properties": {
+              "throwableChain": {
+                "type": "null"
+              }
+            }
+          }
+        }
+      ]
     }
   },
   "$defs": {
@@ -276,6 +328,16 @@
           "anyOf": [
             {
               "$ref": "#/$defs/crashDevice"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "nativeThreads": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/nativeThreads"
             },
             {
               "type": "null"
@@ -475,6 +537,25 @@
           "items": {
             "$ref": "#/$defs/frame"
           }
+        },
+        "systemTid": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 2147483647
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "relationToCrash": {
+          "enum": [
+            "other",
+            "unknown",
+            null
+          ]
         }
       }
     },
@@ -1037,6 +1118,478 @@
             "null"
           ],
           "maxLength": 1024
+        }
+      }
+    },
+    "nativeSignal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "number",
+        "name",
+        "code"
+      ],
+      "properties": {
+        "number": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 128
+        },
+        "name": {
+          "type": "string",
+          "pattern": "^SIG[A-Z0-9]{1,16}$"
+        },
+        "code": {
+          "type": "integer"
+        },
+        "codeName": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 128
+        },
+        "faultAddress": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^0x(0|[1-9a-f][0-9a-f]{0,15})$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "abortMessage": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 4096
+        }
+      }
+    },
+    "nativeRegisters": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "truncated",
+        "values"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "ok",
+            "partial",
+            "unavailable",
+            "skipped"
+          ]
+        },
+        "reason": {
+          "enum": [
+            "permission_denied",
+            "unsupported",
+            "timeout",
+            "io_error",
+            "memory_pressure",
+            "interrupted",
+            "size_limit",
+            "count_limit",
+            null
+          ]
+        },
+        "truncated": {
+          "type": "boolean"
+        },
+        "capturedAt": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "values": {
+          "type": "object",
+          "maxProperties": 64,
+          "propertyNames": {
+            "pattern": "^[a-z][a-z0-9_]{0,15}$"
+          },
+          "additionalProperties": {
+            "type": "string",
+            "pattern": "^0x(0|[1-9a-f][0-9a-f]{0,15})$"
+          }
+        }
+      }
+    },
+    "nativeModule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "name",
+        "abi"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{1,64}$"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "path": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 2048
+        },
+        "abi": {
+          "enum": [
+            "arm64-v8a",
+            "armeabi-v7a",
+            "x86",
+            "x86_64"
+          ]
+        },
+        "elfBuildId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^(?:[0-9a-f]{2}){1,64}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "nativeFrame": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "index"
+      ],
+      "properties": {
+        "index": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 127
+        },
+        "moduleId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 64
+        },
+        "relativePc": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^0x(0|[1-9a-f][0-9a-f]{0,15})$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "functionName": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 2048
+        },
+        "functionOffset": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^0x(0|[1-9a-f][0-9a-f]{0,15})$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "nativeBacktrace": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "truncated",
+        "frames"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "ok",
+            "partial",
+            "unavailable",
+            "skipped"
+          ]
+        },
+        "reason": {
+          "enum": [
+            "permission_denied",
+            "unsupported",
+            "timeout",
+            "io_error",
+            "memory_pressure",
+            "interrupted",
+            "size_limit",
+            "count_limit",
+            null
+          ]
+        },
+        "truncated": {
+          "type": "boolean"
+        },
+        "capturedAt": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "frames": {
+          "type": "array",
+          "maxItems": 128,
+          "items": {
+            "$ref": "#/$defs/nativeFrame"
+          }
+        }
+      }
+    },
+    "nativeJavaStack": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "truncated",
+        "frames"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "ok",
+            "partial",
+            "unavailable",
+            "skipped"
+          ]
+        },
+        "reason": {
+          "enum": [
+            "permission_denied",
+            "unsupported",
+            "timeout",
+            "io_error",
+            "memory_pressure",
+            "interrupted",
+            "size_limit",
+            "count_limit",
+            null
+          ]
+        },
+        "truncated": {
+          "type": "boolean"
+        },
+        "capturedAt": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "frames": {
+          "type": "array",
+          "maxItems": 128,
+          "items": {
+            "$ref": "#/$defs/frame"
+          }
+        }
+      }
+    },
+    "nativeCrash": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "abi",
+        "systemTid",
+        "signal",
+        "registers",
+        "modules",
+        "backtrace"
+      ],
+      "properties": {
+        "abi": {
+          "enum": [
+            "arm64-v8a",
+            "armeabi-v7a",
+            "x86",
+            "x86_64"
+          ]
+        },
+        "systemTid": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2147483647
+        },
+        "threadName": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 512
+        },
+        "mainThread": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "signal": {
+          "$ref": "#/$defs/nativeSignal"
+        },
+        "registers": {
+          "$ref": "#/$defs/nativeRegisters"
+        },
+        "modules": {
+          "type": "array",
+          "maxItems": 128,
+          "items": {
+            "$ref": "#/$defs/nativeModule"
+          }
+        },
+        "backtrace": {
+          "$ref": "#/$defs/nativeBacktrace"
+        },
+        "javaStack": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/nativeJavaStack"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "nativeThread": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "systemTid",
+        "backtrace"
+      ],
+      "properties": {
+        "systemTid": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2147483647
+        },
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 512
+        },
+        "mainThread": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "backtrace": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/nativeBacktrace"
+            },
+            {
+              "properties": {
+                "frames": {
+                  "maxItems": 32
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "nativeThreads": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "truncated",
+        "threads"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "ok",
+            "partial",
+            "unavailable",
+            "skipped"
+          ]
+        },
+        "reason": {
+          "enum": [
+            "permission_denied",
+            "unsupported",
+            "timeout",
+            "io_error",
+            "memory_pressure",
+            "interrupted",
+            "size_limit",
+            "count_limit",
+            null
+          ]
+        },
+        "truncated": {
+          "type": "boolean"
+        },
+        "capturedAt": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "observedCount": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 2147483647
+        },
+        "omittedCount": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 2147483647
+        },
+        "threads": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "$ref": "#/$defs/nativeThread"
+          }
         }
       }
     }

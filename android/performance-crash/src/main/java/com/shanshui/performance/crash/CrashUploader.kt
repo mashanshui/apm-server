@@ -28,6 +28,8 @@ internal class CrashUploader(
     private val clock: () -> Long = { System.currentTimeMillis() },
     private val requestIdGenerator: () -> String = { UUID.randomUUID().toString() },
     private val logger: (String) -> Unit = {},
+    /** Native 信号已发生时不启动新的上传请求。 */
+    private val canSend: () -> Boolean = { true },
 ) {
     suspend fun flush(maxBatches: Int = MAX_BATCHES_PER_FLUSH): CrashFlushReport {
         require(maxBatches > 0) { "maxBatches must be positive" }
@@ -36,6 +38,10 @@ internal class CrashUploader(
         var report = CrashFlushReport()
         repeat(maxBatches) {
             val selected = selectBatch(clock()) ?: return report
+            if (!canSend()) {
+                logger("crash batch deferred: native_capture_in_progress")
+                return report
+            }
             val result = sender.send(selected.request)
             val update = handleResult(selected, result)
             report = report + update

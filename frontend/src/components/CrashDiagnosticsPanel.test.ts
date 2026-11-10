@@ -76,4 +76,29 @@ describe('CrashDiagnosticsPanel', () => {
     expect(wrapper.find('.diagnostic-frames').exists()).toBe(false)
     wrapper.unmount()
   })
+
+  /** Native 与 Java 同名线程分别按 TID 和 Java ID 选择并保留关系未知。 */
+  it('keeps native and java thread selection independent', async () => {
+    const value = diagnostics()
+    value.otherThreads!.threads[0] = { ...value.otherThreads!.threads[0], relationToCrash: 'unknown', symbolicationStatus: 'not_applicable',
+      stack: { format: 'raw_frames', content: [] } }
+    value.nativeThreads = { status: 'partial', reason: 'count_limit', truncated: true, observedCount: 3, omittedCount: 1, threads: [
+      { systemTid: 50, name: 'same', mainThread: true, backtrace: { status: 'ok', truncated: false, frames: [{ index: 0, moduleId: 'm1', relativePc: '0x0' }] } },
+      { systemTid: 51, name: 'same', backtrace: { status: 'unavailable', reason: 'timeout', truncated: false, frames: [] } },
+    ] }
+    const nativeCrash = { abi: 'arm64-v8a', systemTid: 47, signal: { number: 11, name: 'SIGSEGV', code: 1 },
+      registers: { status: 'ok' as const, truncated: false, values: { pc: '0x0' } },
+      modules: [{ id: 'm1', name: 'liba.so', abi: 'arm64-v8a' }], backtrace: { status: 'ok' as const, truncated: false, frames: [{ index: 0 }] } }
+    const wrapper = mount(CrashDiagnosticsPanel, { props: { diagnostics: value, nativeCrash } })
+    expect(wrapper.text()).toContain('与崩溃线程的关系未知')
+    expect(wrapper.text()).toContain('liba.so · 0x0')
+    const tabs = wrapper.findAll('[aria-label="其他 Native 线程"] button')
+    expect(tabs).toHaveLength(2)
+    await tabs[1].trigger('click')
+    expect(wrapper.text()).toContain('系统 TID 51')
+    expect(wrapper.text()).toContain('采集超时')
+    expect(wrapper.text()).not.toContain('liba.so · 0x0')
+    expect(wrapper.text()).toContain('Java ID 2')
+    wrapper.unmount()
+  })
 })

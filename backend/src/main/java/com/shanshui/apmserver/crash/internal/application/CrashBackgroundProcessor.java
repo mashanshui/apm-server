@@ -108,6 +108,11 @@ public class CrashBackgroundProcessor {
             for (var work : candidates) {
                 // 包名来自与候选状态关联的事实，同批只持有有限事件。
                 CrashState candidate = work.state();
+                // 即使存储适配器误返回 Native，也不能将其改写成 JVM 失败状态。
+                if ("raw_native".equals(candidate.stackFormat())) {
+                    log.warn("Crash 后台候选包含 Native 材料，已跳过");
+                    continue;
+                }
                 if (stopping || System.nanoTime() >= deadline) {
                     jobs.release(lease, "queued", null, Duration.ZERO);
                     return;

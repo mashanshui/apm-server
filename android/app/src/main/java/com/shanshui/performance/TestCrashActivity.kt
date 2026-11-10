@@ -84,6 +84,22 @@ class TestCrashActivity : AppCompatActivity() {
                 Thread({ CrashTestCases.explicitException() }, "crash-diagnostic-background").start()
             }
         }
+        findViewById<Button>(R.id.nativeMainCrashButton).setOnClickListener {
+            Log.i("CrashDiagnosticsDemo", "triggering native main-thread signal")
+            NativeCrashDemo.segv()
+        }
+        findViewById<Button>(R.id.nativeBackgroundCrashButton).setOnClickListener {
+            Log.i("CrashDiagnosticsDemo", "triggering native background-thread signal")
+            Thread({ NativeCrashDemo.segv() }, "native-java-demo").start()
+        }
+        findViewById<Button>(R.id.nativePureCrashButton).setOnClickListener {
+            Log.i("CrashDiagnosticsDemo", "triggering pure native-thread signal")
+            NativeCrashDemo.nativeThread()
+        }
+        findViewById<Button>(R.id.nativeAbortButton).setOnClickListener {
+            Log.i("CrashDiagnosticsDemo", "triggering native abort signal")
+            NativeCrashDemo.abort()
+        }
     }
 
     /** 离开示例页面时释放尚未用于崩溃的线程和文件。 */

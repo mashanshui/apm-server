@@ -19,7 +19,9 @@ Release 变体启用 R8。Debug/Release 消费者签名读取与示例 App 相�
 
 ## 验证边界
 
-- Crash 消费者只能解析 Core、Transport、Crash，不携带 Rhea、KOOM、ShadowHook 或原生 SO。
+- Crash 消费者只能解析 Core、Transport、Crash；自带 Crash 的 JNI 与独立回溯程序，不携带 Rhea、KOOM 或 ShadowHook。宿主声明解压原生库，回溯程序从安装目录执行。
 - Metrics 消费者只能解析 Core、Transport、Metrics，不触发 CMake 或 Native Tools 构建。
 - Full 消费者解析 SDK 和 Native Tools，验证 JNI SO、consumer rules、R8 与重复 `libc++_shared.so` 合并规则。
 - 本目录验证编译、Release 混淆、APK 和清单；三个 `SmokeActivity` 已在 Pixel 4 XL/API 33 上完成初始化/关闭/身份序列化/队列目录烟测，Full 消费者同时验证 JNI。Full 烟测使用关闭 Jank/Memory Leak 的精简配置，真实 Rhea/KOOM 设备链路仍由示例 App 覆盖；客户端真实服务地址联调仍未完成，服务端契约回归记录见项目知识库 09/11。
+
+Crash 消费者的 `SmokeActivity` 还支持受控验收参数 `nativeProbe=hold`、`disable-next-start` 和 `signal`：先保持当前监听，再将下一进程设置为 `nativeEnabled=false`，最后发送真实 SIGSEGV；重新启动后检查旧暂存已恢复且未安装新 Native 监听。仅在独立模拟器使用这些入口。

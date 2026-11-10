@@ -48,3 +48,6 @@
 -keep class com.shanshui.performance.TestJankActivity$Companion {
     public void computeWithoutCapture(long);
 }
+
+# Native 测试页使用固定 JNI 名称触发受控致命信号。
+-keep class com.shanshui.performance.NativeCrashDemo { native <methods>; }

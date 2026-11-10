@@ -54,10 +54,12 @@ public class CrashEventProcessor implements CrashEventProcessing {
         CrashPayload crash = sanitized.crash();
         // 状态中的主异常永远不嵌入诊断；现场与辅助栈独立存放并共享摘要。
         var diagnostics = crash == null ? null : new CrashDiagnosticsStorage(mapper).encode(sanitized);
-        String exceptionType = crash == null || crash.throwableChain().isEmpty()
-                ? null : crash.throwableChain().get(0).type();
+        boolean nativeCrash = crash != null && "native".equals(crash.kind());
+        String exceptionType = crash == null ? null : nativeCrash ? crash.nativeCrash().signal().name()
+                : crash.throwableChain().get(0).type();
         String fingerprint = "crash".equals(sanitized.eventType())
-                ? fingerprintService.temporary(appId, sanitized.packageName(), sanitized.buildId(), crash)
+                ? nativeCrash ? fingerprintService.nativeTemporary(appId, sanitized.packageName(), sanitized.buildId(), crash.nativeCrash())
+                : fingerprintService.temporary(appId, sanitized.packageName(), sanitized.buildId(), crash)
                 : null;
         EventMetadata metadata = new EventMetadata(appId, sanitized.packageName(), sanitized.eventId(),
                 sanitized.eventType(), Instant.ofEpochMilli(sanitized.occurredAt()), receivedAt,
@@ -70,14 +72,16 @@ public class CrashEventProcessor implements CrashEventProcessing {
                 ? new AppStartEvent(metadata)
                 : new CrashEvent(metadata, crash.kind(), Boolean.TRUE.equals(crash.fatal()),
                 new com.shanshui.apmserver.crash.internal.domain.CrashState(appId, metadata.eventId(), metadata.buildId(), metadata.occurredAt(),
-                        0, "pending", "awaiting_processing", "raw_chain",
-                        mapper.writeValueAsString(new CrashPayload(crash.kind(), crash.fatal(), crash.throwableChain())), exceptionType,
-                        fingerprint, "tmp-v1", "temporary", null, null, null, null, null,
+                        0, "pending", nativeCrash ? "native_symbolication_deferred" : "awaiting_processing",
+                        nativeCrash ? "raw_native" : "raw_chain",
+                        nativeCrash ? mapper.writeValueAsString(crash.nativeCrash())
+                                : mapper.writeValueAsString(new CrashPayload(crash.kind(), crash.fatal(), crash.throwableChain())), exceptionType,
+                        fingerprint, nativeCrash ? "native-tmp-v1" : "tmp-v1", "temporary", null, null, null, null, null,
                         diagnostics.captureSha256(), diagnostics.threadStacksPayload()), diagnostics.diagnosticsPayload());
         var appendResult = repository.append(appId, java.util.List.of(stored));
         if (crash != null) log.info("Crash 接收已确认：accepted={} duplicate={} diagnostics={}",
                 appendResult.accepted(), appendResult.duplicate(), crash.diagnostics() != null);
-        if (crash != null) {
+        if (crash != null && !nativeCrash) {
             // 两侧已确认后通知失败不能伪造未持久化；定时轮转仍可发现当前事件。
             try (var mapping = symbols.acquire(appId, metadata.buildId()).orElse(null)) {
                 if (mapping != null) work.wake(appId, metadata.buildId());

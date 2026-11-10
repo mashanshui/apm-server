@@ -1,9 +1,9 @@
-import type { CrashDiagnostics } from './crashDiagnostics'
+import type { CrashDiagnostics, DiagnosticPartition } from './crashDiagnostics'
 
 // 持久化状态与归组类别仅支持当前契约。
 export type SymbolicationStatus = 'pending' | 'failed' | 'symbolicated'
 export type GroupingKind = 'temporary' | 'resolved'
-export type CrashStack = { format: 'raw_chain'; content: CrashPayload } | { format: 'retrace_text'; content: string }
+export type CrashStack = { format: 'raw_chain'; content: CrashPayload } | { format: 'raw_native'; content: NativeCrash } | { format: 'retrace_text'; content: string }
 
 export type CrashStatus = 'ok' | 'no_data' | 'denominator_insufficient' | string
 
@@ -109,6 +109,44 @@ export interface CrashPayload {
   kind: string
   fatal: boolean
   throwableChain: ThrowableNode[]
+}
+
+/** Native 帧所属模块，ELF Build ID 不等于应用 buildId。 */
+export interface NativeModule {
+  /** 事件内模块标识。 */ id: string
+  /** 文件名。 */ name: string
+  /** 脱敏后的可选路径。 */ path?: string | null
+  /** 实际 ABI。 */ abi: string
+  /** 可取得时的 ELF Build ID。 */ elfBuildId?: string | null
+}
+
+/** 相对模块的原始程序计数器与现场已有函数名。 */
+export interface NativeFrame {
+  /** 帧顺序。 */ index: number
+  /** 事件内模块引用。 */ moduleId?: string | null
+  /** 规范十六进制相对地址。 */ relativePc?: string | null
+  /** 现场已有函数名。 */ functionName?: string | null
+  /** 函数内偏移。 */ functionOffset?: string | null
+}
+
+/** 有独立采集状态的 Native 回溯。 */
+export interface NativeBacktrace extends DiagnosticPartition {
+  /** 原始帧顺序。 */ frames: NativeFrame[]
+}
+
+/** Native 主线程现场；无还原文本或内存转储。 */
+export interface NativeCrash {
+  /** 崩溃进程实际 ABI。 */ abi: string
+  /** 崩溃线程系统 TID。 */ systemTid: number
+  /** 可取得的线程名。 */ threadName?: string | null
+  /** 可判断时是否为主线程。 */ mainThread?: boolean | null
+  /** 信号和零值有效的故障地址。 */ signal: {
+    number: number; name: string; code: number; codeName?: string | null; faultAddress?: string | null; abortMessage?: string | null
+  }
+  /** 原始寄存器以字符串无损保留。 */ registers: DiagnosticPartition & { values: Record<string, string> }
+  /** 主辅帧涉及的模块。 */ modules: NativeModule[]
+  /** 原始 Native 主回溯。 */ backtrace: NativeBacktrace
+  /** 可可靠关联时的 Java 主线程栈。 */ javaStack?: (DiagnosticPartition & { frames: StackFrame[] }) | null
 }
 
 export interface CrashEventDetailResponse {

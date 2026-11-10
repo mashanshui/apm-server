@@ -52,7 +52,7 @@ async function submit() {
         <p>从应用趋势到原始堆栈，在一个清晰、可靠的工作区里完成移动应用排障。</p>
       </div>
       <div class="auth-points" aria-label="平台能力">
-        <span><i>01</i> JVM Crash 趋势与问题归组</span>
+        <span><i>01</i> Crash 趋势与问题归组</span>
         <span><i>02</i> 脱敏堆栈与事件下钻</span>
         <span><i>03</i> 应用级权限与安全会话</span>
       </div>

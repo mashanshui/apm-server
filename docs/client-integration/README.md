@@ -13,7 +13,7 @@
 
 | 需要接入什么 | 客户端流程 | 正式契约 |
 |---|---|---|
-| JVM 致命 Crash 与启动事件 | [Crash 接入](crash-client-integration.md) | [Crash API](../api/crash-api.md)、[上报错误码](../api/crash-error-codes.md) |
+| JVM/Native 致命 Crash 与启动事件 | [Crash 接入](crash-client-integration.md) | [Crash API](../api/crash-api.md)、[上报错误码](../api/crash-error-codes.md) |
 | 卡顿个例、场景 FPS 与前台挂起 | [卡顿接入](jank-monitoring.md)、[ZIP manifest 构造](jank-artifact-manifest.md) | [卡顿压缩包 API](../api/stack-artifact-api.md)、[卡顿指标 API](../api/jank-server-api.md) |
 | PSS、VSS 与 Java 堆运行峰值 | [内存峰值接入](memory-metrics.md) | [内存指标 API](../api/memory-metrics-api.md) |
 | Activity 泄漏与 KOOM 异常报告 | [内存泄漏报告接入](memory-leak-reports.md) | [内存泄漏报告 API](../api/memory-leak-reports-api.md) |
