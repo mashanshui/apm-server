@@ -44,7 +44,7 @@ flowchart TD
 
 SDK 不生成、落盘或上传原始栈内存 `stack`、寄存器附近内存 `memory near` 和完整虚拟内存映射 `memory map` 转储。回溯所需内存和映射仅在采集时临时读取；日志和可选名称在首次写入前按规则过滤敏感信息与转储样式，包含 App Key 请求头、`apm_ak_`/`apm_qt_` 凭据和带日志标签的两列栈内存行。规则不能识别任意业务秘密，失败分区保留状态与安全原因。Native 信号入口和补充采集不主动联网；上传器感知到采集后不启动新批次，捕获前已在途请求不保证即时取消。
 
-`performance-crash` AAR 包含四种 ABI 的 `libapm_crash.so` 与 `libapm_crash_dumper.so`。宿主需启用原生库解压，使 dumper 从应用安装目录执行；未满足路径或执行条件时 Native 初始化失败。源码和许可见 [xCrash 来源说明](../../performance-crash/src/main/cpp/third_party/xcrash/来源说明.md)。SO 符号表上传和 Native 符号还原尚未实现。
+`performance-crash` AAR 包含四种 ABI 的 `libapm_crash.so` 与 `libapm_crash_dumper.so`。宿主需启用原生库解压，使 dumper 从应用安装目录执行；未满足路径或执行条件时 Native 初始化失败。源码和许可见 [xCrash 来源说明](../../performance-crash/src/main/cpp/third_party/xcrash/来源说明.md)。服务端已实现按版本、ABI 和完整 ELF Build ID 管理 SO ZIP，见[符号表接入](../../../docs/client-integration/symbol-mapping.md)；Native 地址还原仍未实现，SDK 不新增上传字段。
 
 ## 事件与堆栈
 

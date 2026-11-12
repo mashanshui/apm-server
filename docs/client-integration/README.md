@@ -17,7 +17,7 @@
 | 卡顿个例、场景 FPS 与前台挂起 | [卡顿接入](jank-monitoring.md)、[ZIP manifest 构造](jank-artifact-manifest.md) | [卡顿压缩包 API](../api/stack-artifact-api.md)、[卡顿指标 API](../api/jank-server-api.md) |
 | PSS、VSS 与 Java 堆运行峰值 | [内存峰值接入](memory-metrics.md) | [内存指标 API](../api/memory-metrics-api.md) |
 | Activity 泄漏与 KOOM 异常报告 | [内存泄漏报告接入](memory-leak-reports.md) | [内存泄漏报告 API](../api/memory-leak-reports-api.md) |
-| 发布构建与符号表 | [mapping 关联与生效边界](symbol-mapping.md) | [符号表 API](../api/symbol-api.md) |
+| 发布构建与符号表 | [mapping 与 SO 管理及生效边界](symbol-mapping.md) | [符号表 API](../api/symbol-api.md) |
 
 直接对接 HTTP 的调用方也应遵守以下公共规则，具体请求体按各能力的正式契约构造。
 

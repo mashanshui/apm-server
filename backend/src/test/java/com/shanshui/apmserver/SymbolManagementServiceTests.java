@@ -44,12 +44,12 @@ class SymbolManagementServiceTests {
         SymbolFileStore.StagedFile staged = staged("disk-staged");
         when(store.stage(any(InputStream.class), eq(properties.getMaxFileBytes()))).thenReturn(staged);
         doNothing().when(retrace).validate(staged.path());
-        when(repository.findByAppIdAndBuildIdAndDeletedAtIsNull(any(), eq("release-1"))).thenReturn(Optional.empty());
+        when(repository.versionMapping(any(), eq("1"), eq("release-1"))).thenReturn(Optional.empty());
         when(store.publish(staged)).thenThrow(new SymbolStoreUnavailableException("disk unavailable"));
         SymbolManagementService service = service(repository, writer, store, retrace, properties);
 
         assertThrows(SymbolStoreUnavailableException.class,
-                () -> service.upload(UUID.randomUUID(), UUID.randomUUID(), "release-1",
+                () -> service.upload(UUID.randomUUID(), UUID.randomUUID(), "1", "release-1",
                         new MockMultipartFile("file", "mapping.txt", "text/plain", "mapping".getBytes())));
 
         verify(store).discard(staged);
@@ -66,12 +66,12 @@ class SymbolManagementServiceTests {
         R8RetraceEngine retrace = mock(R8RetraceEngine.class);
         SymbolFileStore.StagedFile staged = staged("database-staged");
         when(store.stage(any(InputStream.class), eq(properties.getMaxFileBytes()))).thenReturn(staged);
-        when(repository.findByAppIdAndBuildIdAndDeletedAtIsNull(any(), eq("release-2")))
+        when(repository.versionMapping(any(), eq("1"), eq("release-2")))
                 .thenThrow(new DataAccessResourceFailureException("database unavailable"));
         SymbolManagementService service = service(repository, writer, store, retrace, properties);
 
         assertThrows(SymbolStoreUnavailableException.class,
-                () -> service.upload(UUID.randomUUID(), UUID.randomUUID(), "release-2",
+                () -> service.upload(UUID.randomUUID(), UUID.randomUUID(), "1", "release-2",
                         new MockMultipartFile("file", "mapping.txt", "text/plain", "mapping".getBytes())));
 
         verify(store).discard(staged);
@@ -92,6 +92,7 @@ class SymbolManagementServiceTests {
         String newKey = UUID.randomUUID() + ".mapping";
         SymbolFileEntity current = new SymbolFileEntity(symbolId, appId, "release-3", 1, oldKey,
                 "old.txt", 10, "a".repeat(64), UUID.randomUUID(), Instant.now(), Instant.now());
+        current.identify("MAPPING", "1", null, null, null, null, null);
         SymbolFileStore.StagedFile staged = staged("replacement-staged");
         when(store.stage(any(InputStream.class), eq(properties.getMaxFileBytes()))).thenReturn(staged);
         when(repository.findById(symbolId)).thenReturn(Optional.of(current));

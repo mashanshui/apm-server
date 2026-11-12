@@ -100,11 +100,11 @@ class BackgroundCrashJobPostgresTests {
             jobs.wake(app, "rolled-back");
             status.setRollbackOnly();
         });
-        assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM crash_symbolication_job WHERE build_id='rolled-back'", Integer.class));
+        assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM crash_symbolication_job WHERE app_version='rolled-back'", Integer.class));
         // 对账每页最多百个活动构建；检查点保存在数据库中，重建服务后继续下一页。
         for (int index = 1; index <= 105; index++) {
             UUID id = new UUID(0, index);
-            jdbc.update("INSERT INTO app_symbol_file(symbol_id,app_id,build_id,revision,storage_key,original_filename,size_bytes,sha256,uploaded_by,uploaded_at,updated_at) VALUES (?,?,?,1,?,'mapping.txt',10,?,?,clock_timestamp(),clock_timestamp())",
+            jdbc.update("INSERT INTO app_symbol_file(symbol_id,app_id,app_version,build_id,revision,storage_key,original_filename,size_bytes,sha256,uploaded_by,uploaded_at,updated_at) VALUES (?,?,?,'build',1,?,'mapping.txt',10,?,?,clock_timestamp(),clock_timestamp())",
                     id, app, "mapped-" + index, id + ".mapping", "a".repeat(64), user);
         }
         CrashSymbolicationReconciler reconciler = new CrashSymbolicationReconciler(new SymbolBuildIndexRepository(jdbc), jobs, jdbc, manager);
@@ -115,8 +115,63 @@ class BackgroundCrashJobPostgresTests {
         assertEquals(106, jdbc.queryForObject("SELECT count(*) FROM crash_symbolication_job", Integer.class));
         assertNull(jdbc.queryForObject("SELECT after_symbol_id FROM crash_symbolication_reconcile", UUID.class));
         // 映射删除后的任务可到期；未确认发布、有效租约和保留期内工作均不提前清理。
-        jdbc.update("UPDATE crash_symbolication_job SET updated_at=clock_timestamp()-interval '36 days' WHERE build_id='mapped-105'");
+        jdbc.update("UPDATE crash_symbolication_job SET updated_at=clock_timestamp()-interval '36 days' WHERE app_version='mapped-105'");
         assertEquals(1, jobs.cleanupExpired());
+        // 任务被清理重建后，即使 owner 和代次再次相同，旧 jobId 也不能命中新租约。
+        jdbc.update("UPDATE crash_symbolication_job SET state='waiting_mapping' WHERE lease_owner IS NULL");
+        jdbc.update("DELETE FROM crash_symbolication_job WHERE app_id=? AND app_version='build'", app);
+        jobs.wake(app, "build");
+        var rebuilt = jobs.claim(owner, Duration.ofMinutes(1)).orElseThrow();
+        assertEquals(first.generation(), rebuilt.generation());
+        assertNotEquals(first.jobId(), rebuilt.jobId());
+        assertFalse(jobs.renew(first, Duration.ofMinutes(1)));
+    }
+
+    /** 无匹配前页仍持久推进；重建执行器和常规唤醒不重置游标。 */
+    @Test
+    void advancesPastUnmatchedPagesAndFindsEarlierLateEventsAfterRotation() {
+        String schema = "fair_" + UUID.randomUUID().toString().replace("-", "");
+        Flyway.configure().dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
+                .schemas(schema).defaultSchema(schema).load().migrate();
+        var source = new DriverManagerDataSource(POSTGRES.getJdbcUrl() + (POSTGRES.getJdbcUrl().contains("?") ? "&" : "?") + "currentSchema=" + schema, POSTGRES.getUsername(), POSTGRES.getPassword());
+        var jdbc = new JdbcTemplate(source);
+        var manager = new DataSourceTransactionManager(source);
+        var jobs = new CrashSymbolicationJobs(jdbc, manager);
+        var mapper = new ObjectMapper();
+        var memory = new InMemoryCrashStateStore(CrashTestSupport.storageProperties(), mapper);
+        var publications = new CrashSymbolicationPublications(jdbc, jobs, memory, new CrashStateJson(mapper), manager, 100, 16777216);
+        UUID user = UUID.randomUUID(), app = UUID.randomUUID(), symbol = UUID.randomUUID();
+        jdbc.update("INSERT INTO apm_user VALUES (?,'fair@example.invalid','公平轮转','unused','ACTIVE',clock_timestamp(),clock_timestamp())", user);
+        jdbc.update("INSERT INTO apm_app VALUES (?,'com.example.fair','公平轮转',NULL,?,clock_timestamp(),clock_timestamp())", app, user);
+        jdbc.update("INSERT INTO app_symbol_file(symbol_id,app_id,app_version,build_id,revision,storage_key,original_filename,size_bytes,sha256,uploaded_by,uploaded_at,updated_at) VALUES (?,?,'1','mapped',1,'fair.mapping','mapping.txt',10,?,?,clock_timestamp(),clock_timestamp())", symbol, app, "a".repeat(64), user);
+        Instant now = Instant.now().truncatedTo(ChronoUnit.MILLIS);
+        for (int index = 0; index < 105; index++) {
+            String build = index < 100 ? "missing" : "mapped";
+            var metadata = new EventMetadata(app, "com.example.fair", "fair-" + index, "crash", now.minusSeconds(200-index), now,
+                    2, "session", CrashTestSupport.PROCESS_ID, "device", "1", 1, build, "test", "test", "35", "test", null, Map.of(), Map.of());
+            var state = new CrashState(app, metadata.eventId(), build, metadata.occurredAt(), 0, "pending", "mapping_missing", "raw_chain",
+                    mapper.writeValueAsString(CrashTestSupport.crash("java.lang.RuntimeException", "test", 1, "a")),
+                    "java.lang.RuntimeException", "tmp", "tmp-v1", "temporary", null, null, null, null, null);
+            memory.accept(new CrashFact(metadata, "jvm", true), state);
+        }
+        var registry = mock(SymbolRegistry.class);
+        var mapping = mock(SymbolFileLease.class);
+        when(registry.hasVersion(app, "1")).thenReturn(true);
+        when(registry.acquireVersioned(app, "1", "mapped")).thenReturn(Optional.of(mapping));
+        when(mapping.symbolId()).thenReturn(symbol);
+        when(mapping.revision()).thenReturn(1);
+        when(mapping.sha256()).thenReturn("a".repeat(64));
+        when(registry.retrace(eq(mapping), anyList())).thenReturn(new SymbolicationResult("java.lang.RuntimeException\n\tat com.example.fair.Main.run(Main.java:1)", SymbolicationResult.Status.SYMBOLICATED, null));
+        jobs.wake(app, "1");
+        new CrashBackgroundProcessor(jobs, memory, publications, registry, new CrashFingerprintService(), new CrashSanitizer(CrashTestSupport.ingestProperties()), mapper, 100).runOnce();
+        verify(registry, never()).retrace(any(), anyList());
+        assertNotNull(jdbc.queryForObject("SELECT scan_event_time FROM crash_symbolication_job WHERE app_id=?", java.sql.Timestamp.class, app));
+        jobs.wake(app, "1");
+        new CrashBackgroundProcessor(jobs, memory, publications, registry, new CrashFingerprintService(), new CrashSanitizer(CrashTestSupport.ingestProperties()), mapper, 100).runOnce();
+        assertEquals("symbolicated", memory.current(app, "fair-104").orElseThrow().status());
+        assertEquals("pending", memory.current(app, "fair-0").orElseThrow().status());
+        assertEquals(5, jobs.progress(app, "1").succeededCount());
+        verify(registry, times(5)).retrace(eq(mapping), anyList());
     }
 
     /** 发布登记后退出、确认丢失和 mapping 变化只能恢复同一首次成功。 */
@@ -143,9 +198,9 @@ class BackgroundCrashJobPostgresTests {
         Instant now = Instant.now().truncatedTo(ChronoUnit.MILLIS);
         jdbc.update("INSERT INTO apm_user VALUES (?,'publication@example.invalid','发布测试','unused','ACTIVE',clock_timestamp(),clock_timestamp())", user);
         jdbc.update("INSERT INTO apm_app VALUES (?,'com.example.publication','发布测试',NULL,?,clock_timestamp(),clock_timestamp())", app, user);
-        jdbc.update("INSERT INTO app_symbol_file(symbol_id,app_id,build_id,revision,storage_key,original_filename,size_bytes,sha256,uploaded_by,uploaded_at,updated_at) VALUES (?,?,'build',1,'test.mapping','mapping.txt',10,?,?,clock_timestamp(),clock_timestamp())", symbol, app, "a".repeat(64), user);
+        jdbc.update("INSERT INTO app_symbol_file(symbol_id,app_id,app_version,build_id,revision,storage_key,original_filename,size_bytes,sha256,uploaded_by,uploaded_at,updated_at) VALUES (?,?,'build','build',1,'test.mapping','mapping.txt',10,?,?,clock_timestamp(),clock_timestamp())", symbol, app, "a".repeat(64), user);
         EventMetadata metadata = new EventMetadata(app, "com.example.publication", "event", "crash", now.minusSeconds(1), now,
-                2, "session", "11111111-1111-4111-8111-111111111111", "device", "1", 1, "build", "production", "official", "16", "test", "wifi", Map.of(), Map.of());
+                2, "session", "11111111-1111-4111-8111-111111111111", "device", "build", 1, "build", "production", "official", "16", "test", "wifi", Map.of(), Map.of());
         String captureDigest = "b".repeat(64);
         String originalThreads = mapper.writeValueAsString(java.util.List.of(new com.shanshui.apmserver.crash.api.CrashThreadStack(
                 "1", "pending", null, new com.shanshui.apmserver.crash.api.CrashThreadStack.Stack("raw_frames", java.util.List.of(
@@ -193,14 +248,14 @@ class BackgroundCrashJobPostgresTests {
         assertEquals(1, memory.current(app, "event").orElseThrow().symbolRevision());
         assertEquals(0, publications.cleanupExpired());
         // 事件到期后不可通过恢复再写回遥测；轻量保护还需等待最大在途宽限。
-        var expired = new CrashSymbolicationPublications.Publication(app, "event", "build", fixed.version(), fixed.sha256(), fixed.payload(), now.minusSeconds(1));
+        var expired = new CrashSymbolicationPublications.Publication(app, "event", "build", "build", fixed.version(), fixed.sha256(), fixed.payload(), now.minusSeconds(1));
         assertFalse(publications.publish(recoveryLease, expired));
         jdbc.update("UPDATE crash_symbolication_publication SET expires_at=clock_timestamp()-interval '6 minutes',event_time=clock_timestamp()-interval '31 days'");
         assertEquals(1, publications.cleanupExpired());
         assertTrue(publications.existing(app, "event").isEmpty());
         // 事件已在 ClickHouse 确认但 PostgreSQL 唤醒失败；迟到时间早于上一轮也能被对账恢复。
         EventMetadata lateMetadata = new EventMetadata(app, metadata.packageName(), "late", "crash", now.minusSeconds(2 * 86400), now,
-                2, "late-session", metadata.processId(), "device", "1", 1, "build", "production", "official", "16", "test", "wifi", Map.of(), Map.of());
+                2, "late-session", metadata.processId(), "device", "build", 1, "build", "production", "official", "16", "test", "wifi", Map.of(), Map.of());
         CrashState late = new CrashState(app, "late", "build", lateMetadata.occurredAt(), 0, "pending", "mapping_missing", "raw_chain",
                 mapper.writeValueAsString(CrashTestSupport.crash("java.lang.RuntimeException", "test", 1, "a")), "java.lang.RuntimeException", "late-tmp", "tmp-v1", "temporary", null, null, null, null, null);
         memory.accept(new CrashFact(lateMetadata, "jvm", true), late);
@@ -209,11 +264,16 @@ class BackgroundCrashJobPostgresTests {
         new CrashSymbolicationReconciler(new SymbolBuildIndexRepository(jdbc), jobs, jdbc, manager).reconcilePage();
         SymbolRegistry registry = mock(SymbolRegistry.class);
         SymbolFileLease mapping = mock(SymbolFileLease.class);
-        when(registry.acquire(app, "build")).thenReturn(Optional.of(mapping));
+        when(registry.acquireVersioned(app, "build", "build")).thenReturn(Optional.of(mapping));
+        when(registry.hasVersion(app, "build")).thenReturn(true);
         when(mapping.symbolId()).thenReturn(symbol);
         when(mapping.revision()).thenReturn(1);
         when(mapping.sha256()).thenReturn("a".repeat(64));
         when(registry.retrace(eq(mapping), anyList())).thenReturn(new SymbolicationResult("java.lang.RuntimeException\n\tat com.example.publication.Main.run(Main.java:1)", SymbolicationResult.Status.SYMBOLICATED, null));
+        new CrashBackgroundProcessor(jobs, memory, publications, registry, new CrashFingerprintService(),
+                new CrashSanitizer(CrashTestSupport.ingestProperties()), mapper, 100).runOnce();
+        // 轮末回到开头后，较早迟到事件由下一次对账发现。
+        new CrashSymbolicationReconciler(new SymbolBuildIndexRepository(jdbc), jobs, jdbc, manager).reconcilePage();
         new CrashBackgroundProcessor(jobs, memory, publications, registry, new CrashFingerprintService(),
                 new CrashSanitizer(CrashTestSupport.ingestProperties()), mapper, 100).runOnce();
         assertEquals("symbolicated", memory.current(app, "late").orElseThrow().status());
@@ -222,7 +282,7 @@ class BackgroundCrashJobPostgresTests {
         // mapping 事务登记与更早时间事件确认并发交错，通知代次或轮转均不能遗漏新事件。
         var gate = new java.util.concurrent.CountDownLatch(1);
         EventMetadata racingMetadata = new EventMetadata(app, metadata.packageName(), "racing-late", "crash", now.minusSeconds(3 * 86400), now,
-                2, "racing-session", metadata.processId(), "device", "1", 1, "build", "production", "official", "16", "test", "wifi", Map.of(), Map.of());
+                2, "racing-session", metadata.processId(), "device", "build", 1, "build", "production", "official", "16", "test", "wifi", Map.of(), Map.of());
         CrashState racing = new CrashState(app, "racing-late", "build", racingMetadata.occurredAt(), 0, "pending", "awaiting_processing", "raw_chain",
                 late.stackPayload(), "java.lang.RuntimeException", "racing-tmp", "tmp-v1", "temporary", null, null, null, null, null);
         try (var executor = java.util.concurrent.Executors.newFixedThreadPool(2)) {
@@ -239,6 +299,10 @@ class BackgroundCrashJobPostgresTests {
             assertTrue(mappingRegistration.get(5, java.util.concurrent.TimeUnit.SECONDS));
             assertTrue(acceptance.get(5, java.util.concurrent.TimeUnit.SECONDS));
         } catch (Exception failure) { throw new AssertionError(failure); }
+        new CrashSymbolicationReconciler(new SymbolBuildIndexRepository(jdbc), jobs, jdbc, manager).reconcilePage();
+        new CrashBackgroundProcessor(jobs, memory, publications, registry, new CrashFingerprintService(),
+                new CrashSanitizer(CrashTestSupport.ingestProperties()), mapper, 100).runOnce();
+        // 轮末回到开头后，较早迟到事件由下一次对账发现。
         new CrashSymbolicationReconciler(new SymbolBuildIndexRepository(jdbc), jobs, jdbc, manager).reconcilePage();
         new CrashBackgroundProcessor(jobs, memory, publications, registry, new CrashFingerprintService(),
                 new CrashSanitizer(CrashTestSupport.ingestProperties()), mapper, 100).runOnce();

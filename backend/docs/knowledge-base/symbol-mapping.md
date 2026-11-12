@@ -1,58 +1,54 @@
 # 后端符号表实现
 
-## 模块边界
+## 模块与当前范围
 
-`symbol` 模块对外只暴露 `symbol.api`：`SymbolRegistry` 负责按 `appId + buildId` 固定当前版本租约并为后台 Crash 与同步 Jank 提供 Retrace，`SymbolFileMetadata`、页面结果和符号化结果属于 HTTP/领域契约。数据库、受控文件卷、R8 适配器和事务写入均位于 `symbol.internal`。Crash 和 Jank 不访问符号表内部实体、仓库或文件路径。
+`symbol.api` 提供元数据、固定文件租约、版本选择器及安全错误；数据库、文件卷、R8、ZIP 和 ELF 实现在 `symbol.internal`。Crash/Jank 只使用公开边界。工作树已接入版本默认/构建专用 mapping、版本后台任务和 SO 批次；本地既有服务及云端不随源码自动更新，环境状态以[平台状态](../../../docs/knowledge-base/00-当前实现与验证边界.md)为准。完整协议和客户端步骤分别归[符号表 API](../../../docs/api/symbol-api.md)、[接入说明](../../../docs/client-integration/symbol-mapping.md)。
 
-## 上传和替换链路
+上报事件保留必填原 buildId；只有 mapping 登记可空，表示该版本默认范围。SO 不使用应用 buildId，不提供 Native 地址还原。SDK/processor 固定 1.0.4，不改外部 btrace。
 
-网页请求的 Session 和 CSRF 先由 Spring Security 检查，应用成员角色由 `AppAccessControl` 检查。服务端把 multipart 流写入符号目录同卷临时文件，同时计算 SHA-256 和大小，再使用官方 R8 Retrace mapping API 校验格式；空文件、超限文件、非法 mapping 不会发布。
+## 元数据、文件与事务
 
-首次上传在 `app_symbol_file` 建立 `appId + buildId` 活动局部唯一记录和审计记录，并在同一 PostgreSQL 事务唤醒构建任务，发布使用不可覆盖的 UUID 文件名并优先同卷原子移动；文件系统不支持时回退普通移动。相同摘要重复上传返回幂等成功；不同摘要返回 `SYMBOL_CONFLICT`，不自动覆盖。替换必须提交网页确认时看到的 `expectedRevision`，数据库使用 `symbolId + revision` 条件更新，成功后 revision 加一并写入 `app_symbol_file_audit`。相同摘要替换在 revision 校验后返回当前版本，不增加 revision 或审计记录。旧文件使用进程内读取租约计数，最后一个租约释放后才回收；服务启动时只清理数据库未引用且无租约文件，该租约不提供跨实例协调。
+活动身份分别为 `(appId,appVersion,NULL)` 默认 mapping、`(appId,appVersion,buildId)` 专用 mapping，以及 `(appId,appVersion,abi,elfBuildId)` SO。V17 的局部唯一索引分别约束这些身份，旧无版本 mapping 独立保留原构建、文件和审计，不参与新版选择、对账或进度。V19 增加类型/版本/更新时间/symbolId 的活动分页索引，列表的全部过滤和键集排序在数据库执行；游标绑定完整筛选。
 
-数据库提交确认未知时不能根据异常断言回滚：已发布文件保留，避免删除可能已提交引用；未发布暂存仍清理。后续启动按已确认的活动引用清理孤立文件。此时 API 返回可重试失败，调用方用相同构建和字节重试对账，不假报上传成功。
+mapping 先同卷暂存、计算实际大小和 SHA-256，再调用官方 R8 校验。不可覆盖 UUID 键发布后，在短事务中写元数据、审计和版本唤醒。同内容幂等，不同内容要求修订条件确认。替换和删除使用条件更新，历史身份软删除，重传创建新 symbolId。文件到最后一个在途租约退出才回收；专用存在但不可读时禁止回退默认。
 
-当前列表在 PostgreSQL 过滤应用、活动状态和可选 buildId，以更新时间/symbolId 排序及 keyset 游标分页，默认 50、最大 200。DELETE 必须带 expectedRevision，软删除、删除审计与任务唤醒共同提交；活动列表和新文件租约不再选中删除记录。重传创建新 symbolId/revision=1。在途旧租约仍可完成，文件到最后一次释放后退休。进度查询只按构建主键读管理记录，不扫描遥测。
+SO 的 `NativeBatchWriter` 在同一版本的数据库事务锁内，按稳定顺序锁定所有已存在模块，并校验包括“预期不存在”项的完整快照；唯一索引兜底新建竞争。全部条件通过才写元数据和审计，同摘要不增加修订；任何冲突整批回滚。SO 和旧无版本记录的删除不唤醒 JVM。已确认回滚可回收新文件；提交确认未知保留所有可能已引用文件，普通原批次重传用于对账。启动清理逐文件核对活动引用，清理受控上传暂存及中断归档目录，数据库不可用时不猜测引用。
 
-## R8 Retrace
+文件租约是单实例进程内计数，不提供多实例共享卷协调。原 ZIP 不长期保存，不执行或加载 SO，不使用客户端归档路径作为存储路径。
 
-`R8RetraceEngine` 通过固定版本 `com.android.tools:r8:8.9.35` 的官方 Retrace API 读取 `ProguardMapProducer`、`ProguardMappingSupplier` 和 `RetraceCommand`。上传校验阶段主动触发 mapping 读取；后台 Crash 阶段把完整脱敏异常链转换为 R8 标准文本，保留 `Caused by` 顺序、候选结果和无行号帧。上传校验、后台 Crash 和 Jank 共用有界 Semaphore，输出超过 `apm.symbol.max-output-bytes` 或资源繁忙时明确返回失败类别，日志不写 mapping 内容或异常堆栈。
+## 版本后台与公平推进
 
-## Crash 与卡顿语义
+`CrashSymbolicationJobs` 按应用和版本合并通知，独立维护 wake/claim/lease 代次和稳定 jobId。所有结果门禁核对 jobId、版本、owner、代次及数据库当前租约时间，重建任务不能被旧租约命中。执行期间到达的通知不会被释放吞掉，普通唤醒不重置扫描位置。
 
-- JVM Crash 接收先持久化 pending 原始链和事实，再确认 accepted，不执行 R8。后台使用单批固定文件租约还原；首次成功以单份 retrace_text、resolved-v1 正式指纹和实际来源持久化。详情及分析证据仅读状态，不执行 R8。替换/删除/重传均不修改已有成功结果；选错 mapping 的首次成功无法通过重传纠正。
-- Native Crash 接收不查询或唤醒 mapping；主栈使用 `raw_native` 和 `native_symbolication_deferred`，原生与 Java 辅助栈均不进入 R8。内存及 ClickHouse 候选按 JVM 类型排除 Native，后台入口也检查格式；SO 符号上传和还原尚未实现。
-- Jank ZIP 在 processor 解析回调中取得当前 mapping 租约，解析期间固定该文件；映射后的证据和指纹随事件保存。替换只影响之后上传的 ZIP，已保存事件不回算；无 mapping 注册记录时按可选 mapping 语义解析，已有记录对应文件丢失/不可读时返回可重试 503。
+版本没有任何活动 mapping 时直接等待，不扫描遥测。否则先在 ClickHouse 限定应用、版本、30 天窗口、JVM 类型及 FINAL 最新 pending/failed 状态，读取最多 100 个轻量身份与来源；第一阶段不读取堆栈或诊断。按有限构建选择专用/默认并固定文件租约，仅为适用来源读取载荷。第二阶段使用已确定的 `(buildId,eventTime,eventId)` 联合定位，不能只凭 eventId 扩大读取。遇到响应预算失败逐次减半，单条仍超预算保留材料、延期并推进轮转，不提高查询预算。
 
-## 后台处理组件与恢复边界
+无匹配、同来源确定性失败和未到 retryAt 的事件安全跳过。完成子批后仅推进连续完成的候选前缀，期限耗尽仍可从安全位置继续；空页回到开头，后续轮转发现更早的迟到事件。文件不可读不挡住其他有限子批，存储及资源失败退避，不作为全部成功。每进程同时一个版本，一次扫描最多 100 身份，所有子批共享开始新工作的 30 秒期限；单次 R8 调用不能承诺被强制中断。
 
-新模型的 `CrashBackgroundProcessor` 使用独立单线程调度和 PostgreSQL 构建租约，默认一批最多 100 个事件，同时执行一个构建。单批固定一个文件租约，下一批重新取得活动文件；候选来自新事实/状态，先取最新版本再筛选，时间上限 30 天。大载荷触发查询预算时批次有限减半，单条仍超预算则延期，不扩大查询预算或把资源失败当作空闲。
+失败重试比较实际 symbolId/revision。默认替换、专用新增/删除引起实际来源变化时可重试，其他构建不受错误专用文件影响。首次成功先在 PostgreSQL publication 固定完整字节、来源和状态序列，再向 ClickHouse 重放并读回确认；恢复优先重放原字节，禁止重新计算。已成功事件始终排除。主异常成功后辅助线程使用相同文件的独立保活租约，单线程最多等待 2 秒、输出 32 KiB，辅助输出合计 256 KiB；失败保留原始帧，不参与主异常指纹，随主异常固定。单份 publication 上限 4 MiB，总未确认默认 100 条/16 MiB。
 
-后台完整输出经过脱敏后生成 `resolved-v1` 指纹；无行号、内联和多候选保持完整。`parser_busy`、文件暂不可用、数据库/发布失败退避 30 秒；确定性 `output_limit/invalid_stack/empty_output/retrace_failed` 保存 failed 原始材料，并停止针对同一 mapping 热重试。新的 symbolId 或 revision 可以重新选中失败事件。每批最多开始 30 秒内的新事件工作，单次 R8 调用仍受已有文件、共享并发和输出限制；该批次时限不是可强制中断 R8 Java 调用的期限。
+进度只读同应用版本的 PostgreSQL 任务，默认和专用映射共享本轮计数，不查询遥测总量。SO/旧登记返回不适用。Native 始终保留 raw_native、pending 和 native_symbolication_deferred，不进入 R8、对账或 JVM 发布。
 
-主异常成功后，后台用同一 mapping 的独立保活租约依次处理其他线程；进程内辅助工作者全局最多一个且不排队，仍占用既有共享许可。单个线程最多等待 2000ms、输出 32 KiB，辅助输出合计最多 256 KiB；忙碌、超时或超限时保留原始帧和安全失败状态，空帧为 `not_applicable`。超时后 R8 若忽略取消，其线程和文件租约直至实际结束才释放，迟到结果不会发布。辅助栈不参与主异常指纹。
+## Jank 1.0.4
 
-`CrashSymbolicationPublications` 在短事务和有效租约下决定唯一首次成功，主异常与所有辅助结果使用同一版本固定；主异常成功时辅助失败也固定，不因后续 mapping 变化另行补算。发布确认未知时只重放登记的同版本、同字节载荷，读回完整状态匹配后清空 PostgreSQL 完整载荷。默认最多 100 条、合计 16 MiB 未确认载荷，单份编码载荷硬上限 4 MiB；整体超限时先把辅助结果回退为原始帧再尝试发布，仍超限则保留原始主异常并标记失败，不截断成成功。成功元数据在事件保留期内保留，过期再加 5 分钟最大在途宽限后有界清理，每次最多 1000 条。构建任务无租约、无发布记录且 35 天无更新才进入每次最多 1000 条的清理。
+对同一不可变 v3 ZIP 有界预检包名、版本和非空构建；processor 完整性校验后的 resolver 回调核对包名/构建，以预检版本调用统一选择器，最终报告再次核对身份。解析期间固定文件租约，既存证据及重复事件不回算。无登记允许未解混淆解析，查询或固定文件故障返回可重试错误。无需升级 1.0.4 回调格式。
 
-`CrashSymbolicationReconciler` 每次只读取 100 个活动 mapping 元数据，检查点与本页唤醒在同一 PostgreSQL 事务提交。重启继续下一页，轮末回到首部，不以事件发生时间推进永久游标；因此更早发生的迟到事件和 ClickHouse 已存、PostgreSQL 通知失败的事件仍能被重新发现。恢复时先发布已决定结果，再获取当前 mapping；没有 mapping 则稳定等待，不持续重算。
+## SO 接收与校验
 
-当前接收、详情和 mapping 管理已接入上述组件，隔离数据库/故障注入及真实 HTTP 验证见测试页；新任务与新数据集结构见[持久化主题](03-持久化与数据库迁移.md#后台还原的新结构)。初始批次和并发是资源约束，不构成生产吞吐或完成时间承诺。百万历史数据量证据覆盖后台候选及前台一天窗口混合查询，见[查询基线](crash-query-performance-baseline.md#新模型后台候选基线)。
+网页 Session/角色和请求头 CSRF 先于正文。`NativeUploadFilter` 在 DispatcherServlet multipart 之前取得单实例、不排队许可，检查同卷至少 768 MiB 余量；许可覆盖接收、归档、提交和清理。复用容器的流式 multipart 解析器，将请求转换为 Spring multipart 请求，避免默认解析先缓存大包。总期限 60 秒，每次底层读取前后检查，单次阻塞由真实 Tomcat Connector 的 60 秒上传读取超时及 Nginx 保护。提前拒绝后禁用容器对剩余 SO 正文的吞读，数据库语句和锁等待使用当前剩余期限。提前拒绝使用明确长度的标准 JSON 响应，避免断开的上传连接造成客户端误判截断响应。
 
-## 配置
+归档内容校验使用明确的 ZIP 格式异常，ELF 越界使用 ELF 内容异常；超时和中断使用独立的 `InterruptedIOException`，其他磁盘 I/O 按存储不可用处理。ZIP 库会包装索引读取异常，因此其输入通道在底层 I/O 边界先保留存储故障身份，避免合法文件被误报为非法归档；不增加压缩体内存副本。正文接收后阶段也使用可重试 503，内容错误维持 422、字节超限维持 413。数据库提交后若暂存清理失败，保留已引用的发布键，普通重传对账不增加修订或审计。
 
-| 配置键 | 环境变量 | 默认值 | 作用 |
-|---|---|---:|---|
-| `apm.symbol.directory` | `APM_SYMBOL_DIRECTORY` | `build/symbols` | 受控 mapping 文件卷，生产应挂载持久卷 |
-| `apm.symbol.max-file-bytes` | `APM_SYMBOL_MAX_FILE_BYTES` | `33554432` | 单文件大小上限 |
-| `apm.symbol.max-output-bytes` | `APM_SYMBOL_MAX_OUTPUT_BYTES` | `1048576` | 单次 Crash Retrace 输出上限 |
-| `apm.symbol.max-concurrent-operations` | `APM_SYMBOL_MAX_CONCURRENT_OPERATIONS` | `2` | 上传校验、后台还原和 Jank 共享并发许可 |
+压缩 ZIP 256 MiB、请求 260 MiB、SO 单文件 128 MiB、实际解压总量 512 MiB；中央目录 1 MiB、归档条目 256、去重后的模块身份 128、路径深度 8、UTF-8 路径 1024 字节。文本 part 64 KiB、part 头 8 KiB。控制卷仅保留一份压缩体和一组解压材料，摘要在原暂存 SO 上计算，发布使用同卷移动，不复制额外整包。目录、明确辅助文件也计入实际解压预算。
 
-Spring multipart 默认上限为 32 MiB 文件、34 MiB 请求；Nginx 或其他网关必须同步放行 multipart 请求。首版不连接对象存储、不提供构建自动上传、mapping 下载、原生 SO 和 HPROF 符号化。
+Commons Compress 1.28.0 只提供 ZIP 元数据读取，先检查中央目录预算，再逐条验证本地头、类型、路径、CRC 及实际解压量；拒绝加密、多卷、ZIP64、链接、穿越、特殊文件、重复路径和嵌套归档。任一错误整批不发布。只读 ELF 检查支持四 ABI 小端 ET_DYN，所有偏移、表、字符串及 note 检查溢出和预算，提取完整 1～64 字节 GNU Build ID，检查已定义函数符号及调试段存在性。只有 dynsym 不接受，不解释 DWARF 或保证每帧还原。
 
-本轮 succeededCount 只计确认发布的首次成功，failedCount 计已登记失败尝试（可能重复或写回未确认）；从 idle/waiting_mapping 新唤醒开始新轮。idle 只表示本轮没有可处理候选，并非全量事件已成功；迟到事件仍会触发新轮。
+Spring/云端 Compose 默认单文件 256MB、请求 260MB；mapping 自身仍执行 32 MiB 业务限制。Nginx 的 SO 子路由关闭请求缓冲，读取/发送 60 秒、响应等待 75 秒；总入口 260m。共享内存报告继续执行自己的 metadata/report/HPROF 预算，不因此放宽其业务校验。
 
-以上 multipart 配置与内存异常报告共用；256 MiB HPROF 是报告业务上限，不是默认部署的可上传文件上限。大附件部署要求见[构建配置](05-构建配置与本地运行.md#二进制堆栈解析配置)。
+## 升级与恢复
 
-## 验证边界
+1. 正式切换前备份同一时点的 PostgreSQL 与符号卷，暂停接收和符号写入，排空未确认 publication，停止旧后端并等待租约释放或过期。
+2. V17/V18 守卫遇到有效租约或未确认发布明确失败；不得删除载荷、成功来源或重置状态序列来绕过。V18 在原任务表增加稳定 jobId 主键、可空版本和扫描游标，旧构建行保留计数与身份，退役为 waiting_mapping/legacy_unversioned 并退出领取；新版本行 buildId=null，以局部唯一索引合并。已确认旧 publication 保持空版本及原来源，新未确认发布必须带版本。
+3. 协调后端、网页和 multipart 配置发布，明确版本重新上传旧登记，核对默认/专用、SO 无进度及 Native 原始材料。SDK、队列与遥测无需迁移或清空。
+4. 回退须停新进程，按同一备份点恢复管理库、文件卷和匹配的应用版本；新写入后不能只回退二进制。ClickHouse 成功结果不能改回旧原始状态，跨库无损恢复需另行演练，当前不作保证。
 
-已通过官方依赖在线解析、后端 `clean build`、真实 release mapping 的完整 Retrace 测试、Docker PostgreSQL 16 的 Flyway/JPA schema 校验、符号文件卷租约/回收测试和 Crash 异常链格式测试；并已在受控本机环境通过管理员网页替换、Crash 连续详情、Jank v3 新事件解析与后端重启读取验收。端到端 HTTP、浏览器和性能数据见[平台测试记录](../../../docs/knowledge-base/08-测试与质量保障.md#跨端证据索引)及[后端性能测试记录](06-测试与质量保障.md#符号表端到端与性能边界)。性能数据是当前主机的小样本测量，不代表生产容量。
+真实 PostgreSQL 的迁移、NULL 唯一性、来源选择、审计及提交确认丢失测试和真实 Servlet 的 256 MiB 边界属于隔离自动化证据，不代表已部署或生产容量。查询规模与复现见[性能基线](crash-query-performance-baseline.md)，完整测试入口见[测试保障](06-测试与质量保障.md)。

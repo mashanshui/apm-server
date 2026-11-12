@@ -122,6 +122,14 @@ class AppStackMappingResolverTests {
             }
         };
         SymbolRegistry registry = new SymbolRegistry() {
+            /** 测试仅声明存在版本来源。 */
+            public boolean hasVersion(UUID appId, String version) { return true; }
+            /** 当前旧链路测试不调用版本选择接口。 */
+            @Override
+            public Optional<SymbolFileLease> acquireVersioned(UUID appId, String appVersion, String buildId) {
+                throw new AssertionError("不应调用版本选择接口");
+            }
+
             @Override
             public Optional<SymbolFileLease> acquire(UUID requestedAppId, String buildId) {
                 assertEquals(appId, requestedAppId);
@@ -154,6 +162,14 @@ class AppStackMappingResolverTests {
     @Test
     void propagatesRegistryUnavailableAsRetryableFailure() {
         SymbolRegistry registry = new SymbolRegistry() {
+            /** 测试仅声明存在版本来源。 */
+            public boolean hasVersion(UUID appId, String version) { return true; }
+            /** 当前旧链路测试不调用版本选择接口。 */
+            @Override
+            public Optional<SymbolFileLease> acquireVersioned(UUID appId, String appVersion, String buildId) {
+                throw new AssertionError("不应调用版本选择接口");
+            }
+
             @Override
             public java.util.Optional<SymbolFileLease> acquire(UUID appId, String buildId) {
                 throw new SymbolStoreUnavailableException("registry unavailable");

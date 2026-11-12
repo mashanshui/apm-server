@@ -95,8 +95,9 @@ describe('CrashEventDetailView', () => {
     expect(wrapper.text()).toContain('<script>run</script>')
     expect(wrapper.find('script').exists()).toBe(false)
     expect(wrapper.text()).toContain('本期未提供符号还原')
-    expect(wrapper.text()).not.toContain('上传此 buildId 的 mapping')
+    expect(wrapper.text()).not.toContain('上传此版本的 mapping')
     expect(wrapper.find('.analysis-stub').exists()).toBe(false)
+    expect(wrapper.text().includes('上传此模块 SO')).toBe(['OWNER', 'ADMIN'].includes(role))
     wrapper.unmount()
   })
 
@@ -156,7 +157,7 @@ describe('CrashEventDetailView', () => {
     await flushPromises()
     expect(wrapper.text()).toContain('还原失败')
     expect(wrapper.find('.raw-stack').exists()).toBe(true)
-    expect(wrapper.text()).toContain('上传此 buildId 的 mapping')
+    expect(wrapper.text()).toContain('上传此版本的 mapping')
     mockedCrashApi.event.mockResolvedValue(eventResponse())
     routeMock.fullPath+='?refresh=current'
     await flushPromises()

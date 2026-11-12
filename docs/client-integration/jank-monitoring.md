@@ -23,7 +23,7 @@ UUID v4 `processId` 必须能对应目标主线程，不能使用 Android 数值
 
 ## 卡顿 ZIP 上传与确认
 
-使用 `Content-Type: application/vnd.shanshui.rheajank+zip` 和 `X-App-Key` 直接发送文件字节；不套 JSON、Base64、multipart 或外层 gzip。上传前核对文件非空、请求大小和当前部署限制。服务端按认证应用与 manifest 的 `buildId` 查找可选 mapping，客户端不发送 `X-Mapping-Id` 或 mapping 文件路径。
+使用 `Content-Type: application/vnd.shanshui.rheajank+zip` 和 `X-App-Key` 直接发送文件字节；不套 JSON、Base64、multipart 或外层 gzip。上传前核对文件非空、请求大小和当前部署限制。工作树中的服务端按认证应用、manifest 版本与构建选择 mapping，客户端不发送 `X-Mapping-Id` 或 mapping 文件路径；当前 SDK/processor 要求非空构建，版本化上传已接入，环境部署状态见平台状态页。
 
 | 结果 | 本地处理 |
 |---|---|
@@ -38,7 +38,7 @@ UUID v4 `processId` 必须能对应目标主线程，不能使用 Android 数值
 
 ## 场景 FPS 与前台挂起汇总
 
-两类指标分别使用 `eventType=frame_scene_summary` 和 `eventType=foreground_suspension_summary`，放入 JSON v2 公共信封；每条事件只携带对应专用载荷。身份、原发生时间和构建在入队时固定，批量确认按[公共确认规则](README.md#批量响应与队列确认)处理。
+两类指标分别使用 `eventType=frame_scene_summary` 和 `eventType=foreground_suspension_summary`，放入 JSON v2 公共信封；每条事件只携带对应专用载荷。身份、原发生时间和非空构建在入队时固定，批量确认按[公共确认规则](README.md#批量响应与队列确认)处理。mapping 默认登记不改变任何上报字段的必填约束。
 
 | 产物 | 客户端采集与字段来源 |
 |---|---|

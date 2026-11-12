@@ -21,14 +21,14 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.UUID;
-import java.util.regex.Pattern;
 
 /** 符号表网页管理、版本切换和注册表查询服务。 */
 @Service
 public class SymbolManagementService {
 
-    /** buildId 的安全格式，与卡顿产物注册规则保持一致。 */
-    private static final Pattern BUILD_ID = Pattern.compile("[A-Za-z0-9._-]{1,128}");
+    /** 只记录安全的选择阶段，不记录上传内容或文件路径。 */
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(SymbolManagementService.class);
+
     /** 游标页默认大小。 */
     private static final int DEFAULT_PAGE_SIZE = 50;
     /** 游标页最大大小。 */
@@ -62,45 +62,87 @@ public class SymbolManagementService {
         this.properties = properties;
     }
 
-    /** 返回应用下按 buildId 精确筛选的游标页。 */
-    public SymbolFilePage list(UUID appId, String buildId, String cursor, Integer limit) {
-        String normalizedBuildId = buildId == null ? "" : buildId.trim();
-        if (!normalizedBuildId.isEmpty()) {
-            validateBuildId(normalizedBuildId);
+    /** 全部过滤在数据库执行；游标同时绑定应用与完整筛选。 */
+    public SymbolFilePage list(UUID appId, String type, String version, String scope, String build,
+                               String abi, String elfId, String cursor, Integer limit) {
+        /** 显式类型及其适用字段。 */
+        String selectedType = type == null ? "" : type;
+        if (!java.util.Set.of("", "MAPPING", "NATIVE_SO").contains(selectedType)) {
+            throw new SymbolValidationException("SYMBOL_TYPE_MISMATCH", "符号类型无效", 400);
         }
+        if (version != null) validateIdentity(version, "appVersion", 128);
+        if (build != null) validateBuildId(build);
+        if (scope != null && !java.util.Set.of("default", "build").contains(scope)) {
+            throw new SymbolValidationException("INVALID_MAPPING_SCOPE", "mapping 范围无效", 400);
+        }
+        if (("NATIVE_SO".equals(selectedType) && (build != null || scope != null))
+                || ("MAPPING".equals(selectedType) && (abi != null || elfId != null))
+                || ("default".equals(scope) && build != null)
+                || ((build != null || scope != null) && (abi != null || elfId != null))) {
+            throw new SymbolValidationException("SYMBOL_TYPE_MISMATCH", "筛选字段不适用于此类型或范围", 400);
+        }
+        if (abi != null && !java.util.Set.of("armeabi-v7a", "arm64-v8a", "x86", "x86_64").contains(abi)) {
+            throw new SymbolValidationException("INVALID_ABI", "ABI 无效", 400);
+        }
+        if (elfId != null && !elfId.matches("([0-9a-f]{2}){1,64}")) {
+            throw new SymbolValidationException("INVALID_ELF_BUILD_ID", "完整 ELF Build ID 无效", 400);
+        }
+        /** 页大小及游标筛选摘要不依赖元数据当前更新时间。 */
         int pageSize = limit == null ? DEFAULT_PAGE_SIZE : limit;
-        if (pageSize < 1 || pageSize > MAX_PAGE_SIZE) {
-            throw new SymbolValidationException("INVALID_LIMIT", "符号表分页大小超出范围", 400);
+        if (pageSize < 1 || pageSize > MAX_PAGE_SIZE) throw new SymbolValidationException("INVALID_LIMIT", "分页大小无效", 400);
+        String binding = java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(
+                java.util.Arrays.stream(new String[]{appId.toString(), selectedType, version, scope, build, abi, elfId})
+                        .map(value -> value == null ? "-" : value.length() + ":" + value)
+                        .collect(java.util.stream.Collectors.joining("|")).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        SymbolFileEntity after = null;
+        if (cursor != null) {
+            try {
+                int separator = cursor.lastIndexOf('.');
+                if (separator < 0 || !binding.equals(cursor.substring(0, separator))) throw new IllegalArgumentException();
+                after = findById(appId, UUID.fromString(cursor.substring(separator + 1)));
+            } catch (RuntimeException invalid) { throw new SymbolValidationException("INVALID_CURSOR", "游标与筛选不一致或已失效", 400); }
         }
-        try {
-            // 游标只定位当前应用/筛选中的活动记录，失效游标不静默回第一页。
-            SymbolFileEntity after = null;
-            if (cursor != null && !cursor.isBlank()) {
-                UUID id;
-                try { id = UUID.fromString(cursor); }
-                catch (IllegalArgumentException invalid) { throw new SymbolValidationException("INVALID_CURSOR", "符号表游标无效", 400); }
-                after = findById(appId, id);
-                if (!normalizedBuildId.isEmpty() && !normalizedBuildId.equals(after.getBuildId())) throw new SymbolValidationException("INVALID_CURSOR", "符号表游标不属于当前筛选", 400);
+        /** 动态条件避免将全部登记加载到应用进程。 */
+        final SymbolFileEntity position = after;
+        org.springframework.data.jpa.domain.Specification<SymbolFileEntity> filter = (root, query, cb) -> {
+            /** 只构造有值的条件，利于版本及模块索引。 */
+            var conditions = new java.util.ArrayList<jakarta.persistence.criteria.Predicate>();
+            conditions.add(cb.equal(root.get("appId"), appId));
+            conditions.add(cb.isNull(root.get("deletedAt")));
+            if (!selectedType.isEmpty()) conditions.add(cb.equal(root.get("symbolType"), selectedType));
+            if (version != null) conditions.add(cb.equal(root.get("appVersion"), version));
+            if (build != null) conditions.add(cb.equal(root.get("buildId"), build));
+            if (scope != null) {
+                conditions.add(cb.equal(root.get("symbolType"), "MAPPING"));
+                conditions.add(cb.isNotNull(root.get("appVersion")));
+                conditions.add("default".equals(scope) ? cb.isNull(root.get("buildId")) : cb.isNotNull(root.get("buildId")));
             }
-            List<SymbolFileEntity> rows = fileRepository.activePage(appId, normalizedBuildId, after == null,
-                    after == null ? java.time.Instant.EPOCH : after.getUpdatedAt(), after == null ? new UUID(0, 0) : after.getSymbolId(),
-                    org.springframework.data.domain.PageRequest.of(0, pageSize + 1));
+            if (abi != null) conditions.add(cb.equal(root.get("nativeAbi"), abi));
+            if (elfId != null) conditions.add(cb.equal(root.get("elfBuildId"), elfId));
+            if (position != null) conditions.add(cb.or(cb.lessThan(root.get("updatedAt"), position.getUpdatedAt()),
+                    cb.and(cb.equal(root.get("updatedAt"), position.getUpdatedAt()), cb.lessThan(root.get("symbolId"), position.getSymbolId()))));
+            return cb.and(conditions.toArray(jakarta.persistence.criteria.Predicate[]::new));
+        };
+        try {
+            /** Slice 查询不额外统计全部行。 */
+            var rows = fileRepository.findBy(filter, query -> query.sortBy(Sort.by(Sort.Order.desc("updatedAt"), Sort.Order.desc("symbolId")))
+                    .limit(pageSize + 1).all());
             boolean more = rows.size() > pageSize;
-            List<SymbolFileEntity> page = more ? rows.subList(0, pageSize) : rows;
+            var page = more ? rows.subList(0, pageSize) : rows;
             return new SymbolFilePage(appId, page.stream().map(SymbolFileEntity::metadata).toList(),
-                    more ? page.getLast().getSymbolId().toString() : null);
-        } catch (DataAccessException ex) {
-            throw new SymbolStoreUnavailableException(ex);
-        }
+                    more ? binding + "." + page.getLast().getSymbolId() : null);
+        } catch (DataAccessException failure) { throw new SymbolStoreUnavailableException(failure); }
     }
 
     /** 首次注册单份 mapping，重复字节按幂等成功处理。 */
-    public UploadResult upload(UUID appId, UUID userId, String buildId, MultipartFile file) {
-        String normalizedBuildId = validateBuildId(buildId);
+    public UploadResult upload(UUID appId, UUID userId, String appVersion, String buildId, MultipartFile file) {
+        validateIdentity(appVersion, "appVersion", 128);
+        String normalizedBuildId = buildId == null || buildId.codePoints().allMatch(value -> Character.isWhitespace(value) || Character.isSpaceChar(value))
+                ? null : validateIdentity(buildId, "buildId", 256);
         SymbolFileStore.StagedFile staged = stageAndValidate(file);
         String storageKey = null;
         try {
-            SymbolFileEntity current = findCurrent(appId, normalizedBuildId);
+            SymbolFileEntity current = findCurrent(appId, appVersion, normalizedBuildId);
             if (current != null) {
                 if (current.getSha256().equals(staged.sha256())) {
                     fileStore.discard(staged);
@@ -110,12 +152,13 @@ public class SymbolManagementService {
             }
             storageKey = fileStore.publish(staged);
             try {
-                SymbolFileMetadata created = recordWriter.create(appId, userId, normalizedBuildId, fileName(file),
+                SymbolFileMetadata created = recordWriter.create(appId, userId, appVersion, normalizedBuildId, fileName(file),
                         staged, storageKey);
+                log.info("版本 mapping 已保存：默认范围={} 文件修订={}", normalizedBuildId == null, created.revision());
                 return new UploadResult(created, true);
             } catch (DataIntegrityViolationException ex) {
                 fileStore.retire(storageKey);
-                SymbolFileEntity concurrent = findCurrent(appId, normalizedBuildId);
+                SymbolFileEntity concurrent = findCurrent(appId, appVersion, normalizedBuildId);
                 if (concurrent != null && concurrent.getSha256().equals(staged.sha256())) {
                     return new UploadResult(recordWriter.reaffirm(appId, concurrent.getSymbolId(), concurrent.getRevision()), false);
                 }
@@ -150,6 +193,9 @@ public class SymbolManagementService {
         String storageKey = null;
         try {
             SymbolFileEntity current = findById(appId, symbolId);
+            if (!"MAPPING".equals(current.getSymbolType()) || current.getAppVersion() == null) {
+                throw new SymbolValidationException("SYMBOL_TYPE_MISMATCH", "仅版本化 mapping 可通过此接口替换", 422);
+            }
             if (current.getRevision() != expectedRevision) {
                 throw new SymbolVersionConflictException(current.metadata());
             }
@@ -161,6 +207,7 @@ public class SymbolManagementService {
             SymbolRecordWriter.Replacement replaced = recordWriter.replace(appId, symbolId, userId,
                     expectedRevision, fileName(file), staged, storageKey);
             fileStore.retire(replaced.oldStorageKey());
+            log.info("版本 mapping 替换已完成：文件修订={}", replaced.metadata().revision());
             return replaced.metadata();
         } catch (SymbolVersionConflictException | SymbolValidationException ex) {
             if (storageKey != null) {
@@ -178,16 +225,54 @@ public class SymbolManagementService {
         }
     }
 
+    /** 有界存在性查询，存储失败不能伪装成没有文件。 */
+    public boolean hasVersion(UUID appId, String appVersion) {
+        try { return fileRepository.existsByAppIdAndAppVersionAndSymbolTypeAndDeletedAtIsNull(appId, appVersion, "MAPPING"); }
+        catch (DataAccessException failure) { throw new SymbolStoreUnavailableException(failure); }
+    }
+
     /** 活动行读锁覆盖文件租约登记，删除和替换不能让新读取者取得退休文件。 */
     @org.springframework.transaction.annotation.Transactional
     public java.util.Optional<com.shanshui.apmserver.symbol.api.SymbolFileLease> acquire(UUID appId, String buildId) {
         return fileRepository.lockActiveBuild(appId, validateBuildId(buildId)).map(fileStore::open);
     }
 
+    /** 只匹配同一应用版本的专用或默认 mapping，文件不可读时不回退其他来源。 */
+    @org.springframework.transaction.annotation.Transactional
+    public java.util.Optional<com.shanshui.apmserver.symbol.api.SymbolFileLease> acquireVersioned(
+            UUID appId, String appVersion, String buildId) {
+        // 事件必须携带构建；只有 mapping 登记允许省略构建以声明版本默认范围。
+        if (buildId == null || buildId.isBlank()) {
+            throw new SymbolValidationException("INVALID_BUILD_ID", "事件构建标识不能为空", 400);
+        }
+        /** 原始身份的格式问题；不能裁剪或转换为另一个登记。 */
+        var issues = new java.util.ArrayList<com.shanshui.apmserver.telemetry.api.ValidationIssue>();
+        com.shanshui.apmserver.telemetry.api.ApplicationBuildIdentity.validate(appVersion, buildId, issues);
+        if (!issues.isEmpty()) throw new SymbolValidationException("INVALID_IDENTITY", "应用版本或构建标识无效", 400);
+        try {
+            /** 一次数据库选优并锁定实际来源。 */
+            var rows = fileRepository.lockPreferredMapping(appId, appVersion, buildId,
+                    org.springframework.data.domain.PageRequest.of(0, 1));
+            /** 文件租约覆盖本次实际读取生命周期。 */
+            var result = rows.stream().findFirst().map(fileStore::open);
+            log.info("版本 mapping 选择完成：找到来源={}", result.isPresent());
+            return result;
+        } catch (DataAccessException failure) {
+            log.warn("版本 mapping 选择失败：数据库不可用");
+            throw new SymbolStoreUnavailableException(failure);
+        } catch (SymbolStoreUnavailableException failure) {
+            log.warn("版本 mapping 选择失败：固定来源不可读");
+            throw failure;
+        }
+    }
+
     /** 先提交软删除，再按已有读取租约退休文件。 */
     public void delete(UUID appId, UUID symbolId, UUID userId, int expectedRevision) {
         if (expectedRevision < 1) throw new SymbolValidationException("INVALID_REVISION", "expectedRevision 必须为正数", 400);
-        try { fileStore.retire(recordWriter.delete(appId, symbolId, userId, expectedRevision)); }
+        try {
+            fileStore.retire(recordWriter.delete(appId, symbolId, userId, expectedRevision));
+            log.info("符号文件条件删除已完成，来源与审计已保留");
+        }
         catch (DataAccessException failure) { throw new SymbolStoreUnavailableException(failure); }
     }
 
@@ -195,7 +280,10 @@ public class SymbolManagementService {
     public com.shanshui.apmserver.crash.api.CrashSymbolicationWork.Progress progress(UUID appId, UUID symbolId,
             com.shanshui.apmserver.crash.api.CrashSymbolicationWork work) {
         SymbolFileEntity current = findById(appId, symbolId);
-        return work.progress(appId, current.getBuildId());
+        if (!"MAPPING".equals(current.getSymbolType()) || current.getAppVersion() == null) {
+            throw new SymbolValidationException("SYMBOL_PROGRESS_NOT_APPLICABLE", "此登记不适用 JVM 还原进度", 422);
+        }
+        return work.progress(appId, current.getAppVersion());
     }
 
     /** 逐文件有界检查当前引用，不加载所有历史元数据；数据库不可用时保留文件。 */
@@ -246,23 +334,28 @@ public class SymbolManagementService {
     }
 
     /** 查询应用构建当前记录，数据库异常统一映射为存储不可用。 */
-    private SymbolFileEntity findCurrent(UUID appId, String buildId) {
+    private SymbolFileEntity findCurrent(UUID appId, String appVersion, String buildId) {
         try {
-            return fileRepository.findByAppIdAndBuildIdAndDeletedAtIsNull(appId, buildId).orElse(null);
+            return fileRepository.versionMapping(appId, appVersion, buildId).orElse(null);
         } catch (DataAccessException ex) {
             throw new SymbolStoreUnavailableException(ex);
         }
     }
 
-    /** 校验并返回规范化 buildId。 */
-    private String validateBuildId(String value) {
-        String normalized = value == null ? "" : value.trim();
-        if (normalized.isEmpty() || !BUILD_ID.matcher(normalized).matches()
-                || ".".equals(normalized) || "..".equals(normalized)) {
-            throw new SymbolValidationException("INVALID_BUILD_ID", "buildId 格式无效", 400);
+    /** 校验原文字面身份，禁止裁剪后匹配另一资源。 */
+    public static String validateIdentity(String value, String field, int max) {
+        if (value == null || value.isBlank() || value.length() > max
+                || Character.isWhitespace(value.codePointAt(0)) || Character.isSpaceChar(value.codePointAt(0))
+                || Character.isWhitespace(value.codePointBefore(value.length())) || Character.isSpaceChar(value.codePointBefore(value.length()))
+                || value.codePoints().anyMatch(Character::isISOControl)) {
+            throw new SymbolValidationException("appVersion".equals(field) ? "INVALID_APP_VERSION" : "INVALID_BUILD_ID",
+                    field + " 格式无效", 400);
         }
-        return normalized;
+        return value;
     }
+
+    /** 非空事件构建或筛选沿用相同原文约束。 */
+    private String validateBuildId(String value) { return validateIdentity(value, "buildId", 256); }
 
     /** 清理用户文件名中的目录部分和控制字符。 */
     private String fileName(MultipartFile file) {

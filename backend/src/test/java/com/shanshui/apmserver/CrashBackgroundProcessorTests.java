@@ -36,10 +36,12 @@ class CrashBackgroundProcessorTests {
         UUID app = UUID.randomUUID();
         UUID symbol = UUID.randomUUID();
         Instant now = Instant.now().truncatedTo(ChronoUnit.MILLIS);
-        var lease = new CrashSymbolicationJobs.Lease(app, "build", UUID.randomUUID(), 1, 1);
+        var lease = new CrashSymbolicationJobs.Lease(app, "1", UUID.randomUUID(), 1, 1, null, null, UUID.randomUUID(), null);
         when(jobs.claim(any(), any())).thenReturn(Optional.of(lease));
+        when(symbols.hasVersion(app, "1")).thenReturn(true);
+        when(jobs.advance(eq(lease), any(), any())).thenReturn(true);
         when(jobs.renew(eq(lease), any())).thenReturn(true);
-        when(symbols.acquire(app, "build")).thenReturn(Optional.of(file));
+        when(symbols.acquireVersioned(app, "1", "build")).thenReturn(Optional.of(file));
         when(file.symbolId()).thenReturn(symbol);
         when(file.revision()).thenReturn(1);
         when(file.sha256()).thenReturn("a".repeat(64));
@@ -66,7 +68,7 @@ class CrashBackgroundProcessorTests {
         when(publications.register(eq(lease), any())).thenAnswer(call -> {
             CrashState computed = call.getArgument(1);
             CrashState fixed = CrashSymbolicationPublications.versioned(computed, version.incrementAndGet());
-            return Optional.of(new CrashSymbolicationPublications.Publication(app, fixed.eventId(), "build", fixed.stateVersion(), "digest",
+            return Optional.of(new CrashSymbolicationPublications.Publication(app, fixed.eventId(), "build", "1", fixed.stateVersion(), "digest",
                     new CrashStateJson(mapper).encode(fixed), now.plusSeconds(3600)));
         });
         when(publications.publish(eq(lease), any())).thenAnswer(call -> {
@@ -85,31 +87,15 @@ class CrashBackgroundProcessorTests {
         assertEquals("pending", states.current(app, "event-2").orElseThrow().status());
         assertEquals(1, states.candidates(app, "build", symbol, 1, now.minusSeconds(86400), now, 100).size());
         assertEquals(2, states.candidates(app, "build", UUID.randomUUID(), 1, now.minusSeconds(86400), now, 100).size());
-        verify(symbols).acquire(app, "build");
+        verify(symbols).acquireVersioned(app, "1", "build");
         verify(symbols, times(2)).retrace(eq(file), anyList());
         verify(symbols, never()).retraceAuxiliary(any(), anyList(), anyLong(), any());
         verify(file).close();
         verify(jobs).release(lease, "queued", null, Duration.ZERO);
-        // 大载荷触发响应预算后最多有限减半，不抬高资源预算或丢弃该事件。
-        InMemoryCrashStateStore bounded = spy(states);
-        doAnswer(call -> {
-            int limit = call.getArgument(6);
-            if (limit > 25) throw new QueryValidationException("QUERY_RESOURCE_LIMIT", "测试响应预算", 422);
-            return call.callRealMethod();
-        }).when(bounded).candidates(eq(app), eq("build"), eq(symbol), eq(1), any(), any(), anyInt());
-        CrashBackgroundProcessor adaptive = new CrashBackgroundProcessor(jobs, bounded, publications, symbols,
-                new CrashFingerprintService(), new CrashSanitizer(CrashTestSupport.ingestProperties()), mapper, 100);
-        adaptive.runOnce();
-        assertEquals("symbolicated", states.current(app, "event-2").orElseThrow().status());
-        verify(bounded).candidates(eq(app), eq("build"), eq(symbol), eq(1), any(), any(), eq(100));
-        verify(bounded).candidates(eq(app), eq("build"), eq(symbol), eq(1), any(), any(), eq(50));
-        verify(bounded).candidates(eq(app), eq("build"), eq(symbol), eq(1), any(), any(), eq(25));
-        // 正常停止后没有新领取或新计算，剩余 pending 仍可由下次进程恢复。
+        // 正常停止后不领取新工作，剩余事件由下一轮恢复。
         processor.stop();
         processor.runOnce();
-        adaptive.stop();
-        adaptive.runOnce();
-        verify(jobs, times(2)).claim(any(), any());
+        verify(jobs, times(1)).claim(any(), any());
         assertThrows(IllegalArgumentException.class, () -> new CrashBackgroundProcessor(jobs, states, publications, symbols,
                 new CrashFingerprintService(), new CrashSanitizer(CrashTestSupport.ingestProperties()), mapper, 101));
     }
@@ -123,9 +109,11 @@ class CrashBackgroundProcessorTests {
         CrashSymbolicationPublications publications = mock(CrashSymbolicationPublications.class);
         SymbolRegistry symbols = mock(SymbolRegistry.class);
         UUID app = UUID.randomUUID();
-        var lease = new CrashSymbolicationJobs.Lease(app, "build", UUID.randomUUID(), 1, 1);
+        var lease = new CrashSymbolicationJobs.Lease(app, "1", UUID.randomUUID(), 1, 1, null, null, UUID.randomUUID(), null);
         when(jobs.claim(any(), any())).thenReturn(Optional.of(lease));
-        when(symbols.acquire(app, "build")).thenReturn(Optional.empty());
+        when(symbols.hasVersion(app, "1")).thenReturn(true);
+        when(jobs.advance(eq(lease), any(), any())).thenReturn(true);
+        when(symbols.hasVersion(app, "1")).thenReturn(false);
         CrashBackgroundProcessor processor = new CrashBackgroundProcessor(jobs, states, publications, symbols,
                 new CrashFingerprintService(), new CrashSanitizer(CrashTestSupport.ingestProperties()), mapper, 100);
         processor.runOnce();
@@ -153,9 +141,11 @@ class CrashBackgroundProcessorTests {
                 "native_symbolication_deferred", "raw_native", "{}", "SIGSEGV", "fp", "native-tmp-v1",
                 "temporary", null, null, null, null, null, "a".repeat(64), "{}");
         states.accept(new CrashFact(metadata, "native", true, "{}", "a".repeat(64)), nativeState);
-        var lease = new CrashSymbolicationJobs.Lease(app, "build", UUID.randomUUID(), 1, 1);
+        var lease = new CrashSymbolicationJobs.Lease(app, "1", UUID.randomUUID(), 1, 1, null, null, UUID.randomUUID(), null);
         when(jobs.claim(any(), any())).thenReturn(Optional.of(lease));
-        when(symbols.acquire(app, "build")).thenReturn(Optional.of(firstMapping), Optional.of(replacement),
+        when(symbols.hasVersion(app, "1")).thenReturn(true);
+        when(jobs.advance(eq(lease), any(), any())).thenReturn(true);
+        when(symbols.acquireVersioned(app, "1", "build")).thenReturn(Optional.of(firstMapping), Optional.of(replacement),
                 Optional.empty(), Optional.of(replacement));
         when(firstMapping.symbolId()).thenReturn(UUID.randomUUID());
         when(replacement.symbolId()).thenReturn(UUID.randomUUID());
@@ -197,10 +187,12 @@ class CrashBackgroundProcessorTests {
         UUID app = UUID.randomUUID();
         UUID symbol = UUID.randomUUID();
         Instant now = Instant.now().truncatedTo(ChronoUnit.MILLIS);
-        var lease = new CrashSymbolicationJobs.Lease(app, "build", UUID.randomUUID(), 1, 1);
+        var lease = new CrashSymbolicationJobs.Lease(app, "1", UUID.randomUUID(), 1, 1, null, null, UUID.randomUUID(), null);
         when(jobs.claim(any(), any())).thenReturn(Optional.of(lease));
+        when(symbols.hasVersion(app, "1")).thenReturn(true);
+        when(jobs.advance(eq(lease), any(), any())).thenReturn(true);
         when(jobs.renew(eq(lease), any())).thenReturn(true);
-        when(symbols.acquire(app, "build")).thenReturn(Optional.of(mapping));
+        when(symbols.acquireVersioned(app, "1", "build")).thenReturn(Optional.of(mapping));
         when(mapping.symbolId()).thenReturn(symbol);
         when(mapping.revision()).thenReturn(1);
         when(mapping.sha256()).thenReturn("a".repeat(64));
@@ -230,7 +222,7 @@ class CrashBackgroundProcessorTests {
         AtomicLong version = new AtomicLong();
         when(publications.register(eq(lease), any())).thenAnswer(call -> {
             CrashState fixed = CrashSymbolicationPublications.versioned(call.getArgument(1), version.incrementAndGet());
-            return Optional.of(new CrashSymbolicationPublications.Publication(app, fixed.eventId(), "build", fixed.stateVersion(), "digest",
+            return Optional.of(new CrashSymbolicationPublications.Publication(app, fixed.eventId(), "build", "1", fixed.stateVersion(), "digest",
                     new CrashStateJson(mapper).encode(fixed), now.plusSeconds(3600)));
         });
         when(publications.publish(eq(lease), any())).thenAnswer(call -> {
@@ -269,10 +261,12 @@ class CrashBackgroundProcessorTests {
         UUID app = UUID.randomUUID();
         UUID symbol = UUID.randomUUID();
         Instant now = Instant.now().truncatedTo(ChronoUnit.MILLIS);
-        var lease = new CrashSymbolicationJobs.Lease(app, "build", UUID.randomUUID(), 1, 1);
+        var lease = new CrashSymbolicationJobs.Lease(app, "1", UUID.randomUUID(), 1, 1, null, null, UUID.randomUUID(), null);
         when(jobs.claim(any(), any())).thenReturn(Optional.of(lease));
+        when(symbols.hasVersion(app, "1")).thenReturn(true);
+        when(jobs.advance(eq(lease), any(), any())).thenReturn(true);
         when(jobs.renew(eq(lease), any())).thenReturn(true);
-        when(symbols.acquire(app, "build")).thenReturn(Optional.of(mapping));
+        when(symbols.acquireVersioned(app, "1", "build")).thenReturn(Optional.of(mapping));
         when(mapping.symbolId()).thenReturn(symbol);
         when(mapping.revision()).thenReturn(1);
         when(mapping.sha256()).thenReturn("a".repeat(64));
@@ -296,7 +290,7 @@ class CrashBackgroundProcessorTests {
         when(publications.register(eq(lease), any())).thenAnswer(call -> {
             if (attempts.incrementAndGet() == 1) throw new CrashResultTooLargeException();
             CrashState fixed = CrashSymbolicationPublications.versioned(call.getArgument(1), 1);
-            return Optional.of(new CrashSymbolicationPublications.Publication(app, fixed.eventId(), "build", 1, "digest",
+            return Optional.of(new CrashSymbolicationPublications.Publication(app, fixed.eventId(), "build", "1", 1, "digest",
                     new CrashStateJson(mapper).encode(fixed), now.plusSeconds(3600)));
         });
         when(publications.publish(eq(lease), any())).thenAnswer(call -> {
@@ -345,21 +339,85 @@ class CrashBackgroundProcessorTests {
         }
         verify(jobs, times(2)).claim(any(), any());
         UUID app = UUID.randomUUID();
-        var lease = new CrashSymbolicationJobs.Lease(app, "build", UUID.randomUUID(), 1, 1);
+        var lease = new CrashSymbolicationJobs.Lease(app, "1", UUID.randomUUID(), 1, 1, null, null, UUID.randomUUID(), null);
         var mapping = mock(SymbolFileLease.class);
         when(mapping.symbolId()).thenReturn(UUID.randomUUID());
         when(mapping.revision()).thenReturn(1);
-        when(symbols.acquire(app, "build")).thenReturn(Optional.of(mapping));
+        when(symbols.acquireVersioned(app, "1", "build")).thenReturn(Optional.of(mapping));
         when(jobs.claim(any(), any())).thenReturn(Optional.of(lease));
+        when(symbols.hasVersion(app, "1")).thenReturn(true);
+        when(jobs.advance(eq(lease), any(), any())).thenReturn(true);
         when(jobs.renew(eq(lease), any())).thenReturn(false);
         var pending = new CrashState(app, "event", "build", Instant.now().minusSeconds(1), 0, "pending", "awaiting_processing", "raw_chain", "{}",
                 "Exception", "tmp", "tmp-v1", "temporary", null, null, null, null, null);
-        when(states.candidates(eq(app), eq("build"), any(), eq(1), any(), any(), eq(100)))
-                .thenReturn(java.util.List.of(new CrashWorkItem(pending, "com.example")));
+        when(states.candidatePage(eq(app), eq("1"), any(), any(), any(), any(), eq(100)))
+                .thenReturn(java.util.List.of(new com.shanshui.apmserver.crash.internal.port.CrashStatePort.Candidate(
+                        "event", "build", pending.eventTime(), "pending", null, null, null)));
+        when(states.payloads(eq(app), eq("1"), anyList())).thenReturn(java.util.List.of(new CrashWorkItem(pending, "com.example")));
         processor.runOnce();
         verify(symbols, never()).retrace(any(), anyList());
         verify(publications, never()).register(any(), any());
-        verify(mapping).close();
+        verify(symbols, never()).acquireVersioned(any(), any(), any());
+        verify(mapping, never()).close();
+    }
+    /** 失败按实际来源重试；不可读专用不挡住其他子批，成功与同源确定性失败不重算。 */
+    @Test
+    void retriesOnlyChangedSourcesAndContinuesAfterAnUnreadableSpecificFile() throws Exception {
+        var mapper = new ObjectMapper();
+        var states = new InMemoryCrashStateStore(CrashTestSupport.storageProperties(), mapper);
+        var jobs = mock(CrashSymbolicationJobs.class);
+        var publications = mock(CrashSymbolicationPublications.class);
+        var symbols = mock(SymbolRegistry.class);
+        var fallback = mock(SymbolFileLease.class);
+        var specific = mock(SymbolFileLease.class);
+        UUID app = UUID.randomUUID(), defaultId = UUID.randomUUID(), specificId = UUID.randomUUID();
+        Instant now = Instant.now().truncatedTo(ChronoUnit.MILLIS);
+        var lease = new CrashSymbolicationJobs.Lease(app, "1", UUID.randomUUID(), 1, 1, null, null, UUID.randomUUID(), null);
+        when(jobs.claim(any(), any())).thenReturn(Optional.of(lease));
+        when(jobs.renew(eq(lease), any())).thenReturn(true);
+        when(jobs.advance(eq(lease), any(), any())).thenReturn(true);
+        when(symbols.hasVersion(app, "1")).thenReturn(true);
+        when(fallback.symbolId()).thenReturn(defaultId); when(fallback.revision()).thenReturn(1); when(fallback.sha256()).thenReturn("a".repeat(64));
+        when(specific.symbolId()).thenReturn(specificId); when(specific.revision()).thenReturn(1); when(specific.sha256()).thenReturn("b".repeat(64));
+        when(symbols.acquireVersioned(app, "1", "changed")).thenReturn(Optional.of(specific));
+        when(symbols.acquireVersioned(app, "1", "unchanged")).thenReturn(Optional.of(fallback));
+        when(symbols.acquireVersioned(app, "1", "broken")).thenThrow(new SymbolStoreUnavailableException("受控不可读专用"));
+        when(symbols.acquireVersioned(app, "1", "good")).thenReturn(Optional.of(fallback));
+        for (String build : java.util.List.of("changed", "unchanged", "broken", "good", "success")) {
+            var metadata = new EventMetadata(app, "com.example", build, "crash", now.minusSeconds(5), now, 2,
+                    "session", CrashTestSupport.PROCESS_ID, "device", "1", 1, build, "test", "test", "35", "test", null, Map.of(), Map.of());
+            boolean failed = build.equals("changed") || build.equals("unchanged");
+            var state = new CrashState(app, build, build, metadata.occurredAt(), 1, build.equals("success") ? "symbolicated" : failed ? "failed" : "pending",
+                    failed ? "output_limit" : null, build.equals("success") ? "retrace_text" : "raw_chain",
+                    build.equals("success") ? "fixed" : mapper.writeValueAsString(CrashTestSupport.crash("java.lang.RuntimeException", "test", 1, "a")),
+                    "java.lang.RuntimeException", "tmp", "tmp-v1", build.equals("success") ? "resolved" : "temporary",
+                    failed || build.equals("success") ? defaultId : null, failed || build.equals("success") ? 1 : null,
+                    failed || build.equals("success") ? "a".repeat(64) : null, now, null);
+            var initial = new CrashState(app, build, build, metadata.occurredAt(), 0, "pending", "awaiting_processing", "raw_chain",
+                    mapper.writeValueAsString(CrashTestSupport.crash("java.lang.RuntimeException", "test", 1, "a")),
+                    "java.lang.RuntimeException", "tmp", "tmp-v1", "temporary", null, null, null, null, null);
+            states.accept(new CrashFact(metadata, "jvm", true), initial);
+            states.publish(state);
+        }
+        when(symbols.retrace(any(), anyList())).thenReturn(new SymbolicationResult("java.lang.RuntimeException\n\tat com.example.Main.run(Main.java:1)", SymbolicationResult.Status.SYMBOLICATED, null));
+        var version = new AtomicLong(10);
+        when(publications.register(eq(lease), any())).thenAnswer(call -> {
+            CrashState fixed = CrashSymbolicationPublications.versioned(call.getArgument(1), version.incrementAndGet());
+            return Optional.of(new CrashSymbolicationPublications.Publication(app, fixed.eventId(), fixed.buildId(), "1", fixed.stateVersion(), "digest", new CrashStateJson(mapper).encode(fixed), now.plusSeconds(3600)));
+        });
+        when(publications.publish(eq(lease), any())).thenAnswer(call -> {
+            states.replay(((CrashSymbolicationPublications.Publication) call.getArgument(1)).payload()); return true;
+        });
+        new CrashBackgroundProcessor(jobs, states, publications, symbols, new CrashFingerprintService(),
+                new CrashSanitizer(CrashTestSupport.ingestProperties()), mapper, 100).runOnce();
+        assertEquals(specificId, states.current(app, "changed").orElseThrow().symbolId());
+        assertEquals("failed", states.current(app, "unchanged").orElseThrow().status());
+        assertEquals("pending", states.current(app, "broken").orElseThrow().status());
+        assertEquals(defaultId, states.current(app, "good").orElseThrow().symbolId());
+        assertEquals("fixed", states.current(app, "success").orElseThrow().stackPayload());
+        verify(symbols, times(2)).retrace(any(), anyList());
+        verify(symbols, never()).acquireVersioned(app, "1", "success");
+        verify(jobs).release(lease, "retry_wait", "mapping_unavailable", Duration.ofSeconds(30));
     }
 
 }

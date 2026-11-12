@@ -79,6 +79,7 @@ public class CrashBackgroundProcessor {
             process(lease);
         } catch (RuntimeException failure) {
             // 无法确认的存储写入保留登记载荷；不记录原始异常或文件路径。
+            log.warn("版本 Crash 执行延期：处理或存储暂不可用");
             jobs.release(lease, "retry_wait", "processing_unavailable", Duration.ofSeconds(30));
         }
     }
@@ -93,18 +94,67 @@ public class CrashBackgroundProcessor {
             jobs.release(lease, "queued", null, Duration.ZERO);
             return;
         }
-        var acquired = symbols.acquire(lease.appId(), lease.buildId());
-        if (acquired.isEmpty()) {
+        if (!symbols.hasVersion(lease.appId(), lease.appVersion())) {
             jobs.release(lease, "waiting_mapping", "mapping_missing", Duration.ZERO);
             return;
         }
-        try (SymbolFileLease mapping = acquired.get()) {
-            // 数据库查询范围和行数有硬上限；载荷仅在有限身份筛选后读取。
-            Instant now = Instant.now().truncatedTo(ChronoUnit.MILLIS);
-            var batch = loadCandidates(lease, mapping, now);
-            var candidates = batch.items();
-            long deadline = System.nanoTime() + Duration.ofSeconds(30).toNanos();
-            boolean retry = false;
+        /** 先读取轻量页，普通唤醒不会重置已保存位置。 */
+        Instant now = Instant.now().truncatedTo(ChronoUnit.MILLIS);
+        var page = states.candidatePage(lease.appId(), lease.appVersion(), now.minus(Duration.ofDays(30)), now,
+                lease.scanTime(), lease.scanEventId(), batchSize);
+        if (page.isEmpty()) {
+            jobs.advance(lease, null, null);
+            if (java.util.Set.of("mapping_unavailable", "query_resource_deferred", "transient_event_failure").contains(
+                    lease.scanError() == null ? "" : lease.scanError())) {
+                jobs.release(lease, "retry_wait", lease.scanError(), Duration.ofSeconds(30));
+            } else if ("no_processable_source".equals(lease.scanError()) || "mapping_missing".equals(lease.scanError())) {
+                jobs.release(lease, "waiting_mapping", "no_processable_source", Duration.ZERO);
+            } else jobs.release(lease, "idle", null, Duration.ZERO);
+            return;
+        }
+        /** 以构建分组，同一子批固定实际文件租约。 */
+        var groups = page.stream().collect(java.util.stream.Collectors.groupingBy(
+                com.shanshui.apmserver.crash.internal.port.CrashStatePort.Candidate::buildId, java.util.LinkedHashMap::new,
+                java.util.stream.Collectors.toList()));
+        /** 已安全处理或跳过的身份，期限到达时只推进连续完成的前缀。 */
+        var completed = new java.util.HashSet<String>();
+        boolean foundMapping = false;
+        boolean unavailableSource = false;
+        boolean resourceDelayed = false;
+        boolean transientDelayed = false;
+        boolean eligibleSource = false;
+        /** 所有子批共享总执行期限，不按构建重新获得预算。 */
+        long deadline = System.nanoTime() + Duration.ofSeconds(30).toNanos();
+        for (var group : groups.entrySet()) {
+            if (stopping || System.nanoTime() >= deadline) {
+                jobs.release(lease, "queued", null, Duration.ZERO);
+                return;
+            }
+            if (!jobs.renew(lease, Duration.ofMinutes(1))) return;
+            java.util.Optional<SymbolFileLease> acquired;
+            try { acquired = symbols.acquireVersioned(lease.appId(), lease.appVersion(), group.getKey()); }
+            catch (com.shanshui.apmserver.symbol.api.SymbolStoreUnavailableException failure) {
+                unavailableSource = true;
+                log.warn("版本 Crash 子批固定文件失败，继续其他有限构建");
+                if (!checkpoint(lease, page, completed, group.getValue())) return;
+                continue;
+            }
+            if (acquired.isEmpty()) {
+                if (!checkpoint(lease, page, completed, group.getValue())) return;
+                continue;
+            }
+            foundMapping = true;
+            try (SymbolFileLease mapping = acquired.get()) {
+                /** 同来源确定性失败不读载荷；来源变化或退避已到才重试。 */
+                var eligible = group.getValue().stream().filter(candidate -> "pending".equals(candidate.status())
+                        || !mapping.symbolId().equals(candidate.symbolId()) || !Integer.valueOf(mapping.revision()).equals(candidate.revision())
+                        || (candidate.retryAt() != null && !candidate.retryAt().isAfter(now))).toList();
+                eligibleSource |= !eligible.isEmpty();
+                for (int offset = 0; offset < eligible.size();) {
+                    var chunk = loadPayloads(lease, eligible.subList(offset, eligible.size()));
+                    offset += chunk.consumed();
+                    resourceDelayed |= chunk.resourceFailure();
+                    var candidates = chunk.items();
             for (var work : candidates) {
                 // 包名来自与候选状态关联的事实，同批只持有有限事件。
                 CrashState candidate = work.state();
@@ -162,15 +212,42 @@ public class CrashBackgroundProcessor {
                 } else {
                     // 许可不足属于临时失败；确定性解析/输出错误等待下一份 mapping。
                     boolean transientFailure = "parser_busy".equals(result.reason()) || "mapping_unavailable".equals(result.reason());
-                    retry |= transientFailure;
+                    transientDelayed |= transientFailure;
+
                     if (!recordFailure(lease, mapping, candidate, result.reason(), transientFailure)) return;
                 }
             }
-            jobs.release(lease, candidates.size() == batch.limit() ? "queued" : retry ? "retry_wait" : "idle",
-                    retry ? "transient_event_failure" : null, retry ? Duration.ofSeconds(30) : Duration.ZERO);
-        } catch (IOException failure) {
-            jobs.release(lease, "retry_wait", "mapping_unavailable", Duration.ofSeconds(30));
+                }
+                // 临时失败也推进本页；轮转后按 retryAt 重试，避免阻塞其他构建。
+            } catch (IOException failure) {
+                jobs.release(lease, "retry_wait", "mapping_unavailable", Duration.ofSeconds(30));
+                return;
+            }
+            if (!checkpoint(lease, page, completed, group.getValue())) return;
         }
+        /** 整页安全处理或跳过后推进；到底轮转保证发现较早迟到事件。 */
+        var last = page.getLast();
+        if (!jobs.advance(lease, last.eventTime(), last.eventId())) return;
+        /** 延期原因在下一次领取保留，轮末不将存储或资源失败报告为空闲。 */
+        String category = unavailableSource ? "mapping_unavailable" : resourceDelayed ? "query_resource_deferred"
+                : transientDelayed ? "transient_event_failure" : eligibleSource ? null : "no_processable_source";
+        boolean delayed = unavailableSource || resourceDelayed || transientDelayed;
+        jobs.release(lease, delayed ? "retry_wait" : "queued", category, delayed ? Duration.ofSeconds(30) : Duration.ZERO);
+        log.info("版本 Crash 扫描页完成：候选数={} 存在来源={}", page.size(), foundMapping);
+    }
+
+    /** 只推进已经完成的连续候选前缀，子批耗尽期限也不会反复卡在第一页。 */
+    private boolean checkpoint(CrashSymbolicationJobs.Lease lease,
+            List<com.shanshui.apmserver.crash.internal.port.CrashStatePort.Candidate> page,
+            java.util.Set<String> completed,
+            List<com.shanshui.apmserver.crash.internal.port.CrashStatePort.Candidate> group) {
+        for (var candidate : group) completed.add(candidate.eventId());
+        com.shanshui.apmserver.crash.internal.port.CrashStatePort.Candidate last = null;
+        for (var candidate : page) {
+            if (!completed.contains(candidate.eventId())) break;
+            last = candidate;
+        }
+        return last == null || jobs.advance(lease, last.eventTime(), last.eventId());
     }
 
     /** 单份发布超限时先将辅助还原结果回退为原始帧，再登记同一主异常成功结果。 */
@@ -190,23 +267,27 @@ public class CrashBackgroundProcessor {
         }
     }
 
-    /** 大载荷响应超过预算时有限减半，单事件仍不满足预算则延期而不宣称完成。 */
-    private CandidateBatch loadCandidates(CrashSymbolicationJobs.Lease lease, SymbolFileLease mapping, Instant now) {
-        int limit = batchSize;
+    /** 载荷预算不足时逐次减半；单条仍超限时延期并推进轮转，不挡住后页。 */
+    private PayloadChunk loadPayloads(CrashSymbolicationJobs.Lease lease,
+            List<com.shanshui.apmserver.crash.internal.port.CrashStatePort.Candidate> selected) {
+        int count = selected.size();
         while (true) {
             try {
-                return new CandidateBatch(states.candidates(lease.appId(), lease.buildId(), mapping.symbolId(), mapping.revision(),
-                        now.minus(Duration.ofDays(30)), now, limit), limit);
-            } catch (QueryValidationException exceeded) {
-                if (limit == 1 || !("QUERY_RESOURCE_LIMIT".equals(exceeded.getCode()) || "QUERY_TIMEOUT".equals(exceeded.getCode()))) throw exceeded;
-                if (stopping || !jobs.renew(lease, Duration.ofMinutes(1))) throw exceeded;
-                limit = Math.max(1, limit / 2);
+                return new PayloadChunk(states.payloads(lease.appId(), lease.appVersion(), selected.subList(0, count)), count, false);
+            } catch (QueryValidationException exhausted) {
+                if (!java.util.Set.of("QUERY_RESOURCE_LIMIT", "QUERY_TIMEOUT").contains(exhausted.getCode())) throw exhausted;
+                if (count == 1) {
+                    log.warn("单条 Crash 载荷超过查询预算，保留材料并延期轮转");
+                    return new PayloadChunk(List.of(), 1, true);
+                }
+                count = Math.max(1, count / 2);
+                if (!jobs.renew(lease, Duration.ofMinutes(1))) throw exhausted;
             }
         }
     }
 
-    /** 本批实际查询上限用于判断是否立即继续，不把缩小批次误判为全部完成。 */
-    private record CandidateBatch(/** 有限候选。 */ List<CrashWorkItem> items, /** 实际上限。 */ int limit) {}
+    /** 单次只持有满足现有响应预算的有限载荷。 */
+    private record PayloadChunk(/** 有界载荷。 */ List<CrashWorkItem> items, /** 已消费候选数。 */ int consumed, /** 本页存在资源延期。 */ boolean resourceFailure) {}
 
     /** 单条失败保留当前原始材料；首次成功已登记时不再分配失败版本。 */
     private boolean recordFailure(CrashSymbolicationJobs.Lease lease, SymbolFileLease mapping,

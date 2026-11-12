@@ -65,7 +65,7 @@ class CrashIngestionBackgroundTests {
         var app = UUID.randomUUID();
         var event = CrashTestSupport.crashCommand(CrashTestSupport.event("ingest", "crash", "session", "device", "3.2.0",
                 System.currentTimeMillis(), CrashTestSupport.crash("java.lang.RuntimeException", "test", 1, "a")));
-        when(symbols.acquire(app, event.buildId())).thenReturn(Optional.of(mapping));
+        when(symbols.acquireVersioned(app, event.appVersion(), event.buildId())).thenReturn(Optional.of(mapping));
         var processor = new CrashEventProcessor(new CrashEventValidator(properties, CrashTestSupport.objectMapper()),
                 new CrashSanitizer(properties), new CrashFingerprintService(), repository, CrashTestSupport.objectMapper(), work, symbols);
         assertEquals(1, processor.ingest(app, event, Instant.now()).appendResult().accepted());
@@ -73,7 +73,7 @@ class CrashIngestionBackgroundTests {
         assertEquals("pending", stored.state().status());
         assertEquals("raw_chain", stored.state().stackFormat());
         assertEquals(0, stored.state().stateVersion());
-        doThrow(new EventStoreUnavailableException()).when(work).wake(app, event.buildId());
+        doThrow(new EventStoreUnavailableException()).when(work).wake(app, event.appVersion());
         assertEquals(1, processor.ingest(app, event, Instant.now()).appendResult().duplicate());
         verify(symbols, never()).retrace(any(), anyList());
         verify(mapping, times(2)).close();

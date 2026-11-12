@@ -16,7 +16,7 @@
 | 为什么采用当前技术方案 | [架构决策记录](10-架构决策记录.md) |
 | 哪些参数或能力尚未确定 | [待确认事项](13-待确认事项.md) |
 
-当前结论：仓库已形成 JVM Crash、卡顿、SDK内存异常报告的开发闭环；PSS/VSS/Java堆已切换运行峰值，服务端独立验收与用户指定 Pixel_6 模拟器联合验收通过，统一接收并保存 UUID v4 `processId`；Java 后端采用模块化单体，包含领域专属 ClickHouse 存储、Session/应用管理、网页 mapping 管理与 Crash 后台固定还原、查询 Token 和只读 Agent HTTP；Vue 提供浅色 PC 控制台，TypeScript MCP 独立部署。当前工作区使用本地 Maven processor `1.0.4` 支持异步主线程采样，尚未发布远程制品或升级云端；历史 `1.0.2` 已通过实际设备 ZIP 的云端写入/重复/详情验收；Nginx HTTP 入口已落地，HTTPS 生产网关、生产容量、故障恢复和完整多租户运营仍未完成，详见[当前实现与验证边界](00-当前实现与验证边界.md)。
+当前结论：仓库已形成 JVM Crash、卡顿、SDK内存异常报告的开发闭环；PSS/VSS/Java堆已切换运行峰值，服务端独立验收与用户指定 Pixel_6 模拟器联合验收通过，统一接收并保存 UUID v4 `processId`；Java 后端采用模块化单体，包含领域专属 ClickHouse 存储、Session/应用管理、版本默认/专用 mapping 与 SO 批次管理、Crash 按版本后台固定还原、查询 Token 和只读 Agent HTTP；Vue 提供浅色 PC 控制台，TypeScript MCP 独立部署。当前工作区使用本地 Maven processor `1.0.4` 支持异步主线程采样，尚未发布远程制品或升级云端；历史 `1.0.2` 已通过实际设备 ZIP 的云端写入/重复/详情验收；Nginx HTTP 入口已落地，HTTPS 生产网关、生产容量、故障恢复和完整多租户运营仍未完成，详见[当前实现与验证边界](00-当前实现与验证边界.md)。
 
 ## 核心知识地图
 

@@ -21,6 +21,7 @@ vi.mock('../api/symbolApi', () => ({
     progress: vi.fn(),
     remove: vi.fn(),
     upload: vi.fn(),
+    uploadNative: vi.fn(),
     replace: vi.fn(),
   },
 }))
@@ -30,6 +31,8 @@ const mockedSymbolApi = vi.mocked(symbolApi)
 const currentSymbol = {
   symbolId: 'symbol-1',
   appId: 'app-1',
+  type: 'MAPPING' as const, appVersion: '1', mappingScope: 'build' as const,
+  abi: null, elfBuildId: null, hasFunctionSymbols: null, hasDebugInfo: null, hasDebugLine: null,
   buildId: 'release-1',
   revision: 2,
   originalFilename: 'mapping.txt',
@@ -67,6 +70,9 @@ function createFile(content: string, filename: string) {
 describe('SymbolFilesView', () => {
   afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks() })
   beforeEach(() => {
+    // jsdom 未实现原生 dialog 的显示和关闭，模拟标准浏览器的 open 状态。
+    Object.defineProperty(HTMLDialogElement.prototype, 'showModal', { configurable: true, value: function (this: HTMLDialogElement) { this.setAttribute('open', '') } })
+    Object.defineProperty(HTMLDialogElement.prototype, 'close', { configurable: true, value: function (this: HTMLDialogElement) { this.removeAttribute('open') } })
     setActivePinia(createPinia())
     const apps = useAppStore()
     apps.apps = [{
@@ -77,7 +83,7 @@ describe('SymbolFilesView', () => {
       createdAt: '2026-09-19T00:00:00Z', updatedAt: '2026-09-19T00:00:00Z',
     }]
     routeState.params.appId = 'app-1'
-    routeState.query = {}
+    routeState.query = { appVersion: '1' }
     vi.resetAllMocks()
     mockedSymbolApi.list.mockResolvedValue({ appId: 'app-1', items: [currentSymbol], nextCursor: null })
     mockedSymbolApi.progress.mockResolvedValue({state: 'idle', succeededCount: 0, failedCount: 0, updatedAt: null, errorCategory: null})
@@ -100,7 +106,7 @@ describe('SymbolFilesView', () => {
     await wrapper.get('.symbol-filter-form').trigger('submit')
     await flushPromises()
 
-    expect(mockedSymbolApi.list).toHaveBeenLastCalledWith('app-1', { buildId: 'release-1' }, expect.any(AbortSignal))
+    expect(mockedSymbolApi.list).toHaveBeenLastCalledWith('app-1', expect.objectContaining({ type: 'MAPPING', appVersion: '1', buildId: 'release-1' }), expect.any(AbortSignal))
   })
 
   /** 不同摘要先展示当前元数据，确认前不得调用替换接口。 */
@@ -217,7 +223,7 @@ describe('SymbolFilesView', () => {
       RouterLink: { template: '<a><slot /></a>' },
     } } })
     await flushPromises()
-    expect(wrapper.text()).toContain('当前应用还没有注册 mapping。')
+    expect(wrapper.text()).toContain('当前筛选没有符号文件。')
     expect(wrapper.find('table').exists()).toBe(false)
   })
 
@@ -231,11 +237,11 @@ describe('SymbolFilesView', () => {
       RouterLink: { template: '<a><slot /></a>' },
     } } })
     await flushPromises()
-    await wrapper.get('.symbol-pagination button').trigger('click')
+    await wrapper.get('.symbol-pagination').trigger('click')
     await flushPromises()
     expect(wrapper.text()).toContain('release-1')
     expect(wrapper.text()).toContain('release-2')
-    expect(mockedSymbolApi.list).toHaveBeenLastCalledWith('app-1', { buildId: undefined, cursor: 'opaque-cursor' }, expect.any(AbortSignal))
+    expect(mockedSymbolApi.list).toHaveBeenLastCalledWith('app-1', expect.objectContaining({ type: 'MAPPING', appVersion: '1', buildId: undefined, cursor: 'opaque-cursor' }), expect.any(AbortSignal))
   })
 
   /** 应用切换取消未完成的旧列表请求，迟到响应不能覆盖新应用列表。 */
@@ -297,7 +303,7 @@ describe('SymbolFilesView', () => {
     const upload = deferred<typeof currentSymbol>()
     mockedSymbolApi.upload.mockReturnValue(upload.promise)
     await wrapper.get('.symbol-upload-form').trigger('submit')
-    const signal = mockedSymbolApi.upload.mock.calls[0]?.[3]
+    const signal = mockedSymbolApi.upload.mock.calls[0]?.[4]
     routeState.params.appId = 'app-2'
     await flushPromises()
     expect(signal?.aborted).toBe(true)
@@ -320,7 +326,7 @@ describe('SymbolFilesView', () => {
     expect(wrapper.text()).toContain('版本已变化')
     mockedSymbolApi.list.mockResolvedValue({ appId:'app-1', items:[], nextCursor:null })
     await button().trigger('click'); await flushPromises()
-    expect(wrapper.text()).toContain('mapping 已删除并保留审计')
+    expect(wrapper.text()).toContain('文件已删除并保留审计')
     wrapper.unmount()
   })
 
@@ -364,6 +370,105 @@ describe('SymbolFilesView', () => {
     expect(mockedSymbolApi.progress.mock.calls.at(-1)?.[1]).toBe('new-symbol')
     routeState.params.appId='app-2'; await flushPromises()
     expect(wrapper.find('[aria-label="构建还原进度"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  /** 管理员可清空预填构建登记版本默认文件。 */
+  it('uploads a version default mapping without an application build', async () => {
+    const wrapper = mount(SymbolFilesView, { global: { stubs: { AppLayout: { template: '<div><slot /></div>' }, RouterLink: true } } })
+    await flushPromises()
+    const file = createFile('mapping', 'mapping.txt')
+    Object.defineProperty(wrapper.get('#symbol-file').element, 'files', { configurable: true, value: [file] })
+    await wrapper.get('#symbol-file').trigger('change')
+    await wrapper.get('.symbol-upload-form').trigger('submit')
+    await flushPromises()
+    expect(mockedSymbolApi.upload).toHaveBeenCalledWith('app-1', '1', null, file, expect.any(AbortSignal))
+    wrapper.unmount()
+  })
+
+  /** SO 全批确认包含预期不存在项，成功后不轮询 JVM。 */
+  it('confirms every native identity and never polls native progress', async () => {
+    routeState.query = { type: 'NATIVE_SO', appVersion: '2.0', targetAbi: 'arm64-v8a', targetElfBuildId: 'aabb' }
+    const existing = { ...currentSymbol, type: 'NATIVE_SO' as const, appVersion: '2.0', mappingScope: null, buildId: null, abi: 'arm64-v8a', elfBuildId: 'aabb' }
+    const entries = [{ abi: 'arm64-v8a', elfBuildId: 'aabb', incomingSha256: 'b'.repeat(64), current: existing },
+      { abi: 'x86', elfBuildId: 'ccdd', incomingSha256: 'c'.repeat(64), current: null }]
+    mockedSymbolApi.list.mockResolvedValue({ appId: 'app-1', items: [existing], nextCursor: null })
+    mockedSymbolApi.uploadNative.mockRejectedValueOnce(new ApiError({ status: 409, code: 'SYMBOL_BATCH_CONFLICT', message: '确认', retryable: false, details: entries }))
+      .mockResolvedValueOnce({ items: [existing], createdCount: 1, replacedCount: 1, unchangedCount: 0 })
+    const wrapper = mount(SymbolFilesView, { global: { stubs: { AppLayout: { template: '<div><slot /></div>' }, RouterLink: true } } })
+    await flushPromises()
+    expect(wrapper.find('#symbol-build-id').exists()).toBe(false)
+    const file = createFile('zip', 'symbols.zip')
+    Object.defineProperty(wrapper.get('#symbol-file').element, 'files', { configurable: true, value: [file] })
+    await wrapper.get('#symbol-file').trigger('change')
+    await wrapper.get('.symbol-upload-form').trigger('submit'); await flushPromises()
+    expect(wrapper.text()).toContain('新建（预期不存在）')
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    await wrapper.findAll('button').find(button => button.text() === '确认整批')!.trigger('click'); await flushPromises()
+    expect(mockedSymbolApi.uploadNative).toHaveBeenLastCalledWith('app-1', '2.0', file,
+      { abi: 'arm64-v8a', elfBuildId: 'aabb' }, [{ abi: 'arm64-v8a', elfBuildId: 'aabb', symbolId: 'symbol-1', revision: 2 },
+        { abi: 'x86', elfBuildId: 'ccdd', symbolId: null, revision: null }], expect.any(AbortSignal))
+    expect(mockedSymbolApi.progress).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('本期未提供 Native 还原')
+    wrapper.unmount()
+  })
+
+  /** 类型切换取消在途 SO 请求、目标和旧文件，迟到结果无权改写页面。 */
+  it('clears native context and ignores an old upload after switching type', async () => {
+    routeState.query = { type: 'NATIVE_SO', appVersion: '2.0', targetAbi: 'arm64-v8a', targetElfBuildId: 'aabb' }
+    const pending = deferred<{ items: typeof currentSymbol[]; createdCount: number; replacedCount: number; unchangedCount: number }>()
+    mockedSymbolApi.uploadNative.mockReturnValue(pending.promise)
+    const wrapper = mount(SymbolFilesView, { global: { stubs: { AppLayout: { template: '<div><slot /></div>' }, RouterLink: true } } })
+    await flushPromises()
+    Object.defineProperty(wrapper.get('#symbol-file').element, 'files', { configurable: true, value: [createFile('zip', 'symbols.zip')] })
+    await wrapper.get('#symbol-file').trigger('change'); await wrapper.get('.symbol-upload-form').trigger('submit')
+    const signal = mockedSymbolApi.uploadNative.mock.calls[0]?.[5]
+    await wrapper.get('#symbol-tab-MAPPING').trigger('click')
+    expect(signal?.aborted).toBe(true)
+    expect(wrapper.find('#symbol-build-id').exists()).toBe(true)
+    pending.resolve({ items: [], createdCount: 1, replacedCount: 0, unchangedCount: 0 }); await flushPromises()
+    expect(wrapper.text()).not.toContain('SO 文件已保存')
+    wrapper.unmount()
+  })
+
+  /** 列表入口按需打开弹窗，Escape 关闭后不能复用上一份文件。 */
+  it('opens upload on demand and clears the file when dismissing the dialog', async () => {
+    routeState.query = {}
+    const wrapper = mount(SymbolFilesView, { global: { stubs: { AppLayout: { template: '<div><slot /></div>' }, RouterLink: true } } })
+    await flushPromises()
+    expect(wrapper.get('dialog').attributes('open')).toBeUndefined()
+    await wrapper.get('.symbol-upload-trigger').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('dialog').attributes('open')).toBeDefined()
+    Object.defineProperty(wrapper.get('#symbol-file').element, 'files', { configurable: true, value: [createFile('mapping', 'selected.txt')] })
+    await wrapper.get('#symbol-file').trigger('change')
+    expect(wrapper.get('.symbol-file-picker').text()).toContain('selected.txt')
+    await wrapper.get('dialog').trigger('cancel')
+    await flushPromises()
+    expect(wrapper.get('dialog').attributes('open')).toBeUndefined()
+    await wrapper.get('.symbol-upload-trigger').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('.symbol-file-picker').text()).not.toContain('selected.txt')
+    expect(mockedSymbolApi.upload).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  /** 重置清除所有列表条件，键盘标签切换只使用目标类型适用的筛选。 */
+  it('resets filters and changes symbol tabs with the keyboard', async () => {
+    routeState.query = {}
+    const wrapper = mount(SymbolFilesView, { global: { stubs: { AppLayout: { template: '<div><slot /></div>' }, RouterLink: true } } })
+    await flushPromises()
+    await wrapper.get('#symbol-filter-version').setValue('2.0')
+    await wrapper.get('#symbol-filter-build-id').setValue('release-2')
+    await wrapper.get('#symbol-filter-scope').setValue('build')
+    await wrapper.findAll('button').find(button => button.text() === '重置')!.trigger('click')
+    await flushPromises()
+    expect(mockedSymbolApi.list).toHaveBeenLastCalledWith('app-1', expect.objectContaining({ appVersion: undefined, buildId: undefined, mappingScope: undefined }), expect.any(AbortSignal))
+    await wrapper.get('#symbol-tab-MAPPING').trigger('keydown', { key: 'ArrowRight' })
+    await flushPromises()
+    expect(wrapper.get('#symbol-tab-NATIVE_SO').attributes('aria-selected')).toBe('true')
+    expect(wrapper.find('#symbol-filter-build-id').exists()).toBe(false)
+    expect(mockedSymbolApi.list).toHaveBeenLastCalledWith('app-1', expect.objectContaining({ type: 'NATIVE_SO', buildId: undefined, mappingScope: undefined }), expect.any(AbortSignal))
     wrapper.unmount()
   })
 

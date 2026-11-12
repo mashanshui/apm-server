@@ -169,6 +169,51 @@ public class ClickHouseCrashStateStore implements CrashStatePort {
                 + " LIMIT 1 FORMAT JSONEachRow").stream().map(this::decode).findFirst();
     }
 
+    /** 版本在事实子查询 LIMIT 之前限定；FINAL 之后才筛选逻辑状态。 */
+    @Override
+    public List<Candidate> candidatePage(UUID appId, String appVersion, Instant from, Instant now,
+                                        Instant afterTime, String afterId, int limit) {
+        if (limit < 1 || limit > 100 || from.isBefore(now.minusSeconds(30L * 86400)) || !from.isBefore(now)) {
+            throw new IllegalArgumentException("候选范围超限");
+        }
+        /** 事实与状态共享时间范围，避免无界历史关联。 */
+        String scope = "app_id=" + quote(appId.toString()) + " AND event_time >= " + date(from)
+                + " AND event_time < " + date(now.plusSeconds(901));
+        /** 轻量事实在版本条件内关联，禁止诊断列进入第一阶段。 */
+        String facts = "SELECT app_id,build_id,event_time,event_id FROM apm_crash_fact FINAL WHERE " + scope
+                + " AND app_version=" + quote(appVersion) + " AND event_type='crash' AND crash_kind='jvm' AND crash_fatal=1";
+        /** 持久位置不依赖是否找到 mapping。 */
+        String cursor = afterTime == null ? "" : " AND (s.event_time,s.event_id)>(" + date(afterTime) + "," + quote(afterId) + ")";
+        return query("SELECT s.event_id,s.build_id,s.event_time,s.symbolication_status,s.symbol_id,s.symbol_revision,s.retry_at"
+                + " FROM (SELECT app_id,build_id,event_time,event_id,symbolication_status,symbol_id,symbol_revision,retry_at"
+                + " FROM apm_crash_state FINAL WHERE " + scope + ") s INNER JOIN (" + facts + ") f"
+                + " ON s.app_id=f.app_id AND s.build_id=f.build_id AND s.event_time=f.event_time AND s.event_id=f.event_id"
+                + " WHERE s.symbolication_status IN ('pending','failed')" + cursor
+                + " ORDER BY s.event_time,s.event_id LIMIT " + limit + " FORMAT JSONEachRow")
+                .stream().map(row -> new Candidate(row.path("event_id").asText(), row.path("build_id").asText(),
+                        parseTime(row.path("event_time").asText()), row.path("symbolication_status").asText(),
+                        nullableText(row, "symbol_id") == null ? null : UUID.fromString(row.path("symbol_id").asText()),
+                        row.path("symbol_revision").isNull() ? null : row.path("symbol_revision").asInt(), nullableTime(row, "retry_at"))).toList();
+    }
+
+    /** 限定身份后读取载荷，始终再次确认版本、JVM 类型与最新状态。 */
+    @Override
+    public List<CrashWorkItem> payloads(UUID appId, String appVersion, List<Candidate> candidates) {
+        if (candidates.isEmpty()) return List.of();
+        if (candidates.size() > 100) throw new IllegalArgumentException("载荷数量超限");
+        /** 身份集合至多一页，统一转义字面量。 */
+        String ids = candidates.stream().map(item -> "(" + quote(item.buildId()) + "," + date(item.eventTime()) + "," + quote(item.eventId()) + ")")
+                .collect(java.util.stream.Collectors.joining(","));
+        /** 最近保留期与有限身份共同限制读取。 */
+        String scope = "app_id=" + quote(appId.toString()) + " AND (build_id,event_time,event_id) IN (" + ids + ") AND event_time>=now64(3)-INTERVAL 30 DAY";
+        return query("SELECT s.*,f.package_name FROM (SELECT * FROM apm_crash_state FINAL PREWHERE " + scope + ") s"
+                + " INNER JOIN (SELECT app_id,build_id,event_time,event_id,package_name FROM apm_crash_fact FINAL WHERE " + scope
+                + " AND app_version=" + quote(appVersion) + " AND crash_kind='jvm' AND crash_fatal=1) f"
+                + " ON s.app_id=f.app_id AND s.build_id=f.build_id AND s.event_time=f.event_time AND s.event_id=f.event_id"
+                + " WHERE s.symbolication_status IN ('pending','failed') ORDER BY s.event_time,s.event_id LIMIT 100 FORMAT JSONEachRow")
+                .stream().map(row -> new CrashWorkItem(decode(row), row.path("package_name").asText())).toList();
+    }
+
     /** FINAL 在子查询中先确定最新版本，状态条件不能提前过滤旧 pending。 */
     @Override
     public List<CrashWorkItem> candidates(UUID appId, String buildId, UUID symbolId, int revision,

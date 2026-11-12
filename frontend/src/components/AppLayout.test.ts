@@ -202,4 +202,16 @@ describe('AppLayout', () => {
     await wrapper.setProps({ appId: undefined })
     expect(wrapper.find('.nav-group-toggle').exists()).toBe(false)
   })
+  /** 应用切换不能将旧 Native 模块、版本或应用构建带入新应用。 */
+  it('clears symbol upload identity when switching applications', async () => {
+    routeMock.name = 'app-symbols'
+    routeMock.query = { type: 'NATIVE_SO', appVersion: '2.0', targetAbi: 'arm64-v8a', targetElfBuildId: 'aabb', buildId: 'old-build' }
+    mockedAppApi.list.mockResolvedValue(appFixtures)
+    const wrapper = mount(AppLayout, { props: { appId: 'mobile-apm' }, global: { stubs: { RouterLink: { template: '<a><slot /></a>' } } } })
+    await flushPromises()
+    await wrapper.get('.app-switcher select').setValue('other-apm')
+    expect(routerMock.push).toHaveBeenCalledWith({ name: 'app-symbols', params: { appId: 'other-apm' } })
+    wrapper.unmount()
+  })
+
 })

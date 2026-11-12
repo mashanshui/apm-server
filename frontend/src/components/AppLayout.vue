@@ -47,14 +47,14 @@ onMounted(() => {
   }
 })
 
-/** 切换应用并保留当前符号表或卡顿查询上下文。 */
+/** 切换应用时清除符号预填身份，卡顿保留可兼容查询上下文。 */
 function switchApp(event: Event) {
   const nextAppId = (event.target as HTMLSelectElement).value
   if (!nextAppId || nextAppId === props.appId) return
   apps.clearCurrent()
   const jankTarget = jankAppSwitchTarget(route.name, nextAppId, route.query)
   const target = route.name === 'app-symbols'
-    ? { name: 'app-symbols', params: { appId: nextAppId }, query: route.query }
+    ? { name: 'app-symbols', params: { appId: nextAppId } }
     : (jankTarget ?? { name: 'crash-overview', params: { appId: nextAppId } })
   void router.push(target)
 }

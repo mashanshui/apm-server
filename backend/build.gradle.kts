@@ -48,6 +48,8 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-session-jdbc")
     implementation("org.springframework.boot:spring-boot-starter-flyway")
     implementation("org.flywaydb:flyway-database-postgresql")
+    // 读取 ZIP 中央目录的属性，供后续 SO 归档安全校验使用。
+    implementation("org.apache.commons:commons-compress:1.28.0")
     // 官方 R8 Retrace API，用于校验和后台还原 Android mapping。
     // 固定官方 R8 Retrace 版本，服务端通过 Java API 校验和还原 mapping。
     implementation("com.android.tools:r8:8.9.35")

@@ -47,6 +47,27 @@ class JankArtifactReportMapperTests {
         assertEquals("symbol-validation-2026-09-20", event.buildId());
     }
 
+    /** Jank 事件构建仍必填；缺失与非法类型不能借默认 mapping 进入存储。 */
+    @Test
+    void rejectsMissingBuildAndInvalidIdentity() throws Exception {
+        for (String value : java.util.List.of("absent", "null", "blank")) {
+            JsonNode report = report(1_000L, 20_000_000L);
+            ObjectNode manifest = (ObjectNode) report.path("sourceManifest");
+            if ("absent".equals(value)) manifest.remove("buildId");
+            else if ("null".equals(value)) manifest.putNull("buildId");
+            else manifest.put("buildId", "   ");
+            assertThrows(InvalidStackArtifactException.class, () -> mapper(CrashTestSupport.ingestProperties()).map(
+                    TestAppIds.id("app-required-build"), report, Instant.now(), false));
+        }
+        JsonNode invalid = report(1_000L, 20_000_000L);
+        ((ObjectNode) invalid.path("sourceManifest")).put("buildId", 123);
+        assertThrows(InvalidStackArtifactException.class, () -> mapper(CrashTestSupport.ingestProperties()).map(
+                TestAppIds.id("app-invalid-build"), invalid, Instant.now(), false));
+        ((ObjectNode) invalid.path("sourceManifest")).put("buildId", " build");
+        assertThrows(InvalidStackArtifactException.class, () -> mapper(CrashTestSupport.ingestProperties()).map(
+                TestAppIds.id("app-invalid-build"), invalid, Instant.now(), false));
+    }
+
     @Test
     void countsAllTargetThreadSegmentsAndDeduplicatesStacks() throws Exception {
         JsonNode report = report(1_000L, 20_000_000L);

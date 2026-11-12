@@ -34,15 +34,16 @@ public class SymbolRecordWriter {
 
     /** 原子创建当前版本和首次上传审计。 */
     @Transactional
-    public SymbolFileMetadata create(UUID appId, UUID userId, String buildId, String filename,
+    public SymbolFileMetadata create(UUID appId, UUID userId, String appVersion, String buildId, String filename,
                                      SymbolFileStore.StagedFile staged, String storageKey) {
         Instant now = Instant.now();
         SymbolFileEntity entity = new SymbolFileEntity(UUID.randomUUID(), appId, buildId, 1, storageKey,
                 filename, staged.sizeBytes(), staged.sha256(), userId, now, now);
+        entity.identify("MAPPING", appVersion, null, null, null, null, null);
         fileRepository.saveAndFlush(entity);
-        auditRepository.saveAndFlush(new SymbolAuditEntity(UUID.randomUUID(), entity.getSymbolId(), appId, buildId,
-                null, null, entity.getRevision(), entity.getSha256(), userId, now, "UPSERT"));
-        work.wake(appId, buildId);
+        audit(new SymbolAuditEntity(UUID.randomUUID(), entity.getSymbolId(), appId, buildId,
+                null, null, entity.getRevision(), entity.getSha256(), userId, now, "UPSERT"), entity);
+        work.wake(appId, appVersion);
         return entity.metadata();
     }
 
@@ -68,10 +69,10 @@ public class SymbolRecordWriter {
             throw new SymbolVersionConflictException(latest.metadata());
         }
         SymbolFileEntity replaced = fileRepository.findById(symbolId).orElseThrow();
-        auditRepository.saveAndFlush(new SymbolAuditEntity(UUID.randomUUID(), symbolId, appId,
+        audit(new SymbolAuditEntity(UUID.randomUUID(), symbolId, appId,
                 replaced.getBuildId(), oldRevision, oldSha256, replaced.getRevision(), replaced.getSha256(),
-                userId, replaced.getUpdatedAt(), "UPSERT"));
-        work.wake(appId, replaced.getBuildId());
+                userId, replaced.getUpdatedAt(), "UPSERT"), replaced);
+        wake(replaced);
         return new Replacement(replaced.metadata(), current.getStorageKey());
     }
 
@@ -81,7 +82,7 @@ public class SymbolRecordWriter {
         SymbolFileEntity current = fileRepository.lockActiveId(appId, symbolId)
                 .orElseThrow(() -> new com.shanshui.apmserver.symbol.api.SymbolValidationException("SYMBOL_NOT_FOUND", "符号表不存在", 404));
         if (current.getRevision() != expectedRevision) throw new SymbolVersionConflictException(current.metadata());
-        work.wake(appId, current.getBuildId());
+        wake(current);
         return current.metadata();
     }
 
@@ -99,10 +100,23 @@ public class SymbolRecordWriter {
                     .orElseThrow(() -> new com.shanshui.apmserver.symbol.api.SymbolValidationException("SYMBOL_NOT_FOUND", "符号表不存在", 404));
             throw new SymbolVersionConflictException(latest.metadata());
         }
-        auditRepository.saveAndFlush(new SymbolAuditEntity(UUID.randomUUID(), symbolId, appId, current.getBuildId(),
-                current.getRevision(), current.getSha256(), current.getRevision(), current.getSha256(), userId, now, "DELETE"));
-        work.wake(appId, current.getBuildId());
+        audit(new SymbolAuditEntity(UUID.randomUUID(), symbolId, appId, current.getBuildId(),
+                current.getRevision(), current.getSha256(), current.getRevision(), current.getSha256(), userId, now, "DELETE"), current);
+        wake(current);
         return storageKey;
+    }
+
+    /** 类型化审计沿用同一事务，旧记录不补造身份。 */
+    private void audit(SymbolAuditEntity audit, SymbolFileEntity file) {
+        audit.identify(file);
+        auditRepository.saveAndFlush(audit);
+    }
+
+    /** 只有明确版本的 mapping 唤醒 JVM 工作。 */
+    private void wake(SymbolFileEntity file) {
+        if ("MAPPING".equals(file.getSymbolType()) && file.getAppVersion() != null) {
+            work.wake(file.getAppId(), file.getAppVersion());
+        }
     }
 
     /** 当前版本写入结果及被替换的旧文件键。 */

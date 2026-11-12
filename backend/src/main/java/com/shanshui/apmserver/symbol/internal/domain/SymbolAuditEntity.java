@@ -23,8 +23,29 @@ public class SymbolAuditEntity {
     /** 所属应用。 */
     @Column(name = "app_id", nullable = false)
     private UUID appId;
+    /** 文件类型；历史登记默认为 mapping。 */
+    @Column(name = "symbol_type", nullable = false, length = 16)
+    private String symbolType = "MAPPING";
+    /** 登记所属版本；历史无版本记录保持为空。 */
+    @Column(name = "app_version", length = 128)
+    private String appVersion;
+    /** SO 模块 ABI，mapping 不适用。 */
+    @Column(name = "native_abi", length = 16)
+    private String nativeAbi;
+    /** 完整 ELF Build ID，mapping 不适用。 */
+    @Column(name = "elf_build_id", length = 128)
+    private String elfBuildId;
+    /** 是否检测到已定义函数符号，mapping 不适用。 */
+    @Column(name = "has_function_symbols")
+    private Boolean hasFunctionSymbols;
+    /** 是否检测到调试信息，mapping 不适用。 */
+    @Column(name = "has_debug_info")
+    private Boolean hasDebugInfo;
+    /** 是否检测到调试行信息，mapping 不适用。 */
+    @Column(name = "has_debug_line")
+    private Boolean hasDebugLine;
     /** 构建标识。 */
-    @Column(name = "build_id", nullable = false, length = 128)
+    @Column(name = "build_id", length = 256)
     private String buildId;
     /** 被替换前的版本。 */
     @Column(name = "old_revision")
@@ -68,5 +89,17 @@ public class SymbolAuditEntity {
         this.changedBy = changedBy;
         this.changedAt = changedAt;
         this.action = action;
+    }
+
+    /** 复制当前登记的类型身份，保留历史来源快照。 */
+    public void identify(SymbolFileEntity file) {
+        var metadata = file.metadata();
+        this.symbolType = metadata.type();
+        this.appVersion = metadata.appVersion();
+        this.nativeAbi = metadata.abi();
+        this.elfBuildId = metadata.elfBuildId();
+        this.hasFunctionSymbols = metadata.hasFunctionSymbols();
+        this.hasDebugInfo = metadata.hasDebugInfo();
+        this.hasDebugLine = metadata.hasDebugLine();
     }
 }

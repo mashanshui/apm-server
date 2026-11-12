@@ -62,6 +62,7 @@ public class JankArtifactReportMapper {
         JsonNode manifest = report.get("sourceManifest");
         requireObject(manifest, "INVALID_JANK_MANIFEST", "解析结果缺少卡顿 manifest");
         rejectLegacyManifestIdentity(manifest);
+        JankArtifactIdentity identity = JankArtifactIdentity.fromManifest(manifest);
         if (requireInt(manifest, "schemaVersion") != MANIFEST_SCHEMA_VERSION
                 || !"RHEA_JANK".equals(requireText(manifest, "artifactType"))) {
             throw invalid("UNSUPPORTED_JANK_ARTIFACT", "只支持 v3 RHEA_JANK 产物");
@@ -174,8 +175,7 @@ public class JankArtifactReportMapper {
                     MANIFEST_SCHEMA_VERSION, sanitizer.sanitizeText(requireText(manifest, "sessionId"), 128),
                     processId,
                     sanitizer.hashDeviceId(requireText(manifest, "anonymousDeviceId")),
-                    sanitizer.sanitizeText(requireText(manifest, "appVersion"), 128), (int) versionCode,
-                    sanitizer.sanitizeIdentifier(requireText(manifest, "buildId"), 256),
+                    identity.appVersion(), (int) versionCode, identity.buildId(),
                     sanitizer.sanitizeText(requireText(manifest, "environment"), 64),
                     sanitizer.sanitizeText(requireText(manifest, "channel"), 128),
                     sanitizer.sanitizeText(requireText(manifest, "osVersion"), 64),

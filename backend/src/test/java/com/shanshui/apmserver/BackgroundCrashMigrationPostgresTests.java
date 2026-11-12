@@ -39,9 +39,9 @@ class BackgroundCrashMigrationPostgresTests {
         jdbc.update("INSERT INTO apm_app VALUES (?,'com.example.background','迁移测试',NULL,?,clock_timestamp(),clock_timestamp())", app, user);
         jdbc.update("INSERT INTO crash_analysis_task(task_id,app_id,event_id,idempotency_key,created_by,fingerprint,state,evidence,evidence_text) VALUES (?,?,'old',?,?,'old','SUCCEEDED','{\"schemaVersion\":2}'::jsonb,'{\"schemaVersion\":2}')", task, app, UUID.randomUUID(), user);
         symbol(jdbc, oldSymbol, app, user);
-        // 完整迁移重复执行不会再次修改数据或结构。
+        // 本测试限定 V15–V16；重复执行不会再次修改数据或结构。
         Flyway flyway = Flyway.configure().dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
-                .schemas(schema).defaultSchema(schema).load();
+                .schemas(schema).defaultSchema(schema).target("16").load();
         assertEquals(2, flyway.migrate().migrationsExecuted);
         assertEquals(0, flyway.migrate().migrationsExecuted);
         assertNull(jdbc.queryForObject("SELECT contract_version FROM crash_analysis_task WHERE task_id=?", Integer.class, task));

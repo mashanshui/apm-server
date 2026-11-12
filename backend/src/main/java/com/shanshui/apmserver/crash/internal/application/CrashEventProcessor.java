@@ -83,8 +83,8 @@ public class CrashEventProcessor implements CrashEventProcessing {
                 appendResult.accepted(), appendResult.duplicate(), crash.diagnostics() != null);
         if (crash != null && !nativeCrash) {
             // 两侧已确认后通知失败不能伪造未持久化；定时轮转仍可发现当前事件。
-            try (var mapping = symbols.acquire(appId, metadata.buildId()).orElse(null)) {
-                if (mapping != null) work.wake(appId, metadata.buildId());
+            try (var mapping = symbols.acquireVersioned(appId, metadata.appVersion(), metadata.buildId()).orElse(null)) {
+                if (mapping != null) work.wake(appId, metadata.appVersion());
             } catch (Exception unavailable) {
                 // 不记录含原始内容的异常；通知的可靠性由持久化轮转检查点补偿。
             }

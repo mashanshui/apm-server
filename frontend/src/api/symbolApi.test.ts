@@ -24,12 +24,30 @@ describe('symbolApi', () => {
     )
     const file = new File(['com.example.App -> a:'], 'mapping.txt', { type: 'text/plain' })
 
-    await symbolApi.upload('app-1', 'release-1', file)
+    await symbolApi.upload('app-1', '1', 'release-1', file)
 
     const options = fetchMock.mock.calls[0][1] as RequestInit
     expect(options.body).toBeInstanceOf(FormData)
+    expect((options.body as FormData).get('appVersion')).toBe('1')
     expect((options.body as FormData).get('buildId')).toBe('release-1')
     expect((options.body as FormData).get('file')).toBe(file)
     expect(new Headers(options.headers).has('Content-Type')).toBe(false)
   })
+  /** 默认登记只带版本，SO 全批确认不带应用构建。 */
+  it('keeps optional mapping build separate from native ELF identity', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response('{}', { status: 200 }))
+    const file = new File(['fixture'], 'symbols.zip')
+    await symbolApi.upload('app-1', '2.0', null, file)
+    const mapping = fetchMock.mock.calls[0][1]?.body as FormData
+    expect(mapping.get('appVersion')).toBe('2.0')
+    expect(mapping.has('buildId')).toBe(false)
+    const expected = [{ abi: 'arm64-v8a', elfBuildId: 'aabb', symbolId: null, revision: null }]
+    await symbolApi.uploadNative('app-1', '2.0', file, { abi: 'arm64-v8a', elfBuildId: 'aabb' }, expected)
+    const native = fetchMock.mock.calls[1][1]?.body as FormData
+    expect(native.has('buildId')).toBe(false)
+    expect(native.get('targetAbi')).toBe('arm64-v8a')
+    expect(native.get('targetElfBuildId')).toBe('aabb')
+    expect(JSON.parse(String(native.get('expectedEntries')))).toEqual(expected)
+  })
+
 })

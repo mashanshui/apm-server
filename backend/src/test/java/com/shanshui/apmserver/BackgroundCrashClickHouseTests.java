@@ -88,6 +88,14 @@ class BackgroundCrashClickHouseTests {
         assertFalse(store.accept(new CrashFact(metadata, "jvm", true), pending));
         assertEquals(pending, store.current(app, "event").orElseThrow());
         assertEquals(1, store.candidates(app, "build", symbol, 1, now.minusSeconds(86400), now, 100).size());
+        // 新版第一阶段只取轻量身份，版本先于 LIMIT，第二阶段只读明确身份。
+        var page = store.candidatePage(app, "1", now.minusSeconds(86400), now, null, null, 100);
+        assertEquals(1, page.size());
+        assertEquals("event", page.getFirst().eventId());
+        assertTrue(store.candidatePage(app, "2", now.minusSeconds(86400), now, null, null, 100).isEmpty());
+        assertTrue(store.candidatePage(app, "1", now.minusSeconds(86400), now, occurred, "event", 100).isEmpty());
+        assertEquals(1, store.payloads(app, "1", page).size());
+        assertTrue(store.payloads(app, "2", page).isEmpty());
         CrashState success = state(app, "event", occurred, 5, "symbolicated", symbol, null, now);
         store.publish(success);
         store.publish(success);

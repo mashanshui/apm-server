@@ -149,6 +149,16 @@ public class SymbolFileStore {
             if (!Files.exists(root)) {
                 return;
             }
+            // 启动时回收进程中断留下的受控归档目录，不跟随链接或客户端路径。
+            try (var directories = Files.list(root)) {
+                for (Path directory : directories.filter(path -> path.getFileName().toString().startsWith("native-archive-"))
+                        .filter(path -> Files.isDirectory(path, java.nio.file.LinkOption.NOFOLLOW_LINKS)).toList()) {
+                    try (var children = Files.list(directory)) {
+                        for (Path child : children.limit(257).toList()) Files.deleteIfExists(child);
+                    }
+                    Files.deleteIfExists(directory);
+                }
+            }
             try (var stream = Files.list(root)) {
                 stream.filter(Files::isRegularFile)
                         .filter(path -> path.getFileName().toString().endsWith(SYMBOL_SUFFIX))

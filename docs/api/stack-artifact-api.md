@@ -28,13 +28,13 @@ X-App-Key: <appKey>
 
 请求体必须是原始 ZIP 字节，不能使用 JSON、Base64、multipart 或外层 gzip。控制器在读取正文前通过 PostgreSQL 应用凭据摘要校验 Key，再校验媒体类型，并通过 `Content-Length` 与受限输入流执行默认 64 MiB 上限。Key 映射同时得到 UUID `appId` 和绑定 `packageName`。
 
-客户端不发送 `X-Mapping-Id`。服务端从通过校验的 manifest 读取 `buildId`，按符号表注册表的 `appId + buildId` 精确取得当前 mapping；文件不存在时继续保存未解混淆证据，非法 buildId 返回 422。网页上传和替换见[Android 符号表管理 API](symbol-api.md)。
+客户端不发送 `X-Mapping-Id`。工作树中的服务端按认证应用、manifest 的 `appVersion` 和 `buildId` 选择 mapping：先查同版本专用，再查版本默认。旧无版本登记不匹配，文件不存在时继续保存未解混淆证据；版本化上传已接入，环境部署状态见平台状态页，见[Android 符号表管理 API](symbol-api.md)。上报契约继续要求非空构建；SDK 和 processor 固定 1.0.4，默认 mapping 不放宽 manifest 必填字段。
 
 ## 3. manifest 与服务端派生字段
 
 processor 报告中的 `sourceManifest` 必须是 v3 `RHEA_JANK`，并包含：
 
-`schemaVersion`、`artifactType`、`eventId`、`occurredAt`、`sessionId`、`anonymousDeviceId`、`packageName`、`appVersion`、`versionCode`、`buildId`、`environment`、`channel`、`osVersion`、`deviceModel`、`scene`、`messageStartNs`、`messageEndNs`、`thresholdNs`、`minSampleIntervalNs`、`attemptedSampleCount`、`processId`、`files`。
+`schemaVersion`、`artifactType`、`eventId`、`occurredAt`、`sessionId`、`anonymousDeviceId`、`packageName`、`appVersion`、`versionCode`、`buildId`、`environment`、`channel`、`osVersion`、`deviceModel`、`scene`、`messageStartNs`、`messageEndNs`、`thresholdNs`、`minSampleIntervalNs`、`attemptedSampleCount`、`processId`、`files`。`buildId` 保持必填、非空且最多 256 字符；省略、null 或空白仍拒绝，不计划配套升级来放宽该约束。
 
 其中 `packageName` 必须非空，并与 appKey 绑定的包名完全一致。缺失属于不可重试的 manifest 契约错误；不一致返回 `403 PACKAGE_NAME_MISMATCH`，且不生成指纹、不读取业务 mapping、不写入原始事实、卡顿事实或详情。manifest 不得包含旧 `appId` 字段。
 
@@ -91,7 +91,7 @@ missingSampleCount = max(0, expectedSampleCount - parsedSampleCount)
 |---|---:|---|
 | `apm.stack-parser.max-artifact-bytes` | `67108864` | 压缩请求体最大字节数 |
 | `apm.stack-parser.max-concurrent-parses` | `2` | 同步解析并发许可数 |
-| `apm.symbol.directory` | `build/symbols` | 网页上传 mapping 的受控文件目录；生产按 `appId + buildId` 从符号表注册表选择，不读取客户端路径 |
+| `apm.symbol.directory` | `build/symbols` | mapping 受控文件目录；工作树的 Jank 按应用、版本和构建选择，不读取客户端路径 |
 
 `apm.stack-parser.mapping-root` 仅保留给旧的 resolver 单元测试构造器，生产卡顿入口不再按该目录查找 mapping。文件卷、大小和并发配置见[符号表管理 API](symbol-api.md)。
 

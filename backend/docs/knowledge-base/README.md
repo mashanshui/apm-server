@@ -15,7 +15,7 @@
 | 认证、凭据、授权和脱敏 | [认证授权与安全实现](04-认证授权与安全实现.md) |
 | 构建、配置、独立运行与排障 | [构建配置与本地运行](05-构建配置与本地运行.md) |
 | 测试命令、条件专项与证据 | [测试与质量保障](06-测试与质量保障.md) |
-| mapping、文件租约与 Retrace | [符号表实现](symbol-mapping.md) |
+| 版本 mapping、SO 批次、文件租约与 Retrace | [符号表实现](symbol-mapping.md) |
 | 宿主分析、Run、停止与恢复 | [单事件分析实现](local-analysis.md) |
 | FPS/挂起率 JVM 与固定集基线 | [卡顿指标基线](jank-performance-baseline.md) |
 | Crash 下推与资源拒绝 | [Crash 查询基线](crash-query-performance-baseline.md) |

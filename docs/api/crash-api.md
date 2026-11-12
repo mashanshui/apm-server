@@ -161,7 +161,7 @@ crashFreeSessionRate = 1 - crashedSessions / startedSessions
 - 属性名只接受字母、数字、下划线、点和连字符；测量值只保存数字。
 - 指纹由服务端生成：`tmp-v1` 绑定应用和构建，未成功事件不跨构建合并；`resolved-v1` 使用还原后的异常链、规范化动态消息和关键调用身份，排除行号、应用版本、构建及 mapping 身份，候选集合按稳定规则表示。没有可靠应用帧时使用完整候选/帧回退，不能任取候选。
 - Native 使用 `native-tmp-v1`：绑定应用、包名、构建、ABI、信号编号与 code，以及前八个主帧中可用的模块 ELF Build ID（缺失时为模块名）与相对 PC；故障地址、寄存器、函数显示名和辅助诊断不参与，无可用帧使用现场不足类别。
-- `buildId` 是符号表精确匹配键，按结构化标识清理和限长，不套用面向自然语言的电话号码脱敏，避免合法构建标识被改写后无法匹配 mapping。
+- `buildId` 是同应用版本构建专用 mapping 的精确匹配键，专用登记不存在时才使用该版本默认 mapping；事件构建仍必填。按结构化标识清理和限长，不套用面向自然语言的电话号码脱敏，避免合法构建标识被改写后无法匹配 mapping。
 - 后台成功仅改变原发生日期的问题归属，不增加事件、设备、崩溃会话或启动分母。格式合法但不匹配 APK 的 mapping 可能造成不可纠正的首次成功结果；业务当前材料只有一份，不承诺旧物理版本和备份立即擦除。上传、删除及后台进度见[Android 符号表管理 API](symbol-api.md)。
 
-服务端接收 `schemaVersion=2`、`eventType=crash`、`crash.kind=jvm|native`、`crash.fatal=true`。旧 schema v1、正文旧字段 `appId`、ANR、非致命异常、Protobuf 和完整 Issue 生命周期均不兼容；Native SO 符号上传和还原尚未实现。
+服务端接收 `schemaVersion=2`、`eventType=crash`、`crash.kind=jvm|native`、`crash.fatal=true`。旧 schema v1、正文旧字段 `appId`、ANR、非致命异常、Protobuf 和完整 Issue 生命周期均不兼容；Native SO 文件管理已接入版本化符号表 API，Native 地址还原仍未实现。

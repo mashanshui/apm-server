@@ -54,10 +54,20 @@ public class SymbolRegistryService implements SymbolRegistry {
         managementService.cleanupOrphans();
     }
 
+    /** 版本不存在时后台直接等待，不扫描遥测。 */
+    @Override
+    public boolean hasVersion(UUID appId, String appVersion) { return managementService.hasVersion(appId, appVersion); }
+
     /** 根据应用和构建标识获取固定版本文件租约。 */
     @Override
     public Optional<SymbolFileLease> acquire(UUID appId, String buildId) {
         return managementService.acquire(appId, buildId);
+    }
+
+    /** 获取指定应用版本下按构建优先选定的固定来源。 */
+    @Override
+    public Optional<SymbolFileLease> acquireVersioned(UUID appId, String appVersion, String buildId) {
+        return managementService.acquireVersioned(appId, appVersion, buildId);
     }
 
     /** 在共享许可内执行一次完整异常链还原。 */

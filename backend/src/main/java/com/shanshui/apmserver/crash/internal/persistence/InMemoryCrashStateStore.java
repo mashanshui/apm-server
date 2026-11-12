@@ -117,6 +117,36 @@ public class InMemoryCrashStateStore implements CrashStatePort {
     @Override
     public void replay(String payload) { publish(codec.decode(mapper.readTree(payload))); }
 
+    /** 内存参考实现按版本、最新状态和持久位置轮转。 */
+    @Override
+    public synchronized List<Candidate> candidatePage(UUID appId, String appVersion, Instant from, Instant now,
+                                                     Instant afterTime, String afterId, int limit) {
+        available();
+        if (limit < 1 || limit > 100) throw new IllegalArgumentException("候选数量超限");
+        return states.values().stream().filter(state -> state.appId().equals(appId))
+                .filter(state -> facts.containsKey(key(appId, state.eventId())))
+                .filter(state -> appVersion.equals(facts.get(key(appId, state.eventId())).metadata().appVersion()))
+                .filter(state -> "jvm".equals(facts.get(key(appId, state.eventId())).crashKind()))
+                .filter(state -> "pending".equals(state.status()) || "failed".equals(state.status()))
+                .filter(state -> !state.eventTime().isBefore(from) && state.eventTime().isBefore(now.plusSeconds(901)))
+                .filter(state -> afterTime == null || state.eventTime().isAfter(afterTime)
+                        || (state.eventTime().equals(afterTime) && state.eventId().compareTo(afterId) > 0))
+                .sorted(Comparator.comparing(CrashState::eventTime).thenComparing(CrashState::eventId)).limit(limit)
+                .map(state -> new Candidate(state.eventId(), state.buildId(), state.eventTime(), state.status(),
+                        state.symbolId(), state.symbolRevision(), state.retryAt())).toList();
+    }
+
+    /** 生产同样只允许读取有限明确身份。 */
+    @Override
+    public synchronized List<CrashWorkItem> payloads(UUID appId, String appVersion, List<Candidate> candidates) {
+        available();
+        if (candidates.size() > 100) throw new IllegalArgumentException("载荷数量超限");
+        return candidates.stream().map(item -> current(appId, item.eventId()).orElse(null)).filter(java.util.Objects::nonNull)
+                .filter(state -> appVersion.equals(facts.get(key(appId, state.eventId())).metadata().appVersion()))
+                .filter(state -> !"symbolicated".equals(state.status()))
+                .map(state -> new CrashWorkItem(state, facts.get(key(appId, state.eventId())).metadata().packageName())).toList();
+    }
+
     /** 内存参考实现也仅选取有事实且未过期的最新状态。 */
     @Override
     public synchronized List<CrashWorkItem> candidates(UUID appId, String buildId, UUID symbolId, int revision,

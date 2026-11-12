@@ -72,6 +72,64 @@ class StackArtifactParseServiceTests {
         assertEquals(1, stored.jankAnalysis().missingSampleCount());
     }
 
+    /** 实际 processor 读取完整 ZIP 时，以预检身份调用版本选择器并保存结果。 */
+    @Test
+    void actualProcessorUsesVersionedRegistryForValidZip() throws Exception {
+        SymbolRegistry registry = org.mockito.Mockito.mock(SymbolRegistry.class);
+        org.mockito.Mockito.when(registry.acquireVersioned(TestAppIds.id("demo-app"), "1.0", "async-test-build"))
+                .thenReturn(Optional.empty());
+        byte[] zip = java.util.Base64.getMimeDecoder().decode(
+                getClass().getResourceAsStream("/fixtures/rhea-jank-async-artifact.b64").readAllBytes());
+        var repository = repository();
+        var service = serviceWithRegistry(new com.bytedance.rheatrace.stack.StackAnalyzer(), repository, registry, 2);
+        assertEquals("accepted", service.parse(app("demo-app"), new ByteArrayInputStream(zip)).status());
+        assertEquals("duplicate", service.parse(app("demo-app"), new ByteArrayInputStream(zip)).status());
+        var stored = repository.findJankByEventId(TestAppIds.id("demo-app"), "synthetic-async-jank").orElseThrow();
+        assertEquals("1.0", stored.appVersion());
+        assertEquals("async-test-build", stored.buildId());
+        org.mockito.Mockito.verify(registry, org.mockito.Mockito.atLeastOnce())
+                .acquireVersioned(TestAppIds.id("demo-app"), "1.0", "async-test-build");
+    }
+
+    /** 当前上报契约拒绝缺失构建的 ZIP，版本默认 mapping 不改变此约束。 */
+    @Test
+    void rejectsMissingBuildBeforeProcessorOrRegistry() throws Exception {
+        SymbolRegistry registry = org.mockito.Mockito.mock(SymbolRegistry.class);
+        byte[] source = java.util.Base64.getMimeDecoder().decode(
+                getClass().getResourceAsStream("/fixtures/rhea-jank-async-artifact.b64").readAllBytes());
+        for (String variant : List.of("absent", "null", "blank")) {
+            byte[] zip = rewriteSyntheticBuild(source, variant);
+            var processor = org.mockito.Mockito.mock(com.bytedance.rheatrace.stack.StackAnalyzer.class);
+            var service = serviceWithRegistry(processor, repository(), registry, 2);
+            assertThrows(InvalidStackArtifactException.class,
+                    () -> service.parse(app("demo-app"), new ByteArrayInputStream(zip)));
+            org.mockito.Mockito.verifyNoInteractions(processor);
+        }
+        org.mockito.Mockito.verifyNoInteractions(registry);
+    }
+
+    /** 只改合成夹具的 manifest，保留二进制内容及其声明的摘要。 */
+    private byte[] rewriteSyntheticBuild(byte[] source, String variant) throws IOException {
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        try (var input = new java.util.zip.ZipInputStream(new ByteArrayInputStream(source));
+             var zip = new ZipOutputStream(output)) {
+            for (ZipEntry entry = input.getNextEntry(); entry != null; entry = input.getNextEntry()) {
+                byte[] data = input.readAllBytes();
+                if ("manifest.json".equals(entry.getName())) {
+                    var manifest = (tools.jackson.databind.node.ObjectNode) new ObjectMapper().readTree(data);
+                    if ("absent".equals(variant)) manifest.remove("buildId");
+                    else if ("null".equals(variant)) manifest.putNull("buildId");
+                    else manifest.put("buildId", "   ");
+                    data = new ObjectMapper().writeValueAsBytes(manifest);
+                }
+                zip.putNextEntry(new ZipEntry(entry.getName()));
+                zip.write(data);
+                zip.closeEntry();
+            }
+        }
+        return output.toByteArray();
+    }
+
     @Test
     void rejectsInvalidReportAndParserIOExceptionWithStableCode() {
         StackArtifactParseService invalidReport = service(parser("{}"), repository(), 2);
@@ -145,6 +203,14 @@ class StackArtifactParseServiceTests {
     @Test
     void distinguishesMissingMappingFromRegistryFailure() throws Exception {
         SymbolRegistry missing = new SymbolRegistry() {
+            /** 测试仅声明存在版本来源。 */
+            public boolean hasVersion(UUID appId, String version) { return true; }
+            /** 测试替身复用固定来源行为，真实选优由数据库测试覆盖。 */
+            @Override
+            public Optional<SymbolFileLease> acquireVersioned(UUID appId, String appVersion, String buildId) {
+                return acquire(appId, buildId);
+            }
+
             @Override
             public Optional<SymbolFileLease> acquire(UUID appId, String buildId) {
                 return Optional.empty();
@@ -169,6 +235,14 @@ class StackArtifactParseServiceTests {
                 .orElseThrow().symbolicationStatus());
 
         SymbolRegistry unavailable = new SymbolRegistry() {
+            /** 测试仅声明存在版本来源。 */
+            public boolean hasVersion(UUID appId, String version) { return true; }
+            /** 测试替身复用固定来源行为，真实选优由数据库测试覆盖。 */
+            @Override
+            public Optional<SymbolFileLease> acquireVersioned(UUID appId, String appVersion, String buildId) {
+                return acquire(appId, buildId);
+            }
+
             @Override
             public Optional<SymbolFileLease> acquire(UUID appId, String buildId) {
                 throw new SymbolStoreUnavailableException("registry unavailable");
@@ -230,6 +304,37 @@ class StackArtifactParseServiceTests {
                 () -> service.parse(app("demo-app"),
                         new ByteArrayInputStream(zipManifest("com.other.app"))));
         assertTrue(!parserCalled.get(), "包名不匹配时不得调用 processor");
+    }
+
+    /** processor 回调与最终报告均不得偏离已预检的版本和构建。 */
+    @Test
+    void rejectsCallbackOrReportIdentityMismatchBeforeStorage() throws Exception {
+        byte[] zip = zipIdentity("1.0", "expected-build");
+        SymbolRegistry registry = org.mockito.Mockito.mock(SymbolRegistry.class);
+        var repository = repository();
+        var callbackMismatch = serviceWithRegistry(parserThatResolvesMapping(null), repository, registry, 2);
+        assertThrows(InvalidStackArtifactException.class,
+                () -> callbackMismatch.parse(app("demo-app"), new ByteArrayInputStream(zip)));
+        org.mockito.Mockito.verifyNoInteractions(registry);
+        // 返回报告的伪造版本也不能写入，即使 processor 未触发 mapping 回调。
+        var reportMismatch = serviceWithRegistry(parser(report()), repository, registry, 2);
+        assertThrows(InvalidStackArtifactException.class,
+                () -> reportMismatch.parse(app("demo-app"), new ByteArrayInputStream(zip)));
+        assertTrue(repository.findJankByEventId(TestAppIds.id("demo-app"), "artifact-event").isEmpty());
+    }
+
+    /** 构造仅用于预检和身份不一致测试的最小 ZIP。 */
+    private byte[] zipIdentity(String version, String build) throws IOException {
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        try (ZipOutputStream zip = new ZipOutputStream(output)) {
+            zip.putNextEntry(new ZipEntry("manifest.json"));
+            zip.write(("{\"schemaVersion\":3,\"artifactType\":\"RHEA_JANK\","
+                    + "\"packageName\":\"com.example.app\",\"appVersion\":\"" + version + "\","
+                    + "\"buildId\":\"" + build + "\",\"processId\":\"11111111-1111-4111-8111-111111111111\"}")
+                    .getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            zip.closeEntry();
+        }
+        return output.toByteArray();
     }
 
     @Test
@@ -344,6 +449,14 @@ class StackArtifactParseServiceTests {
     /** 创建固定版本租约的统一注册表测试替身。 */
     private SymbolRegistry registry(Path mapping, AtomicInteger closed, boolean available) {
         return new SymbolRegistry() {
+            /** 测试仅声明存在版本来源。 */
+            public boolean hasVersion(UUID appId, String version) { return true; }
+            /** 测试替身复用固定来源行为，真实选优由数据库测试覆盖。 */
+            @Override
+            public Optional<SymbolFileLease> acquireVersioned(UUID appId, String appVersion, String buildId) {
+                return acquire(appId, buildId);
+            }
+
             @Override
             public Optional<SymbolFileLease> acquire(UUID appId, String buildId) {
                 if (!available) {

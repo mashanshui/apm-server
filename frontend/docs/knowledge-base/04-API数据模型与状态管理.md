@@ -60,7 +60,7 @@ GET /api/v1/apps/{appId}/memory-leaks/trend?interval=5m|hour|day
 
 已发布契约、统计公式和服务端限制以[服务端 API 文档](../../../docs/api/README.md)、[Crash API 文档](../../../docs/api/crash-api.md)、[卡顿服务端 API](../../../docs/api/jank-server-api.md)及[平台查询与 Dashboard](../../../docs/knowledge-base/05-查询与Dashboard.md)为准；本页只记录前端消费方式。
 
-符号表使用 `src/api/symbolApi.ts` 调用 `/api/v1/apps/{appId}/symbols` 的列表、multipart 首次上传、`expectedRevision` 替换/删除及单构建进度接口。`http.ts` 对 `FormData` 不设置 JSON `Content-Type`，继续携带同源 Session/CSRF；`ApiError.details` 保存冲突响应的当前元数据，页面据此展示摘要并等待明确确认。Crash 详情只包含单份 stack、当前三态、归组和实际来源；API 明确拒绝旧双份字段、旧状态与无来源的成功响应，不作转换。符号表支持 expectedRevision DELETE 和单构建进度接口。
+符号表使用 `src/api/symbolApi.ts` 调用 `/api/v1/apps/{appId}/symbols` 的列表、multipart 首次上传、`expectedRevision` 替换/删除及应用版本本轮进度接口。`http.ts` 对 `FormData` 不设置 JSON `Content-Type`，继续携带同源 Session/CSRF；`ApiError.details` 保存冲突响应的当前元数据，页面据此展示摘要并等待明确确认。Crash 详情只包含单份 stack、当前三态、归组和实际来源；API 明确拒绝旧双份字段、旧状态与无来源的成功响应，不作转换。SO 使用 native-batches 接口，完整确认包含每个预期身份/修订号或不存在项；SO 请求不发送应用 buildId，SO 和旧无版本登记不查询 JVM 进度。
 
 Crash 详情另有独立 `diagnostics` 对象或 null；`src/types/crashDiagnostics.ts` 和 `src/api/crashDiagnostics.ts` 校验分区、Java 字符串 ID、Native 系统 TID、空帧、独立状态及 raw_frames/retrace_text。Native 主栈使用 raw_native，模块引用、位宽、十六进制字符串和延后还原状态均有联合校验；未知状态/格式或损坏结构显示协议错误，不把旧响应猜成空现场，零值保留。主 stack 和版本 3 分析证据不嵌入诊断。
 
@@ -82,7 +82,7 @@ Crash 详情另有独立 `diagnostics` 对象或 null；`src/types/crashDiagnost
 
 ## 类型边界
 
-`src/types/crash.ts` 定义 Crash 契约；`src/types/jank.ts` 定义卡顿总览、趋势、Issue、事件、采样片段、调用树、堆栈字典、FPS、挂起率、多维、统一指标趋势和筛选类型；`src/types/symbol.ts` 定义 mapping 当前版本元数据和列表响应。Crash/Jank 事件详情的 `processId` 为可空字符串，用于兼容迁移前历史记录；前端不生成替代值。卡顿详情采样质量只使用服务端派生的 `expectedSampleCount`、`parsedSampleCount` 和 `missingSampleCount`，不保留 attempted/successful/dropped。统一趋势点只填充当前指标对应的 FPS 或秒/小时前台时长字段；挂起率点的 `validRecords` 表示有效设备日数。后端响应字段变化时，应在同一改动中：
+`src/types/crash.ts` 定义 Crash 契约；`src/types/jank.ts` 定义卡顿总览、趋势、Issue、事件、采样片段、调用树、堆栈字典、FPS、挂起率、多维、统一指标趋势和筛选类型；`src/types/symbol.ts` 定义 mapping/SO 元数据、游标列表、版本本轮进度和 SO 整批快照/确认/结果类型。Crash/Jank 事件详情的 `processId` 为可空字符串，用于兼容迁移前历史记录；前端不生成替代值。卡顿详情采样质量只使用服务端派生的 `expectedSampleCount`、`parsedSampleCount` 和 `missingSampleCount`，不保留 attempted/successful/dropped。统一趋势点只填充当前指标对应的 FPS 或秒/小时前台时长字段；挂起率点的 `validRecords` 表示有效设备日数。后端响应字段变化时，应在同一改动中：
 
 1. 核对后端 API 文档和 JSON 语义。
 2. 更新 TypeScript 类型。
@@ -151,4 +151,4 @@ AppUpdateRequest 使用 name?: string、description?: string | null，appApi.upd
 
 createJankCursorQuery 原样保存不透明游标，以及首次响应 from/to 的完整小数秒；两个 Jank composable 续页沿用响应时间窗。应用/筛选切换从第一页清空状态，取消信号和请求代次隔离旧响应。INVALID_CURSOR 使旧游标失效并暴露显式恢复；重新查询替换列表，不自动追加第一页。超时/资源错误由 jankApi 提示缩小范围，其他成功区域保留。时间窗与游标只存在内存，不新增凭据持久化。
 
-Crash API 解析验证三态/归组、单份 stack 及成功实际来源；Issue temporary 必须带 buildId。前端不转换旧详情；分析列表和 Run 校验仅接受证据 3/报告 4，不渲染旧报告。符号表进度仅存在页面内存，以请求代次、symbolId 和 AbortController 隔离旧应用/文件响应；同时只轮询一个构建，非快照计数不作为全量成功数。
+Crash API 解析验证三态/归组、单份 stack 及成功实际来源；Issue temporary 必须带 buildId，事件摘要和详情的 buildId 保持非空；mapping 上传的默认范围不改变事件查询契约。前端不转换旧详情；分析列表和 Run 校验仅接受证据 3/报告 4，不渲染旧报告。符号表进度仅存在页面内存，以请求代次、symbolId 和 AbortController 隔离旧应用/文件响应；同时只跟踪一个有版本 mapping，计数属于整个应用版本本轮；SO/旧登记不轮询。类型切换清空文件、模块目标和全部冲突快照，SO API 不发送应用 buildId，完整确认包含预期不存在项，非快照计数不作为全量成功数。

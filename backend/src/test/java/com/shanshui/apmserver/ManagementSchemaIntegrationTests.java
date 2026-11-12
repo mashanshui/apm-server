@@ -37,12 +37,81 @@ class ManagementSchemaIntegrationTests {
         try (PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:16-alpine")) {
             postgres.start();
             verifyNonEmptyLegacyApplicationMigrationGuard(postgres);
+            verifyVersionedSymbolUpgrade(postgres);
             migrateAll(postgres);
             validateJpaSchema(postgres);
             verifyApplicationIdentitySchema(postgres);
             verifyQueryTokenSchema(postgres);
             verifySymbolSchema(postgres);
             verifySymbolUniquenessAndConcurrentRevision(postgres);
+            verifyVersionedSymbolScopes(postgres);
+        }
+    }
+
+    /** 从 V16 保留历史 mapping；活动租约必须阻止身份切换，排空后才能升级。 */
+    private void verifyVersionedSymbolUpgrade(PostgreSQLContainer<?> postgres) throws Exception {
+        String schema = "symbol_upgrade";
+        Flyway.configure().dataSource(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword())
+                .schemas(schema).locations("classpath:db/migration").target(MigrationVersion.fromVersion("16")).load().migrate();
+        UUID userId = UUID.randomUUID();
+        UUID appId = UUID.randomUUID();
+        UUID symbolId = UUID.randomUUID();
+        try (Connection connection = DriverManager.getConnection(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword());
+             Statement statement = connection.createStatement()) {
+            statement.execute("set search_path to " + schema);
+            statement.execute("insert into apm_user values ('" + userId + "','upgrade@example.com','Upgrade','hash','ACTIVE',now(),now())");
+            statement.execute("insert into apm_app(app_id,package_name,name,created_by,created_at,updated_at) values ('"
+                    + appId + "','com.example.upgrade','Upgrade','" + userId + "',now(),now())");
+            statement.execute("insert into app_symbol_file(symbol_id,app_id,build_id,revision,storage_key,original_filename,"
+                    + "size_bytes,sha256,uploaded_by,uploaded_at,updated_at) values ('" + symbolId + "','" + appId
+                    + "','legacy',1,'legacy.mapping','legacy.txt',1,'" + "a".repeat(64) + "','" + userId + "',now(),now())");
+            statement.execute("insert into app_symbol_file_audit(audit_id,symbol_id,app_id,build_id,new_revision,new_sha256,"
+                    + "changed_by,changed_at) values ('" + UUID.randomUUID() + "','" + symbolId + "','" + appId
+                    + "','legacy',1,'" + "a".repeat(64) + "','" + userId + "',now())");
+            statement.execute("insert into crash_symbolication_job(app_id,build_id,state,lease_owner,lease_expires_at) values ('"
+                    + appId + "','legacy','running','" + UUID.randomUUID() + "',now() + interval '5 minutes')");
+        }
+        assertThrows(FlywayException.class, () -> Flyway.configure()
+                .dataSource(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword())
+                .schemas(schema).locations("classpath:db/migration").load().migrate());
+        try (Connection connection = DriverManager.getConnection(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword());
+             Statement statement = connection.createStatement()) {
+            statement.execute("update " + schema + ".crash_symbolication_job set state='idle',lease_owner=null,lease_expires_at=null");
+        }
+        try (Connection connection = DriverManager.getConnection(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword());
+             Statement statement = connection.createStatement()) {
+            statement.execute("insert into " + schema + ".crash_symbolication_publication(app_id,event_id,build_id,event_time,"
+                    + "expires_at,state_version,symbol_id,symbol_revision,symbol_sha256,result_sha256,pending_payload) values ('"
+                    + appId + "','event-1','legacy',now(),now() + interval '1 day',1,'" + symbolId + "',1,'"
+                    + "a".repeat(64) + "','" + "b".repeat(64) + "','pending')");
+        }
+        assertThrows(FlywayException.class, () -> Flyway.configure()
+                .dataSource(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword())
+                .schemas(schema).locations("classpath:db/migration").load().migrate());
+        try (Connection connection = DriverManager.getConnection(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword());
+             Statement statement = connection.createStatement()) {
+            statement.execute("update " + schema + ".crash_symbolication_publication set pending_payload=null,published_at=now()");
+        }
+        Flyway.configure().dataSource(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword())
+                .schemas(schema).locations("classpath:db/migration").load().migrate();
+        try (Connection connection = DriverManager.getConnection(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword());
+             Statement statement = connection.createStatement();
+             var result = statement.executeQuery("select symbol_type,app_version,build_id,storage_key from "
+                     + schema + ".app_symbol_file where symbol_id='" + symbolId + "'")) {
+            assertTrue(result.next());
+            assertEquals("MAPPING", result.getString(1));
+            assertEquals(null, result.getString(2));
+            assertEquals("legacy", result.getString(3));
+            assertEquals("legacy.mapping", result.getString(4));
+        }
+        try (Connection connection = DriverManager.getConnection(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword());
+             Statement statement = connection.createStatement();
+             var result = statement.executeQuery("select symbol_type,app_version,build_id from "
+                     + schema + ".app_symbol_file_audit where symbol_id='" + symbolId + "'")) {
+            assertTrue(result.next());
+            assertEquals("MAPPING", result.getString(1));
+            assertEquals(null, result.getString(2));
+            assertEquals("legacy", result.getString(3));
         }
     }
 
@@ -231,8 +300,8 @@ class ManagementSchemaIntegrationTests {
         }
         try (Connection connection = DriverManager.getConnection(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword());
              Statement statement = connection.createStatement();
-             var result = statement.executeQuery("select count(*) from pg_constraint "
-                     + "where conname in ('app_symbol_file_revision_ck', "
+             var result = statement.executeQuery("select count(*) from pg_constraint c join pg_namespace n on n.oid=c.connamespace "
+                     + "where n.nspname='public' and conname in ('app_symbol_file_revision_ck', "
                      + "'app_symbol_file_sha256_ck')")) {
             assertTrue(result.next());
             assertEquals(2, result.getInt(1));
@@ -240,10 +309,71 @@ class ManagementSchemaIntegrationTests {
         // V15 活动唯一性由局部索引承担，删除记录保留来源而不占用新上传位置。
         try (Connection connection = DriverManager.getConnection(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword());
              Statement statement = connection.createStatement();
-             var result = statement.executeQuery("SELECT indexdef FROM pg_indexes WHERE schemaname='public' AND indexname='app_symbol_file_active_build_uk'")) {
+             var result = statement.executeQuery("SELECT indexdef FROM pg_indexes WHERE schemaname='public' AND indexname='app_symbol_file_active_legacy_uk'")) {
             assertTrue(result.next());
             assertTrue(result.getString(1).contains("UNIQUE"));
             assertTrue(result.getString(1).contains("deleted_at IS NULL"));
+        }
+    }
+
+    /** 验证版本默认、构建专用和 SO 活动唯一性及字段互斥。 */
+    private void verifyVersionedSymbolScopes(PostgreSQLContainer<?> postgres) throws Exception {
+        String url = postgres.getJdbcUrl();
+        String user = postgres.getUsername();
+        String password = postgres.getPassword();
+        UUID appId = queryUuid(url, user, password, "select app_id from apm_app limit 1");
+        UUID userId = queryUuid(url, user, password, "select id from apm_user limit 1");
+        insertVersionedSymbol(url, user, password, appId, userId, "MAPPING", "1", null, null, null);
+        assertThrows(SQLException.class, () -> insertVersionedSymbol(url, user, password, appId, userId,
+                "MAPPING", "1", null, null, null));
+        insertVersionedSymbol(url, user, password, appId, userId, "MAPPING", "1", "release/A", null, null);
+        insertVersionedSymbol(url, user, password, appId, userId, "MAPPING", "2", null, null, null);
+        insertVersionedSymbol(url, user, password, appId, userId, "MAPPING", "2", "release/A", null, null);
+        assertThrows(SQLException.class, () -> insertVersionedSymbol(url, user, password, appId, userId,
+                "MAPPING", "1", "release/A", null, null));
+        insertVersionedSymbol(url, user, password, appId, userId, "NATIVE_SO", "1", null, "arm64-v8a", "ab".repeat(64));
+        insertVersionedSymbol(url, user, password, appId, userId, "NATIVE_SO", "2", null, "arm64-v8a", "ab".repeat(64));
+        assertThrows(SQLException.class, () -> insertVersionedSymbol(url, user, password, appId, userId,
+                "NATIVE_SO", "1", null, "arm64-v8a", "ab".repeat(64)));
+        assertThrows(SQLException.class, () -> insertVersionedSymbol(url, user, password, appId, userId,
+                "NATIVE_SO", "1", "application-build", "x86", "ab"));
+        assertThrows(SQLException.class, () -> insertVersionedSymbol(url, user, password, appId, userId,
+                "NATIVE_SO", "1", null, null, "ab"));
+        assertThrows(SQLException.class, () -> insertVersionedSymbol(url, user, password, appId, userId,
+                "NATIVE_SO", "1", null, "x86", null));
+    }
+
+    /** 只使用测试生成的数据，通过参数化语句登记一条版本符号元数据。 */
+    private void insertVersionedSymbol(String url, String user, String password, UUID appId, UUID userId,
+                                       String type, String version, String build, String abi, String elfId) throws SQLException {
+        String sql = """
+                INSERT INTO app_symbol_file(symbol_id,app_id,build_id,revision,storage_key,original_filename,
+                    size_bytes,sha256,uploaded_by,uploaded_at,updated_at,symbol_type,app_version,native_abi,
+                    elf_build_id,has_function_symbols,has_debug_info,has_debug_line)
+                VALUES (?,?,?,1,?,'test',1,?,?,now(),now(),?,?,?,?,?,?,?)
+                """;
+        try (Connection connection = DriverManager.getConnection(url, user, password);
+             var statement = connection.prepareStatement(sql)) {
+            statement.setObject(1, UUID.randomUUID());
+            statement.setObject(2, appId);
+            statement.setString(3, build);
+            statement.setString(4, UUID.randomUUID().toString());
+            statement.setString(5, "a".repeat(64));
+            statement.setObject(6, userId);
+            statement.setString(7, type);
+            statement.setString(8, version);
+            statement.setString(9, abi);
+            statement.setString(10, elfId);
+            if ("NATIVE_SO".equals(type)) {
+                statement.setBoolean(11, true);
+                statement.setBoolean(12, false);
+                statement.setBoolean(13, false);
+            } else {
+                statement.setNull(11, java.sql.Types.BOOLEAN);
+                statement.setNull(12, java.sql.Types.BOOLEAN);
+                statement.setNull(13, java.sql.Types.BOOLEAN);
+            }
+            statement.executeUpdate();
         }
     }
 

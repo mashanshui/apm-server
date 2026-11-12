@@ -79,7 +79,7 @@
 | `packageName` | string | 必填，1～255 字符；必须等于 appKey 绑定的 Android application ID | appKey 与包名绑定校验 |
 | `appVersion` | string | 1～128 字符，例如 `3.2.0` | 版本筛选和回归比较 |
 | `versionCode` | integer | 非负整数 | 构建版本排序和定位 |
-| `buildId` | string | 1～256 字符；稳定对应一个可发布构建 | 构建定位及默认 mapping 选择 |
+| `buildId` | string | 必填、1～256 字符；稳定对应一个可发布构建 | 构建定位及专用 mapping 选择 |
 | `environment` | string | 1～64 字符，例如 `production`、`staging` | 环境筛选 |
 | `channel` | string | 1～128 字符，例如 `official`、`play` | 渠道筛选 |
 | `osVersion` | string | 1～64 字符；Android 系统版本或双方约定的 API Level 字符串 | 系统版本维度 |
@@ -123,7 +123,7 @@
 | `parsedSampleCount` | UUID `processId` 对应唯一目标主线程中，消息窗口内堆栈非空的有效 `segments` 数量 |
 | `missingSampleCount` | `max(0, expectedSampleCount - parsedSampleCount)` |
 | `recordCount` | 解码 `sampling.bin` 后统计，不信任客户端重复声明 |
-| mapping 选择 | 服务端使用认证应用与 `buildId` 查找，不新增 manifest 字段 |
+| mapping 选择 | 工作树使用认证应用、`appVersion` 与 `buildId` 查找，不新增 manifest 字段 |
 
 `parsedSampleCount` 不使用 `attemptedSampleCount`、顶层 `recordCount` 或其他线程记录，也不只统计 `kCustom`；processor 保留的所有有效主线程 segment 都计数。`missingSampleCount` 不是客户端确认的丢弃次数。
 
@@ -162,7 +162,7 @@
 
 `sampling-mapping.bin` 保存运行时方法指针、符号和线程名称映射，不是 ProGuard/R8 mapping。
 
-服务端按认证得到的 `appId` 与 manifest `buildId` 选择网页注册的当前 mapping；客户端不能提供系统应用标识、mapping 标识、路径或内容。网页上传与替换步骤见[符号表接入](symbol-mapping.md)；对应 mapping 不存在时，服务端继续保存未解混淆证据。
+工作树按认证得到的 `appId`、manifest 版本和构建选择 mapping；专用优先，否则使用版本默认。客户端不能提供系统应用标识、mapping 标识、路径或内容。当前 SDK 和 processor 要求构建，版本化上传已接入，环境部署状态见平台状态页；对应 mapping 不存在时，服务端继续保存未解混淆证据，详见[符号表接入](symbol-mapping.md)。
 
 当前 `packageName`、`thresholdNs` 和版本等第 3 节字段仍须完整提供，不因固定阈值部署或客户端能推导字段而省略。
 

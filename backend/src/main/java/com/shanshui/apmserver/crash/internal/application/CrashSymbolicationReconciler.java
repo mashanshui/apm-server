@@ -12,9 +12,9 @@ import java.util.UUID;
 /** 补偿跨库通知失败与迟到事件，轮转检查点和本页唤醒原子提交。 */
 @Service
 public class CrashSymbolicationReconciler {
-    /** 只通过 symbol 公开索引访问活动构建。 */
+    /** 只通过 symbol 公开索引访问活动版本。 */
     private final SymbolBuildIndex symbols;
-    /** 持久化构建工作。 */
+    /** 持久化版本工作。 */
     private final CrashSymbolicationWork jobs;
     /** 本模块轮转检查点。 */
     private final JdbcTemplate jdbc;
@@ -30,13 +30,13 @@ public class CrashSymbolicationReconciler {
         this.transaction = new TransactionTemplate(manager);
     }
 
-    /** 每次最多轮转 100 个活动构建，不以事件发生时间推进永久游标。 */
+    /** 每次最多轮转 100 个活动版本，不以事件发生时间推进永久游标。 */
     public void reconcilePage() {
         transaction.executeWithoutResult(status -> {
             // 检查点锁把多个调用串行化，唤醒失败时检查点一并回滚。
             UUID after = jdbc.queryForObject("SELECT after_symbol_id FROM crash_symbolication_reconcile WHERE singleton=true FOR UPDATE", UUID.class);
             var builds = symbols.activeAfter(after, 100);
-            for (var build : builds) jobs.wake(build.appId(), build.buildId());
+            for (var build : builds) jobs.wake(build.appId(), build.appVersion());
             jdbc.update("UPDATE crash_symbolication_reconcile SET after_symbol_id=? WHERE singleton=true",
                     builds.size() < 100 ? null : builds.getLast().symbolId());
         });

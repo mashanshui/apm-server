@@ -224,6 +224,13 @@ public class ApiExceptionHandler {
                 .body(ApiErrorResponse.of(ex.getCode(), ex.getMessage(), false, null)));
     }
 
+    /** SO 冲突返回完整有界快照，不发布部分成功。 */
+    @ExceptionHandler(com.shanshui.apmserver.symbol.api.NativeBatchConflictException.class)
+    public ResponseEntity<ApiErrorResponse> nativeBatchConflict(com.shanshui.apmserver.symbol.api.NativeBatchConflictException ex) {
+        return response(ResponseEntity.status(HttpStatus.CONFLICT).body(new ApiErrorResponse(
+                "SYMBOL_BATCH_CONFLICT", ex.getMessage(), false, null, ex.entries(), java.time.Instant.now())));
+    }
+
     /** 返回同构建不同 mapping 的摘要冲突。 */
     @ExceptionHandler(SymbolConflictException.class)
     public ResponseEntity<ApiErrorResponse> symbolConflict(SymbolConflictException ex) {

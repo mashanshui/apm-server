@@ -102,7 +102,15 @@ public class SecurityConfig {
                                                    CookieCsrfTokenRepository csrfRepository,
                                                    SessionAuthenticationStrategy sessionAuthenticationStrategy,
                                                    JsonResponseWriter responseWriter) throws Exception {
-        CsrfTokenRequestAttributeHandler csrfRequestHandler = new CsrfTokenRequestAttributeHandler();
+        CsrfTokenRequestAttributeHandler csrfRequestHandler = new CsrfTokenRequestAttributeHandler() {
+            /** SO 大文件写入只接受请求头，不能为查找 CSRF 参数而先解析正文。 */
+            @Override
+            public String resolveCsrfTokenValue(jakarta.servlet.http.HttpServletRequest request,
+                                                org.springframework.security.web.csrf.CsrfToken token) {
+                if (request.getRequestURI().endsWith("/symbols/native-batches")) return request.getHeader(token.getHeaderName());
+                return super.resolveCsrfTokenValue(request, token);
+            }
+        };
         http
                 .securityContext(security -> security.securityContextRepository(securityContextRepository))
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED)

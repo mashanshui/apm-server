@@ -4,7 +4,7 @@ import type { DiagnosticPartition } from '../types/crashDiagnostics'
 import NativeFrameList from './NativeFrameList.vue'
 
 /** 服务端返回的唯一原始 Native 主现场。 */
-defineProps<{ crash: NativeCrash }>()
+defineProps<{ crash: NativeCrash; appId?: string; appVersion?: string; canManage?: boolean }>()
 
 /** 将原始现场的采集状态和安全原因显示为中文。 */
 function collectionText(partition: DiagnosticPartition): string {
@@ -33,7 +33,7 @@ function collectionText(partition: DiagnosticPartition): string {
     <NativeFrameList :frames="crash.backtrace.frames" :modules="crash.modules" />
     <h3>模块</h3>
     <p v-if="!crash.modules.length" class="native-empty">没有可取得的模块信息。</p>
-    <ul v-else class="native-modules"><li v-for="module in crash.modules" :key="module.id"><strong>{{ module.name }}</strong> · {{ module.abi }} · ELF Build ID {{ module.elfBuildId ?? '未知' }}<span v-if="module.path"> · {{ module.path }}</span></li></ul>
+    <ul v-else class="native-modules"><li v-for="module in crash.modules" :key="module.id"><strong>{{ module.name }}</strong> · {{ module.abi }} · ELF Build ID {{ module.elfBuildId ?? '未知' }}<span v-if="module.path"> · {{ module.path }}</span><RouterLink v-if="canManage && appId && appVersion" class="button" :to="{ name: 'app-symbols', params: { appId }, query: { type: 'NATIVE_SO', appVersion, ...(module.elfBuildId ? { targetAbi: module.abi, targetElfBuildId: module.elfBuildId } : {}) } }">{{ module.elfBuildId ? '上传此模块 SO' : '身份未知 · 管理此版本 SO' }}</RouterLink></li></ul>
     <template v-if="crash.javaStack">
       <h3>关联的 Java 栈 <small>{{ collectionText(crash.javaStack) }}</small></h3>
       <p v-if="!crash.javaStack.frames.length" class="native-empty">没有可可靠关联的 Java 堆栈帧。</p>

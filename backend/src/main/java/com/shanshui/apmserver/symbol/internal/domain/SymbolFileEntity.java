@@ -21,8 +21,29 @@ public class SymbolFileEntity {
     /** 所属应用标识。 */
     @Column(name = "app_id", nullable = false)
     private UUID appId;
+    /** 文件类型；历史登记默认为 mapping。 */
+    @Column(name = "symbol_type", nullable = false, length = 16)
+    private String symbolType = "MAPPING";
+    /** 登记所属版本；历史无版本记录保持为空。 */
+    @Column(name = "app_version", length = 128)
+    private String appVersion;
+    /** SO 模块 ABI，mapping 不适用。 */
+    @Column(name = "native_abi", length = 16)
+    private String nativeAbi;
+    /** 完整 ELF Build ID，mapping 不适用。 */
+    @Column(name = "elf_build_id", length = 128)
+    private String elfBuildId;
+    /** 是否检测到已定义函数符号，mapping 不适用。 */
+    @Column(name = "has_function_symbols")
+    private Boolean hasFunctionSymbols;
+    /** 是否检测到调试信息，mapping 不适用。 */
+    @Column(name = "has_debug_info")
+    private Boolean hasDebugInfo;
+    /** 是否检测到调试行信息，mapping 不适用。 */
+    @Column(name = "has_debug_line")
+    private Boolean hasDebugLine;
     /** 精确匹配的构建标识。 */
-    @Column(name = "build_id", nullable = false, length = 128)
+    @Column(name = "build_id", length = 256)
     private String buildId;
     /** 当前替换版本，从一开始递增。 */
     @Column(nullable = false)
@@ -77,6 +98,23 @@ public class SymbolFileEntity {
         this.updatedAt = updatedAt;
     }
 
+    /** 为新登记设置不可变版本及文件类型身份。 */
+    public void identify(String type, String version, String abi, String elfId,
+                         Boolean functions, Boolean debug, Boolean lines) {
+        this.symbolType = type;
+        this.appVersion = version;
+        this.nativeAbi = abi;
+        this.elfBuildId = elfId;
+        this.hasFunctionSymbols = functions;
+        this.hasDebugInfo = debug;
+        this.hasDebugLine = lines;
+    }
+
+    /** 返回登记版本；旧记录为空。 */
+    public String getAppVersion() { return appVersion; }
+    /** 返回文件类型。 */
+    public String getSymbolType() { return symbolType; }
+
     /** 以新版本替换当前记录。 */
     public void replace(String newStorageKey, String newOriginalFilename, long newSizeBytes,
                         String newSha256, UUID newUploadedBy, Instant newUpdatedAt) {
@@ -91,7 +129,11 @@ public class SymbolFileEntity {
 
     /** 返回当前符号表的网页元数据。 */
     public SymbolFileMetadata metadata() {
-        return new SymbolFileMetadata(symbolId, appId, buildId, revision, originalFilename,
+        // 旧无版本登记不能被误标为版本默认范围。
+        String scope = "MAPPING".equals(symbolType) && appVersion != null
+                ? buildId == null ? "default" : "build" : null;
+        return new SymbolFileMetadata(symbolId, appId, symbolType, appVersion, scope, buildId, nativeAbi,
+                elfBuildId, hasFunctionSymbols, hasDebugInfo, hasDebugLine, revision, originalFilename,
                 sizeBytes, sha256, uploadedBy, uploadedAt, updatedAt);
     }
 

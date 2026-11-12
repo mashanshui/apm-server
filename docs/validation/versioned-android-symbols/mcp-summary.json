@@ -1,0 +1,12 @@
+{
+  "日期": "2026-11-11",
+  "环境": "隔离 PostgreSQL/ClickHouse、真实 HTTP 和有效 Token MCP",
+  "工具数量": 19,
+  "JVM首次成功来源未改变": true,
+  "Native状态与来源未改变": true,
+  "Native原始栈逐字节未改变": true,
+  "Native栈摘要": "24794782f0878985d9f94c654cb8e84bb7ea3956e97b60705cd5ab8f68431194",
+  "Native状态": "pending",
+  "Native栈格式": "raw_native",
+  "Native原因": "native_symbolication_deferred"
+}

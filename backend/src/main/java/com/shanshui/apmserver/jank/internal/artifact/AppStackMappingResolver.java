@@ -49,6 +49,14 @@ public class AppStackMappingResolver {
         return new ResolvedMapping(resolveLegacy(appId, buildId), null);
     }
 
+    /** 按事件应用版本和必填构建获取专用或默认租约，存储故障不得解释为缺失文件。 */
+    public ResolvedMapping resolve(java.util.UUID appId, String appVersion, String buildId) {
+        if (symbolRegistry == null) throw new IllegalStateException("版本选择需要统一符号表注册表");
+        return symbolRegistry.acquireVersioned(appId, appVersion, buildId)
+                .map(lease -> new ResolvedMapping(lease.path().toFile(), lease))
+                .orElseGet(() -> new ResolvedMapping(null, null));
+    }
+
     /** 兼容旧单元测试的立即文件查询；生产解析应使用 {@link #resolve}。 */
     public File resolveOptional(java.util.UUID appId, String buildId) {
         ResolvedMapping mapping = resolve(appId, buildId);

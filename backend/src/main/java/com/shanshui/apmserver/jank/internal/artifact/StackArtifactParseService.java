@@ -103,12 +103,19 @@ public class StackArtifactParseService {
             Path artifactFile = Files.createTempFile("apm-jank-artifact-", ".zip");
             try {
                 Files.copy(artifactInput, artifactFile, StandardCopyOption.REPLACE_EXISTING);
-                preflightV3Manifest(app, artifactFile);
+                JankArtifactIdentity identity = preflightV3Manifest(app, artifactFile);
                 String reportJson;
                 try (InputStream parserInput = Files.newInputStream(artifactFile)) {
                     reportJson = parser.parseWithMappingResolver(parserInput, metadata -> {
-                        AppStackMappingResolver.ResolvedMapping resolved = mappingResolver.resolve(appId,
-                                metadata.getMappingId());
+                        // processor 校验后的身份必须与预检的同一份 ZIP 一致。
+                        if (identity != null && (!identity.packageName().equals(metadata.getAppId())
+                                || !java.util.Objects.equals(identity.buildId(), metadata.getMappingId()))) {
+                            throw new InvalidStackArtifactException("INVALID_JANK_MANIFEST", "卡顿产物身份与解析元数据不一致");
+                        }
+                        // 1.0.4 回调不提供版本，使用同一 ZIP 预检得到的版本；非 ZIP 仅供解析器错误边界测试。
+                        AppStackMappingResolver.ResolvedMapping resolved = identity == null
+                                ? mappingResolver.resolve(appId, metadata.getMappingId())
+                                : mappingResolver.resolve(appId, identity.appVersion(), identity.buildId());
                         if (resolved.lease() != null) {
                             mappingLeases.add(resolved.lease());
                         }
@@ -121,6 +128,9 @@ public class StackArtifactParseService {
                 }
                 JsonNode report = objectMapper.readTree(reportJson);
                 validateAppPackage(app, report);
+                if (identity != null && !identity.equals(JankArtifactIdentity.fromManifest(report.path("sourceManifest")))) {
+                    throw new InvalidStackArtifactException("INVALID_JANK_MANIFEST", "卡顿产物身份与解析报告不一致");
+                }
                 JankEvent event = reportMapper.map(appId, report, Instant.now(clock), mappingApplied.get());
                 AppendResult result = writeCoordinator.append(appId, List.of(event));
                 if (result.accepted() == 1 && result.duplicate() == 0) {
@@ -167,11 +177,11 @@ public class StackArtifactParseService {
      * 对真实 ZIP 的 manifest 做轻量预检，确保包名不匹配时不会触发 processor 或 mapping 读取。
      * 非 ZIP 输入继续交给 processor 产生稳定的产物解析错误，便于保留边界测试。
      */
-    private void preflightV3Manifest(AuthenticatedApp app, Path artifactFile) {
+    private JankArtifactIdentity preflightV3Manifest(AuthenticatedApp app, Path artifactFile) {
         try (InputStream input = Files.newInputStream(artifactFile)) {
             byte[] signature = input.readNBytes(4);
             if (!isZipSignature(signature)) {
-                return;
+                return null;
             }
         } catch (IOException ex) {
             throw new InvalidStackArtifactException("INVALID_STACK_ARTIFACT", "卡顿产物读取失败", ex);
@@ -235,6 +245,7 @@ public class StackArtifactParseService {
             throw new InvalidStackArtifactException(
                     "INVALID_JANK_MANIFEST", "卡顿 manifest 缺少有效 UUID v4 processId");
         }
+        return JankArtifactIdentity.fromManifest(manifest);
     }
 
     private byte[] readManifest(InputStream input) throws IOException {

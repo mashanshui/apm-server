@@ -65,7 +65,7 @@ public class CrashSymbolicationPublications {
     /** 成功决定是一次短事务；之后只能使用这份版本与字节。 */
     public Optional<Publication> register(CrashSymbolicationJobs.Lease lease, CrashState computed) {
         if (!"symbolicated".equals(computed.status()) || !lease.appId().equals(computed.appId())
-                || !lease.buildId().equals(computed.buildId())) throw new IllegalArgumentException("成功结果与构建租约不一致");
+                || computed.buildId() == null || computed.buildId().isBlank()) throw new IllegalArgumentException("成功结果与构建租约不一致");
         return transaction.execute(status -> {
             if (!jobs.lockOwned(lease)) return Optional.empty();
             // 已决定的首次成功优先，mapping 变化和重试不能覆盖。
@@ -86,10 +86,10 @@ public class CrashSymbolicationPublications {
             }
             String sha256 = digest(payload);
             jdbc.update("""
-                    INSERT INTO crash_symbolication_publication(app_id,event_id,build_id,event_time,expires_at,
+                    INSERT INTO crash_symbolication_publication(app_id,event_id,build_id,app_version,event_time,expires_at,
                         state_version,symbol_id,symbol_revision,symbol_sha256,result_sha256,pending_payload)
-                    VALUES (?,?,?,?,?,?,?,?,?,?,?)
-                    """, fixed.appId(), fixed.eventId(), fixed.buildId(), java.sql.Timestamp.from(fixed.eventTime()),
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+                    """, fixed.appId(), fixed.eventId(), fixed.buildId(), lease.appVersion(), java.sql.Timestamp.from(fixed.eventTime()),
                     java.sql.Timestamp.from(fixed.eventTime().plus(Duration.ofDays(30))), version, fixed.symbolId(), fixed.symbolRevision(),
                     fixed.symbolSha256(), sha256, payload);
             return existing(fixed.appId(), fixed.eventId());
@@ -110,13 +110,13 @@ public class CrashSymbolicationPublications {
     /** 当前构建优先恢复有限未确认结果，不重新调用 R8。 */
     public List<Publication> pending(CrashSymbolicationJobs.Lease lease, int limit) {
         if (limit < 1 || limit > 100) throw new IllegalArgumentException("发布恢复批次超限");
-        return jdbc.query("SELECT * FROM crash_symbolication_publication WHERE app_id=? AND build_id=? AND published_at IS NULL AND expires_at>clock_timestamp() ORDER BY created_at,event_id LIMIT ?",
-                row(), lease.appId(), lease.buildId(), limit);
+        return jdbc.query("SELECT * FROM crash_symbolication_publication WHERE app_id=? AND app_version=? AND published_at IS NULL AND expires_at>clock_timestamp() ORDER BY created_at,event_id LIMIT ?",
+                row(), lease.appId(), lease.appVersion(), limit);
     }
 
     /** 写入和确认丢失时重放登记原字节；读回整份内容一致后才移除短期载荷。 */
     public boolean publish(CrashSymbolicationJobs.Lease lease, Publication publication) {
-        if (!lease.appId().equals(publication.appId()) || !lease.buildId().equals(publication.buildId())) {
+        if (!lease.appId().equals(publication.appId()) || !lease.appVersion().equals(publication.appVersion())) {
             throw new IllegalArgumentException("发布与构建租约不一致");
         }
         if (publication.payload() == null) return true;
@@ -164,7 +164,7 @@ public class CrashSymbolicationPublications {
     /** 读取发布投影，已确认记录不再包含完整堆栈。 */
     private RowMapper<Publication> row() {
         return (row, number) -> new Publication(row.getObject("app_id", UUID.class), row.getString("event_id"),
-                row.getString("build_id"), row.getLong("state_version"), row.getString("result_sha256"),
+                row.getString("build_id"), row.getString("app_version"), row.getLong("state_version"), row.getString("result_sha256"),
                 row.getString("pending_payload"), row.getTimestamp("expires_at").toInstant());
     }
 
@@ -179,6 +179,7 @@ public class CrashSymbolicationPublications {
             /** 所属应用。 */ UUID appId,
             /** 原事件身份。 */ String eventId,
             /** 固定构建。 */ String buildId,
+            /** 发布所属应用版本，旧已确认记录为空。 */ String appVersion,
             /** 首次成功版本。 */ long version,
             /** 完整状态字节摘要。 */ String sha256,
             /** 已登记 JSONEachRow 原字节。 */ String payload,
