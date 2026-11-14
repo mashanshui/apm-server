@@ -7,7 +7,7 @@ import type {
   CrashTrendResponse,
 } from '../types/crash'
 import { ApiError, errorMessage as sharedErrorMessage, isAbortError as sharedIsAbortError, pathSegment, requestJson as request } from './http'
-import { validDiagnostics, validNativeCrash } from './crashDiagnostics'
+import { validDiagnostics, validNativeCurrent } from './crashDiagnostics'
 
 export { ApiError as CrashApiError }
 
@@ -133,10 +133,21 @@ export function requireCurrentCrash(value: CrashEventDetailResponse): CrashEvent
   if (!value || 'rawCrash' in value || 'symbolicatedStackText' in value || !validStatus(value.symbolicationStatus)
       || !validGrouping(value.groupingKind) || typeof value.crashKind !== 'string' || typeof value.fatal !== 'boolean') throw protocolError()
   if (value.crashKind === 'native') {
-    if (!value.fatal || value.symbolicationStatus !== 'pending' || value.groupingKind !== 'temporary'
-        || value.symbolicationReason !== 'native_symbolication_deferred' || value.stack?.format !== 'raw_native'
-        || !validNativeCrash(value.stack.content) || value.symbolFileId != null || value.symbolFileRevision != null
-        || value.symbolFileSha256 != null || value.processedAt != null || !validDiagnostics(value.diagnostics, value.stack.content)) throw protocolError()
+    if (!value.fatal || value.groupingKind !== 'temporary' || value.symbolFileId != null || value.symbolFileRevision != null
+        || value.symbolFileSha256 != null) throw protocolError()
+    if (value.stack?.format === 'native_stack') {
+      if (!validNativeCurrent(value.stack.content) || !validDiagnostics(value.diagnostics, value.stack.content)) throw protocolError()
+      const frames = value.stack.content.backtrace.frames
+      const waiting = frames.some(frame => frame.resolution.status === 'pending' || frame.resolution.retryAt != null)
+      const expected = !frames.length || waiting ? 'pending' : frames.every(frame => frame.resolution.status === 'symbolicated') ? 'symbolicated' : 'failed'
+      if (value.symbolicationStatus !== expected || !frames.length && value.symbolicationReason !== 'capture_stack_unavailable'
+          || expected === 'symbolicated' && (!value.processedAt || !Number.isFinite(Date.parse(value.processedAt)))) throw protocolError()
+      const counts = value.nativeFrameCounts
+      if (!counts || counts.symbolicated !== frames.filter(frame => frame.resolution.status === 'symbolicated').length
+          || counts.pending !== frames.filter(frame => frame.resolution.status === 'pending').length
+          || counts.failed !== frames.filter(frame => frame.resolution.status === 'failed').length
+          || counts.notApplicable !== frames.filter(frame => frame.resolution.status === 'not_applicable').length) throw protocolError()
+    } else throw protocolError()
     return value
   }
   if (value.crashKind !== 'jvm' || !value.fatal) throw protocolError()

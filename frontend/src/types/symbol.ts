@@ -28,12 +28,19 @@ export interface SymbolFilePage {
 }
 
 /** 构建本轮后台进展；idle 不证明每条事件已成功。 */
-export interface SymbolicationProgress {
+export type SymbolicationProgress = {
   state: 'queued' | 'running' | 'waiting_mapping' | 'retry_wait' | 'idle'
   succeededCount: number
   failedCount: number
   updatedAt: string | null
   errorCategory: string | null
+} | {
+  /** Native 类型及版本共享计数。 */ crashKind: 'native'
+  /** Native 工作状态。 */ state: 'queued' | 'running' | 'waiting_symbols' | 'retry_wait' | 'idle'
+  /** 已确认的状态更新次数。 */ publishedCount: number
+  /** 已确认的新失败单元次数。 */ failedUnitCount: number
+  /** 更新时间。 */ updatedAt: string | null
+  /** 安全原因。 */ errorCategory: string | null
 }
 
 /** SO 批次冲突包含所有候选，新建项 current 为空。 */

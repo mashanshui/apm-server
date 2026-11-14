@@ -15,6 +15,7 @@ import java.time.Instant;
 import java.time.Duration;
 import java.time.temporal.ChronoUnit;
 import java.util.UUID;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -42,6 +43,10 @@ class BackgroundCrashQueryPerformanceTests {
         for (String statement : ddl.split(";")) if (!statement.isBlank()) client.execute(statement);
         String diagnosticsDdl = new String(getClass().getResourceAsStream("/db/clickhouse/010_crash_diagnostics.sql").readAllBytes(), StandardCharsets.UTF_8);
         for (String statement : diagnosticsDdl.split(";")) if (!statement.isBlank()) client.execute(statement);
+        for (String migration : List.of("011_native_crash_state.sql", "012_native_symbolication_state.sql")) {
+            String nativeDdl = new String(getClass().getResourceAsStream("/db/clickhouse/" + migration).readAllBytes(), StandardCharsets.UTF_8);
+            for (String statement : nativeDdl.split(";")) if (!statement.isBlank()) client.execute(statement);
+        }
         properties.setDatabase("apm");
         UUID app = UUID.randomUUID();
         UUID symbol = UUID.randomUUID();

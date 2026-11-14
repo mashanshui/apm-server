@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import type { NativeCrash, StackFrame } from '../types/crash'
+import { RouterLink } from 'vue-router'
+import type { NativeCurrent, StackFrame } from '../types/crash'
 import type { CrashDiagnostics, DiagnosticLogBuffer, DiagnosticMemory, DiagnosticPartition } from '../types/crashDiagnostics'
 import { formatDateTime } from '../utils/format'
 import NativeFrameList from './NativeFrameList.vue'
 
 /** 当前事件已经授权返回的诊断现场。 */
-const props = defineProps<{ diagnostics: CrashDiagnostics | null; nativeCrash?: NativeCrash | null }>()
+const props = defineProps<{ diagnostics: CrashDiagnostics | null; nativeCrash?: NativeCurrent | null;
+  appId?: string; appVersion?: string; buildId?: string; canManage?: boolean }>()
 /** 当前展开的 Java 线程身份。 */
 const selectedThreadId = ref<string | null>(null)
 /** Native 线程按系统 TID 选择，不能与 Java ID 或线程名混同。 */
@@ -61,7 +63,7 @@ function reasonText(reason: string | null | undefined): string {
   const labels: Record<string, string> = {
     permission_denied: '权限受限', unsupported: '系统不支持', timeout: '采集超时', io_error: '读取失败',
     memory_pressure: '内存不足', interrupted: '采集被中断', size_limit: '大小受限', count_limit: '数量受限',
-    parser_busy: '还原资源繁忙', mapping_unavailable: 'mapping 不可用', invalid_input: '还原输入无效',
+    native_symbolication_deferred: '等待后台处理', parser_busy: '还原资源繁忙', missing_mapping: '等待 mapping', mapping_unavailable: 'mapping 不可用', invalid_input: '还原输入无效',
     invalid_stack: '堆栈无效', empty_output: '还原结果为空', output_limit: '还原结果超限',
     retrace_failed: '还原失败', budget_exhausted: '还原时间不足',
   }
@@ -126,15 +128,16 @@ function frameText(frame: StackFrame): string {
               :aria-selected="thread.javaId === selectedThreadId" :class="{ active: thread.javaId === selectedThreadId }"
               @click="selectedThreadId = thread.javaId">
               <strong>{{ thread.name || '未命名线程' }}</strong><span>Java ID {{ thread.javaId }}<template v-if="thread.mainThread"> · 主线程</template></span>
-              <small>{{ nativeCrash && thread.symbolicationStatus === 'pending' ? '原始 Java 帧' : threadStatus(thread.symbolicationStatus) }}</small>
+              <small>{{ threadStatus(thread.symbolicationStatus) }}</small>
             </button>
           </div>
           <div v-if="selectedThread" class="thread-detail" role="tabpanel">
             <div class="thread-title"><strong>{{ selectedThread.name || '未命名线程' }}</strong><span>Java ID {{ selectedThread.javaId }}<template v-if="selectedThread.mainThread"> · 主线程</template></span></div>
             <p v-if="nativeCrash" class="diagnostic-hint">系统 TID {{ selectedThread.systemTid ?? '未知' }} · {{ selectedThread.relationToCrash === 'other' ? '已确认不是崩溃线程' : '与崩溃线程的关系未知' }}</p>
             <p class="diagnostic-hint">{{ selectedThread.state }} · 优先级 {{ selectedThread.priority }} · {{ selectedThread.daemon ? '守护线程' : '非守护线程' }}<template v-if="selectedThread.truncated"> · 堆栈已截断</template></p>
-            <p class="diagnostic-hint">{{ nativeCrash && selectedThread.symbolicationStatus === 'pending' ? '原始 Java 帧；本期未提供还原' : threadStatus(selectedThread.symbolicationStatus) }}<template v-if="selectedThread.symbolicationReason && !nativeCrash"> · {{ reasonText(selectedThread.symbolicationReason) }}</template></p>
+            <p class="diagnostic-hint">{{ threadStatus(selectedThread.symbolicationStatus) }}<template v-if="selectedThread.symbolicationReason"> · {{ reasonText(selectedThread.symbolicationReason) }}</template></p>
             <p v-if="selectedThread.symbolicationStatus === 'symbolicated'" class="diagnostic-hint">mapping {{ selectedThread.symbolFileId }} · revision {{ selectedThread.symbolFileRevision }} · SHA-256 {{ selectedThread.symbolFileSha256 }}</p>
+            <RouterLink v-if="nativeCrash && canManage && appId && appVersion && selectedThread.symbolicationStatus !== 'symbolicated' && selectedThread.symbolicationStatus !== 'not_applicable'" class="button" :to="{ name: 'app-symbols', params: { appId }, query: { type: 'MAPPING', appVersion, ...(buildId ? { buildId } : {}) } }">上传此版本 mapping</RouterLink>
             <pre v-if="selectedThread.stack.format === 'retrace_text'" class="diagnostic-pre">{{ selectedThread.stack.content }}</pre>
             <p v-else-if="selectedThread.stack.content.length === 0" class="diagnostic-empty">没有可取得的 Java 堆栈帧。</p>
             <ol v-else class="diagnostic-frames"><li v-for="(frame, index) in selectedThread.stack.content" :key="index"><code>{{ frameText(frame) }}</code></li></ol>

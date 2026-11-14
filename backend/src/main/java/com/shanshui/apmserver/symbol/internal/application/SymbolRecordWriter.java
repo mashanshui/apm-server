@@ -44,6 +44,7 @@ public class SymbolRecordWriter {
         audit(new SymbolAuditEntity(UUID.randomUUID(), entity.getSymbolId(), appId, buildId,
                 null, null, entity.getRevision(), entity.getSha256(), userId, now, "UPSERT"), entity);
         work.wake(appId, appVersion);
+        if (appVersion != null) work.wakeNative(appId, appVersion);
         return entity.metadata();
     }
 
@@ -112,11 +113,11 @@ public class SymbolRecordWriter {
         auditRepository.saveAndFlush(audit);
     }
 
-    /** 只有明确版本的 mapping 唤醒 JVM 工作。 */
+    /** 版本化 mapping 唤醒两类工作，SO 只唤醒 Native。 */
     private void wake(SymbolFileEntity file) {
-        if ("MAPPING".equals(file.getSymbolType()) && file.getAppVersion() != null) {
-            work.wake(file.getAppId(), file.getAppVersion());
-        }
+        if (file.getAppVersion() == null) return;
+        if ("MAPPING".equals(file.getSymbolType())) work.wake(file.getAppId(), file.getAppVersion());
+        work.wakeNative(file.getAppId(), file.getAppVersion());
     }
 
     /** 当前版本写入结果及被替换的旧文件键。 */

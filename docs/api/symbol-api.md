@@ -12,7 +12,7 @@
 |---|---|---|
 | MAPPING 默认 | appId、appVersion、buildId=null | 事件自身构建专用登记不存在时使用 |
 | MAPPING 专用 | appId、appVersion、非空 buildId | 同版本专用优先；不可读时返回存储失败，不回退默认 |
-| NATIVE_SO | appId、appVersion、ABI、完整 ELF Build ID | 身份取自 ELF；不接受应用 buildId，不执行 Native 还原 |
+| NATIVE_SO | appId、appVersion、ABI、完整 ELF Build ID | 身份取自 ELF；不接受应用 buildId，上传登记后台还原工作 |
 
 旧无版本 mapping 保留 symbolId、文件和审计，列表 appVersion/mappingScope 为 null，不能匹配新版事件或查询进度；必须指定明确版本重新上传，不按文件名或遥测推导版本。旧登记仍可条件删除。
 
@@ -85,11 +85,11 @@ mapping 元数据、审计和版本工作在同一事务提交；上传不等待
 | part | 必填 | 说明 |
 |---|---:|---|
 | appVersion | 是 | 发布归属版本 |
-| file | 是 | 包含带符号 SO 的普通单卷 ZIP |
+| file | 是 | 包含 `.so`、`.so.sym` 或 `.so.dbg` ELF 符号文件的普通单卷 ZIP；可直接上传 AGP 的 `native-debug-symbols.zip` |
 | targetAbi、targetElfBuildId | 否 | 必须成对；归档必须包含该准确模块 |
 | expectedEntries | 否 | 确认用 JSON 数组，必须包含全部实际候选身份 |
 
-禁止 buildId part。支持 armeabi-v7a、arm64-v8a、x86、x86_64，完整 GNU Build ID 为 1～64 字节。至少具有已定义函数符号或非空调试段；仅 dynsym 不接受。文件名、目录不决定实际 ABI/身份。同身份同摘要合并，不同摘要拒绝整批。
+禁止 buildId part。支持 armeabi-v7a、arm64-v8a、x86、x86_64，完整 GNU Build ID 为 1～64 字节。归档可混合 `.so`、`.so.sym`、`.so.dbg` 并包含 ABI 子目录；仅凭后缀不能证明符号内容或源码行号。候选文件名只保留最后一段作为显示名，最多 255 个 Unicode 码点；任一候选超长返回 `422 INVALID_SYMBOL_ARCHIVE` 并拒绝整批，不截断或因身份重复而跳过校验。至少具有已定义函数符号或非空调试段；仅 dynsym 不接受。文件名、目录不决定实际 ABI/身份。同身份同原始文件摘要合并，不同摘要拒绝整批。
 
 首次请求仅允许新建及同内容幂等。任一不同内容返回 `409 SYMBOL_BATCH_CONFLICT`，标准 `errors` 数组提供全部候选快照，每项包含 abi、elfBuildId、incomingSha256、current；current=null 表示当时不存在。整批不产生部分修改。
 
@@ -104,7 +104,7 @@ mapping 元数据、审计和版本工作在同一事务提交；上传不等待
 
 实际候选与确认集合必须完全相同；重复、漏项、多项、非法修订返回 400。已存在行和预期不存在项均在同一版本事务锁内核对；身份或修订变化使整批 409。确认过期时，即使当前内容相同仍不能充当覆盖授权。提交确认未知应普通重传原 ZIP 对账；同内容返回幂等成功，不带过期确认。
 
-成功响应为 `{items,createdCount,replacedCount,unchangedCount}`，含新建项返回 201，其余返回 200。SO 不登记 JVM 工作，不回填或改变 Native 原始事件。文件全部通过校验后才发布到 UUID 受控键，原 ZIP 不保留。
+成功响应为 `{items,createdCount,replacedCount,unchangedCount}`，含新建项返回 201，其余返回 200。工作树中 SO 批次在同一事务登记 Native 工作，不登记 JVM 工作；后台异步处理候选事件，上传不会同步改变事件。文件全部通过校验后才发布到 UUID 受控键，原 ZIP 不保留。
 
 ## 接收与资源边界
 
@@ -123,14 +123,14 @@ SO 单实例并发 1，不排队；接收许可在 multipart 解析前取得，�
 
 ## 删除与版本进度
 
-`DELETE /api/v1/apps/{appId}/symbols/{symbolId}?expectedRevision=1`：mapping、SO、旧登记均可条件软删除，成功 204。过期修订 409；未知、已删除或不属于应用的记录 404。审计和历史成功来源保留；重新上传建立新 symbolId。只有有版本 mapping 唤醒 JVM，SO 和旧无版本登记不唤醒。旧 mapping 文件在最后一个在途租约退出后回收。
+`DELETE /api/v1/apps/{appId}/symbols/{symbolId}?expectedRevision=1`：mapping、SO、旧登记均可条件软删除，成功 204。过期修订 409；未知、已删除或不属于应用的记录 404。审计和历史成功来源保留；重新上传建立新 symbolId。工作树中有版本 mapping 唤醒 JVM 和 Native，SO 只唤醒 Native，旧无版本登记不唤醒。旧文件在最后一个在途租约退出后回收。
 
-`GET /api/v1/apps/{appId}/symbols/{symbolId}/crash-symbolication`：只适用于有版本活动 mapping；SO 或旧无版本登记返回 `422 SYMBOL_PROGRESS_NOT_APPLICABLE`。查询 PostgreSQL 的同应用版本工作，响应 `{state,succeededCount,failedCount,updatedAt,errorCategory}`；默认和专用读取同一个版本进度，计数涵盖所有构建，属于本轮而非文件独有或应用历史总量。
+`GET /api/v1/apps/{appId}/symbols/{symbolId}/crash-symbolication`：适用于有版本活动 mapping 和 SO；旧无版本登记返回 `422 SYMBOL_PROGRESS_NOT_APPLICABLE`。mapping 返回既有 `{state,succeededCount,failedCount,updatedAt,errorCategory}`；SO 返回 `{crashKind:"native",state,publishedCount,failedUnitCount,updatedAt,errorCategory}`。默认和专用 mapping 共用版本 JVM 进度，同版本 SO 共用 Native 进度。`publishedCount` 是本轮确认的完整状态更新次数，同一事件多轮可计多次；`failedUnitCount` 是本轮确认的新增失败处理单元次数，两者均不是文件独有或历史完成事件数。
 
-状态为 queued/running/waiting_mapping/retry_wait/idle。空闲或等待时后续唤醒可开启新一轮；idle 不证明全部历史事件成功，也不排除迟到事件。网页最多每五秒轮询一次，最多五分钟；SO 不轮询。
+JVM 状态为 queued/running/waiting_mapping/retry_wait/idle；Native 使用 waiting_symbols 代替 waiting_mapping。空闲或等待时后续唤醒可开启新一轮；idle 不证明全部历史事件成功，也不排除迟到事件。网页最多每五秒轮询一次、最多五分钟，SO 页面显示同版本 Native 进度。
 
 ## 生效与错误
 
-JVM 先持久化原始材料，后台按版本筛选并逐构建选择实际 mapping。专用不存在才用同版本默认，禁止猜测其他构建、其他版本、SO 或旧无版本登记。失败按实际 symbolId/revision 与退避判断重试；成功 publication 固定原字节与来源，替换、删除和重启不重新计算成功。Jank 使用 processor 1.0.4，在同一 ZIP 预检版本并核对回调、最终报告，上传时固定文件；已存事件不回算。Native 本期保持 raw_native/pending，不执行 R8。详见[Crash API](crash-api.md)与[Jank 产物 API](stack-artifact-api.md)。
+JVM 先持久化原始材料，后台按版本筛选并逐构建选择实际 mapping。专用不存在才用同版本默认，禁止猜测其他构建、其他版本、SO 或旧无版本登记。失败按实际 symbolId/revision 与退避判断重试；成功 publication 固定原字节与来源，替换、删除和重启不重新计算成功。Jank 使用 processor 1.0.4，在同一 ZIP 预检版本并核对回调、最终报告，上传时固定文件；已存事件不回算。Native 主栈使用 SO 异步还原；关联 Java 栈独立使用版本化 mapping。详见[Crash API](crash-api.md)与[Jank 产物 API](stack-artifact-api.md)。
 
 常见错误：身份/筛选/确认非法为 400；无效 mapping、SO、归档及目标不符为 422；字节超限为 413；不同内容及修订冲突为 409；存储/磁盘/并发暂不可用为可重试 503。SO 细分类别包括 INVALID_SO、UNSUPPORTED_SO_FORMAT、SO_BUILD_ID_MISSING、SO_SYMBOLS_MISSING、SO_TARGET_MISMATCH、SO_ARCHIVE_IDENTITY_CONFLICT、INVALID_SYMBOL_CONFIRMATION。SO 正文接收后的解压、ELF 检查、摘要读取或清理发生超时、中断、磁盘 I/O 故障时，同样返回 `503 SYMBOL_STORE_UNAVAILABLE`、`retryable=true` 和 `Retry-After: 30`；普通格式错误仍为 422，字节超限仍为 413。提交已完成但清理失败时保留已引用文件，可用相同版本及原 ZIP 普通重传对账，不带旧确认快照。错误不返回路径、文件内容或底层堆栈。上传校验不能证明 mapping 与 APK 一致，上传前应核对真实构建产物。

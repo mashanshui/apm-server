@@ -1,4 +1,4 @@
-import type { NativeBacktrace, StackFrame } from './crash'
+import type { NativeCurrentBacktrace, StackFrame } from './crash'
 
 /** 设备现场各分区的采集状态。 */
 export type DiagnosticStatus = 'ok' | 'partial' | 'unavailable' | 'skipped'
@@ -55,7 +55,7 @@ export interface DiagnosticNativeThread {
   /** 系统 TID。 */ systemTid: number
   /** 可取得的线程名。 */ name?: string | null
   /** 可判断时是否为主线程。 */ mainThread?: boolean | null
-  /** 此线程独立的原始回溯。 */ backtrace: NativeBacktrace
+  /** 此线程独立的当前回溯。 */ backtrace: NativeCurrentBacktrace
 }
 
 /** Native 线程集合和观测数量。 */

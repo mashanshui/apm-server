@@ -1,4 +1,63 @@
-import type { NativeCrash } from '../types/crash'
+import type { NativeCrash, NativeCurrent } from '../types/crash'
+
+/** 固定 SO 或 mapping 修订及摘要。 */
+function source(value: unknown, type: 'NATIVE_SO' | 'MAPPING'): boolean {
+  return record(value) && value.type === type && typeof value.symbolFileId === 'string'
+    && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value.symbolFileId)
+    && Number.isSafeInteger(value.revision) && Number(value.revision) > 0
+    && typeof value.sha256 === 'string' && /^[a-f0-9]{64}$/.test(value.sha256)
+}
+
+/** 两份来源按身份、类型、修订和摘要比较，不依赖 JSON 键顺序。 */
+function sameSource(left: unknown, right: unknown): boolean {
+  return record(left) && record(right) && left.type === right.type && left.symbolFileId === right.symbolFileId
+    && left.revision === right.revision && left.sha256 === right.sha256
+}
+
+/** 验证逐物理帧的完整成功结果和实际尝试。 */
+function resolution(value: unknown, reliable: boolean): boolean {
+  if (!record(value) || !['pending', 'failed', 'symbolicated', 'not_applicable'].includes(String(value.status))
+      || (!reliable && value.status !== 'not_applicable') || !optional(value.reason, text)
+      || !optional(value.attemptedSource, item => source(item, 'NATIVE_SO'))
+      || !optional(value.processedAt, item => typeof item === 'string' && Number.isFinite(Date.parse(item)))
+      || !optional(value.retryAt, item => typeof item === 'string' && Number.isFinite(Date.parse(item)))) return false
+  if (value.status === 'symbolicated') return source(value.source, 'NATIVE_SO') && Array.isArray(value.inline)
+    && value.inline.length > 0 && value.inline.length <= 32 && value.inline.every(item => record(item)
+      && optional(item.function, text) && optional(item.file, file => typeof file === 'string' && !/[/\\]/.test(file))
+      && optional(item.line, n => Number.isSafeInteger(n) && Number(n) > 0)
+      && optional(item.column, n => Number.isSafeInteger(n) && Number(n) > 0))
+    && value.inline.some(item => typeof item.function === 'string' && !!item.function.trim() && item.function !== '??')
+    && typeof value.processedAt === 'string' && value.retryAt == null
+    && (value.attemptedSource == null || sameSource(value.source, value.attemptedSource))
+  return value.source == null && (value.inline == null || Array.isArray(value.inline) && value.inline.length === 0)
+    && typeof value.reason === 'string' && !!value.reason.trim()
+    && (value.status !== 'not_applicable' || value.attemptedSource == null && value.processedAt == null && value.retryAt == null)
+}
+
+/** 验证结构化关联 Java 栈及首次成功 mapping。 */
+function currentJava(value: unknown): boolean {
+  if (!partition(value) || !record(value.stack) || !['pending', 'failed', 'symbolicated', 'not_applicable'].includes(String(value.symbolicationStatus))
+      || !optional(value.attemptedSource, item => source(item, 'MAPPING'))
+      || !optional(value.processedAt, item => typeof item === 'string' && Number.isFinite(Date.parse(item)))
+      || !optional(value.retryAt, item => typeof item === 'string' && Number.isFinite(Date.parse(item)))) return false
+  if (value.symbolicationStatus === 'symbolicated') return value.stack.format === 'retrace_text'
+    && typeof value.stack.content === 'string' && !!value.stack.content.trim() && source(value.source, 'MAPPING')
+    && typeof value.processedAt === 'string' && value.retryAt == null
+    && (value.attemptedSource == null || sameSource(value.source, value.attemptedSource))
+  return value.source == null && value.stack.format === 'raw_frames' && Array.isArray(value.stack.content)
+    && value.stack.content.length <= 128 && value.stack.content.every(frame)
+    && (value.symbolicationStatus === 'not_applicable') === (value.stack.content.length === 0)
+    && typeof value.symbolicationReason === 'string' && !!value.symbolicationReason.trim()
+    && (value.symbolicationStatus !== 'not_applicable' || value.attemptedSource == null && value.processedAt == null && value.retryAt == null)
+}
+
+/** 关联 Java 栈存在原始帧或成功文本时仍须绑定崩溃线程身份。 */
+function hasNativeJava(native?: NativeCurrent): boolean {
+  const stack: unknown = native?.javaStack
+  if (!record(stack)) return false
+  return record(stack.stack) && (stack.stack.format === 'retrace_text'
+    || stack.stack.format === 'raw_frames' && Array.isArray(stack.stack.content) && stack.stack.content.length > 0)
+}
 
 /** 当前支持的采集状态。 */
 const statuses = new Set(['ok', 'partial', 'unavailable', 'skipped'])
@@ -13,6 +72,7 @@ const symbolReasons = new Set(['parser_busy', 'mapping_unavailable', 'timeout', 
 function record(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
+
 /** 可选值允许缺失和 null，但存在时必须满足校验。 */
 function optional(value: unknown, valid: (value: unknown) => boolean): boolean {
   return value === null || value === undefined || valid(value)
@@ -58,14 +118,29 @@ function nativeHex(value: unknown, abi: string): boolean {
 }
 
 /** 验证原始 Native 帧及其事件内模块引用。 */
-function nativeBacktrace(value: unknown, abi: string, moduleIds: Set<string>, limit: number): boolean {
+function nativeBacktrace(value: unknown, abi: string, moduleIds: Set<string>, limit: number, modules?: Array<{ id?: unknown; abi?: unknown; elfBuildId?: unknown }>): boolean {
   if (!partition(value) || !Array.isArray(value.frames) || value.frames.length > limit
       || (value.status === 'ok' && !value.frames.length)
       || (['unavailable', 'skipped'].includes(String(value.status)) && value.frames.length)) return false
   return value.frames.every((item, index) => record(item) && item.index === index
     && optional(item.moduleId, id => typeof id === 'string' && moduleIds.has(id))
     && optional(item.relativePc, address => nativeHex(address, abi))
-    && optional(item.functionOffset, address => nativeHex(address, abi)) && optional(item.functionName, text))
+    && optional(item.functionOffset, address => nativeHex(address, abi)) && optional(item.functionName, text)
+    && (!modules || resolution(item.resolution, typeof item.moduleId === 'string' && typeof item.relativePc === 'string'
+      && modules.some(module => module.id === item.moduleId && typeof module.elfBuildId === 'string' && module.abi === abi))))
+}
+
+/** 严格验证结构化 Native 栈，再复用原始现场校验。 */
+export function validNativeCurrent(value: unknown): value is NativeCurrent {
+  if (!record(value) || !Array.isArray(value.modules) || !value.modules.every(record)
+      || !optional(value.javaStack, currentJava)) return false
+  const javaStack = value.javaStack == null ? null : value.javaStack as Record<string, unknown>
+  const javaFrames = javaStack == null ? null : javaStack.stack as Record<string, unknown>
+  const rawJava = javaStack == null ? null : { ...javaStack, frames: javaFrames?.format === 'raw_frames'
+    ? javaFrames.content : [{ className: 'restored', methodName: 'stack' }] }
+  const raw = { ...value, javaStack: rawJava }
+  if (!validNativeCrash(raw)) return false
+  return nativeBacktrace(value.backtrace, raw.abi as string, new Set(raw.modules.map(module => module.id)), 128, value.modules)
 }
 
 /** 校验 Native 主现场，不将地址转换为 JavaScript 数值。 */
@@ -105,7 +180,9 @@ function thread(value: unknown): value is Record<string, unknown> {
       || !optional(value.relationToCrash, relation => relation === 'other' || relation === 'unknown')
       || !record(value.stack) || !optional(value.symbolicationReason, text)
       || !optional(value.symbolFileId, text) || !optional(value.symbolFileRevision, nonNegative)
-      || !optional(value.symbolFileSha256, text) || !optional(value.processedAt, text)) return false
+      || !optional(value.symbolFileSha256, text) || !optional(value.processedAt, text)
+      || !optional(value.attemptedSource, item => source(item, 'MAPPING'))
+      || !optional(value.retryAt, item => typeof item === 'string' && Number.isFinite(Date.parse(item)))) return false
   if (value.symbolicationStatus === 'symbolicated') {
     return value.stack.format === 'retrace_text' && typeof value.stack.content === 'string' && !!value.stack.content.trim()
       && typeof value.symbolFileId === 'string' && !!value.symbolFileId
@@ -128,8 +205,8 @@ function logBuffer(value: unknown, limit: number): boolean {
 }
 
 /** 验证完整诊断视图；历史事件使用 null，未知状态或格式拒绝。 */
-export function validDiagnostics(value: unknown, native?: NativeCrash): boolean {
-  if (value === null) return !native?.javaStack?.frames.length
+export function validDiagnostics(value: unknown, native?: NativeCurrent): boolean {
+  if (value === null) return !hasNativeJava(native)
   if (!record(value)) return false
   if (!optional(value.coreTruncation, core => record(core) && typeof core.truncated === 'boolean'
       && (core.truncated ? core.reason === 'size_limit' : core.reason === null || core.reason === undefined))) return false
@@ -154,9 +231,12 @@ export function validDiagnostics(value: unknown, native?: NativeCrash): boolean 
     if (['skipped', 'unavailable'].includes(String(threads.status)) && threads.threads.length) return false
     for (const item of threads.threads) {
       if (!javaId(item.javaId) || ids.has(item.javaId)) return false
-      if (native && (!['other', 'unknown'].includes(String(item.relationToCrash)) || item.systemTid === native.systemTid
-          || !['pending', 'not_applicable'].includes(String(item.symbolicationStatus))
-          || item.symbolFileId != null || item.symbolFileRevision != null || item.symbolFileSha256 != null || item.processedAt != null)) return false
+      if (native && (!['other', 'unknown'].includes(String(item.relationToCrash)) || item.systemTid === native.systemTid)) return false
+      if (native && item.symbolicationStatus !== 'symbolicated'
+          && (item.symbolFileId != null || item.symbolFileRevision != null || item.symbolFileSha256 != null)) return false
+      if (native && item.symbolicationStatus === 'symbolicated' && (item.retryAt != null
+          || item.attemptedSource != null && (!record(item.attemptedSource) || item.attemptedSource.symbolFileId !== item.symbolFileId
+            || item.attemptedSource.revision !== item.symbolFileRevision || item.attemptedSource.sha256 !== item.symbolFileSha256))) return false
       ids.add(item.javaId)
     }
     if (typeof threads.observedCount === 'number' && threads.observedCount < threads.threads.length) return false
@@ -177,12 +257,12 @@ export function validDiagnostics(value: unknown, native?: NativeCrash): boolean 
     return threads.threads.every(item => {
       if (!record(item) || typeof item.systemTid !== 'number' || !nonNegative(item.systemTid) || item.systemTid === 0
           || item.systemTid === native.systemTid || tids.has(item.systemTid) || !optional(item.name, text)
-          || !optional(item.mainThread, bool) || !nativeBacktrace(item.backtrace, native.abi, modules, 32)) return false
+          || !optional(item.mainThread, bool) || !nativeBacktrace(item.backtrace, native.abi, modules, 32, native.modules)) return false
       tids.add(item.systemTid)
       return true
     })
   })) return false
-  if (native?.javaStack?.frames.length) {
+  if (native && hasNativeJava(native)) {
     if (!record(value.crashedThread) || !javaId(value.crashedThread.javaId) || value.crashedThread.systemTid !== native.systemTid) return false
   }
   if (!optional(value.logcat, logs => partition(logs) && optional(logs.main, item => logBuffer(item, 200))

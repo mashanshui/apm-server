@@ -79,22 +79,27 @@ describe('CrashEventDetailView', () => {
   it.each(['OWNER', 'ADMIN', 'DEVELOPER', 'VIEWER'])('shows native raw details without JVM actions for %s', async role => {
     useAppStore().apps = [{ appId: 'app-1', role } as never]
     mockedCrashApi.event.mockResolvedValue(eventResponse({
-      crashKind: 'native', symbolicationStatus: 'pending', groupingKind: 'temporary', symbolicationReason: 'native_symbolication_deferred',
+      crashKind: 'native', symbolicationStatus: 'pending', groupingKind: 'temporary', symbolicationReason: 'missing_so',
       symbolFileId: null, symbolFileRevision: null, symbolFileSha256: null, processedAt: null,
-      stack: { format: 'raw_native', content: { abi: 'arm64-v8a', systemTid: 7,
+      nativeFrameCounts: { symbolicated: 0, pending: 1, failed: 0, notApplicable: 0 },
+      stack: { format: 'native_stack', content: { abi: 'arm64-v8a', systemTid: 7,
         signal: { number: 11, name: 'SIGSEGV', code: 1, faultAddress: '0x0' },
         registers: { status: 'ok', truncated: false, values: { pc: '0xffffffffffffffff' } },
         modules: [{ id: 'm1', name: 'liba.so', abi: 'arm64-v8a', elfBuildId: 'abcdef12' }],
-        backtrace: { status: 'ok', truncated: false, frames: [{ index: 0, moduleId: 'm1', relativePc: '0x11', functionName: '<script>run</script>' }] } } },
+        backtrace: { status: 'ok', truncated: false, frames: [{ index: 0, moduleId: 'm1', relativePc: '0x11', functionName: '<script>run</script>',
+          resolution: { status: 'pending', reason: 'missing_so' } }] } } },
     }))
     const wrapper = mount(CrashEventDetailView, { global: { stubs: { AppLayout: { template: '<div><slot /></div>' }, RouterLink: { template: '<a><slot /></a>' } } } })
     await flushPromises()
     expect(wrapper.text()).toContain('SIGSEGV')
+    expect(wrapper.text()).toContain('主栈：已还原 0 · 等待 1')
+    expect(wrapper.text()).toContain('缺少匹配的 SO 符号文件')
+    expect(wrapper.text()).not.toContain('脱敏原始异常链')
     expect(wrapper.text()).toContain('0x0')
     expect(wrapper.text()).toContain('0xffffffffffffffff')
     expect(wrapper.text()).toContain('<script>run</script>')
     expect(wrapper.find('script').exists()).toBe(false)
-    expect(wrapper.text()).toContain('本期未提供符号还原')
+    expect(wrapper.text()).toContain('Native 帧按实际符号来源独立处理')
     expect(wrapper.text()).not.toContain('上传此版本的 mapping')
     expect(wrapper.find('.analysis-stub').exists()).toBe(false)
     expect(wrapper.text().includes('上传此模块 SO')).toBe(['OWNER', 'ADMIN'].includes(role))

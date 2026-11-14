@@ -68,7 +68,8 @@ public final class NativeArchiveReader {
                 ranges.add(range);
                 boolean ignored = entry.isDirectory() || name.startsWith("__MACOSX/") || name.endsWith("/.DS_Store") || name.equals(".DS_Store");
                 if (!entry.isDirectory() && name.toLowerCase(java.util.Locale.ROOT).endsWith(".zip")) throw invalid();
-                if (!ignored && !name.endsWith(".so")) throw invalid();
+                // AGP 两种调试级别分别使用 .so.sym 和 .so.dbg，后续仍须完整校验 ELF。
+                if (!ignored && !name.endsWith(".so") && !name.endsWith(".so.sym") && !name.endsWith(".so.dbg")) throw invalid();
                 if (!ignored && candidates.size() == MAX_CANDIDATES) throw invalid();
                 Path output = ignored ? null : Files.createTempFile(directory, "candidate-", ".so");
                 long actual = copy(zip, entry, output, MAX_TOTAL - total, deadlineNanos);

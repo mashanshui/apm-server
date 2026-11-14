@@ -225,7 +225,7 @@ class AgentQueryApiIntegrationTests extends AppIngestApiTestSupport {
                 .session(owner)).andExpect(status().isOk()).andReturn();
         var agent = mvc.perform(MockMvcRequestBuilders.get("/api/agent/v1/crashes/events/" + eventId)
                         .header("Authorization", "Bearer " + secret))
-                .andExpect(status().isOk()).andExpect(jsonPath("$.stack.format").value("raw_native"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.stack.format").value("native_stack"))
                 .andExpect(jsonPath("$.stack.content.signal.faultAddress").value("0x0"))
                 .andExpect(jsonPath("$.stack.content.registers.values.pc").value("0xffffffffffffffff"))
                 .andExpect(jsonPath("$.diagnostics.nativeThreads.threads[0].systemTid").value(124))

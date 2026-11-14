@@ -182,6 +182,42 @@ class SymbolApiIntegrationTests extends AppIngestApiTestSupport {
                 nativeFile ? Boolean.TRUE : null, nativeFile ? Boolean.FALSE : null, nativeFile ? Boolean.FALSE : null);
     }
 
+    /** 精确选择 SO 并在替换和删除后保持在途修订可读。 */
+    @Test
+    void selectsExactNativeIdentityAndPinsRevisions() throws Exception {
+        /** 原文件及替换文件使用独立的不可变键。 */
+        UUID id = UUID.randomUUID();
+        UUID replacement = UUID.randomUUID();
+        String build = "0123456789abcdef";
+        insertSymbolMetadata(id, "NATIVE_SO", "1.0", null, "arm64-v8a", build);
+        java.nio.file.Files.writeString(SYMBOL_DIRECTORY.resolve(id + ".mapping"), "old");
+        java.nio.file.Files.writeString(SYMBOL_DIRECTORY.resolve(replacement + ".mapping"), "new");
+        try (var old = registry.acquireNative(appId(), "1.0", "arm64-v8a", build).orElseThrow()) {
+            assertEquals(id, old.symbolId());
+            assertTrue(registry.acquireNative(UUID.randomUUID(), "1.0", "arm64-v8a", build).isEmpty());
+            assertTrue(registry.acquireNative(appId(), "2.0", "arm64-v8a", build).isEmpty());
+            assertTrue(registry.acquireNative(appId(), "1.0", "x86_64", build).isEmpty());
+            assertTrue(registry.acquireNative(appId(), "1.0", "arm64-v8a", "01234567").isEmpty());
+            jdbc.update("UPDATE app_symbol_file SET storage_key=?,revision=2 WHERE symbol_id=?", replacement + ".mapping", id);
+            symbolFileStore.retire(id + ".mapping");
+            try (var current = registry.acquireNative(appId(), "1.0", "arm64-v8a", build).orElseThrow()) {
+                assertEquals(2, current.revision());
+                assertEquals("old", java.nio.file.Files.readString(old.path()));
+                jdbc.update("UPDATE app_symbol_file SET deleted_at=now() WHERE symbol_id=?", id);
+                symbolFileStore.retire(replacement + ".mapping");
+                assertEquals("new", java.nio.file.Files.readString(current.path()));
+                assertTrue(registry.acquireNative(appId(), "1.0", "arm64-v8a", build).isEmpty());
+            }
+            assertFalse(java.nio.file.Files.exists(SYMBOL_DIRECTORY.resolve(replacement + ".mapping")));
+        }
+        assertFalse(java.nio.file.Files.exists(SYMBOL_DIRECTORY.resolve(id + ".mapping")));
+        /** 元数据存在但文件缺失必须报告存储故障。 */
+        UUID broken = UUID.randomUUID();
+        insertSymbolMetadata(broken, "NATIVE_SO", "1.0", null, "arm64-v8a", build);
+        assertThrows(com.shanshui.apmserver.symbol.api.SymbolStoreUnavailableException.class,
+                () -> registry.acquireNative(appId(), "1.0", "arm64-v8a", build));
+    }
+
     /** 真库选优隔离版本和旧记录，并固定所选文件至租约释放。 */
     @Test
     void selectsVersionedMappingAndDoesNotFallbackFromUnreadableSpecificFile() throws Exception {
@@ -474,7 +510,7 @@ class SymbolApiIntegrationTests extends AppIngestApiTestSupport {
                 .session(owner).with(SecurityMockMvcRequestPostProcessors.csrf())).andExpect(status().isServiceUnavailable());
         assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM app_symbol_file WHERE app_id=? AND build_id='registration-failure'", Integer.class, appId()));
         assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM app_symbol_file_audit WHERE app_id=? AND build_id='registration-failure'", Integer.class, appId()));
-        assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM crash_symbolication_job WHERE app_id=?", Integer.class, appId()));
+        assertEquals(2, jdbc.queryForObject("SELECT count(*) FROM crash_symbolication_job WHERE app_id=?", Integer.class, appId()));
     }
 
     /** 同版本删除与替换只有一个成功，旧请求不能操作重新上传后的身份。 */
@@ -517,7 +553,7 @@ class SymbolApiIntegrationTests extends AppIngestApiTestSupport {
                 .session(owner).with(SecurityMockMvcRequestPostProcessors.csrf())).andExpect(status().isCreated()).andReturn();
         try (var lease = registry.acquireVersioned(appId(), "2.0", "b").orElseThrow()) { assertEquals(defaultId, lease.symbolId()); }
         assertTrue(registry.acquireVersioned(appId(), "3.0", "b").isEmpty());
-        assertEquals(2, jdbc.queryForObject("SELECT count(*) FROM crash_symbolication_job WHERE app_id=?", Integer.class, appId()));
+        assertEquals(4, jdbc.queryForObject("SELECT count(*) FROM crash_symbolication_job WHERE app_id=?", Integer.class, appId()));
         mockMvc.perform(MockMvcRequestBuilders.get("/api/v1/apps/" + appId() + "/symbols").param("appVersion", "2.0")
                 .param("mappingScope", "default").session(owner)).andExpect(status().isOk()).andExpect(jsonPath("$.items.length()").value(1));
         mockMvc.perform(MockMvcRequestBuilders.get("/api/v1/apps/" + appId() + "/symbols").param("type", "NATIVE_SO")
@@ -525,7 +561,22 @@ class SymbolApiIntegrationTests extends AppIngestApiTestSupport {
         assertNotEquals(defaultId.toString(), objectMapper.readTree(other.getResponse().getContentAsString()).path("symbolId").asText());
     }
 
-    /** 四 ABI 文件来自实际 NDK，SO 不生成 JVM 工作，重复字节不增加审计。 */
+    /** Native 工作登记失败时 SO 元数据和审计必须共同回滚。 */
+    @Test
+    void rollsBackNativeBatchWhenWorkRegistrationFails() throws Exception {
+        String fixture = System.getenv("APM_ELF_FIXTURES");
+        org.junit.jupiter.api.Assumptions.assumeTrue(fixture != null, "需提供临时 NDK ELF 夹具");
+        var owner = login("test@example.com", "Test-password-123!");
+        doThrow(new org.springframework.dao.DataAccessResourceFailureException("受控登记故障"))
+                .when(jobs).wakeNative(appId(), "2.0");
+        mockMvc.perform(nativeRequest(nativeZip(java.nio.file.Path.of(fixture), false), null)
+                .session(owner).with(SecurityMockMvcRequestPostProcessors.csrf().asHeader())).andExpect(status().isServiceUnavailable());
+        assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM app_symbol_file WHERE app_id=?", Integer.class, appId()));
+        assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM app_symbol_file_audit WHERE app_id=?", Integer.class, appId()));
+        assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM crash_symbolication_job WHERE app_id=?", Integer.class, appId()));
+    }
+
+    /** 四 ABI 文件来自实际 NDK，SO 只生成 Native 工作，重复字节不增加审计。 */
     @Test
     void savesNativeBatchAtomicallyAndRequiresEveryExpectedIdentity() throws Exception {
         String fixture = System.getenv("APM_ELF_FIXTURES");
@@ -537,7 +588,8 @@ class SymbolApiIntegrationTests extends AppIngestApiTestSupport {
         mockMvc.perform(nativeRequest(zip, null).session(owner)).andExpect(status().isForbidden());
         var created = mockMvc.perform(nativeRequest(zip, null).session(owner).with(SecurityMockMvcRequestPostProcessors.csrf().asHeader()))
                 .andExpect(status().isCreated()).andExpect(jsonPath("$.createdCount").value(4)).andReturn();
-        assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM crash_symbolication_job WHERE app_id=?", Integer.class, appId()));
+        assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM crash_symbolication_job WHERE app_id=? AND crash_kind='jvm'", Integer.class, appId()));
+        assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM crash_symbolication_job WHERE app_id=? AND crash_kind='native'", Integer.class, appId()));
         var items = objectMapper.readTree(created.getResponse().getContentAsString()).path("items");
         assertEquals(4, items.size());
         var expected = new java.util.ArrayList<java.util.Map<String,Object>>();
@@ -569,7 +621,14 @@ class SymbolApiIntegrationTests extends AppIngestApiTestSupport {
                 .andExpect(status().isOk()).andExpect(jsonPath("$.unchangedCount").value(5));
         String id = items.get(0).path("symbolId").asText();
         mockMvc.perform(MockMvcRequestBuilders.get("/api/v1/apps/" + appId() + "/symbols/" + id + "/crash-symbolication").session(owner))
-                .andExpect(status().isUnprocessableEntity()).andExpect(jsonPath("$.code").value("SYMBOL_PROGRESS_NOT_APPLICABLE"));
+                .andExpect(status().isOk()).andExpect(jsonPath("$.crashKind").value("native"))
+                .andExpect(jsonPath("$.publishedCount").value(0)).andExpect(jsonPath("$.failedUnitCount").value(0));
+        String otherId = items.get(1).path("symbolId").asText();
+        var firstProgress = mockMvc.perform(MockMvcRequestBuilders.get("/api/v1/apps/" + appId() + "/symbols/" + id + "/crash-symbolication").session(owner)).andReturn().getResponse().getContentAsString();
+        var secondProgress = mockMvc.perform(MockMvcRequestBuilders.get("/api/v1/apps/" + appId() + "/symbols/" + otherId + "/crash-symbolication").session(owner)).andReturn().getResponse().getContentAsString();
+        assertEquals(objectMapper.readTree(firstProgress), objectMapper.readTree(secondProgress));
+        mockMvc.perform(MockMvcRequestBuilders.get("/api/v1/apps/" + appId() + "/symbols/" + id + "/crash-symbolication").session(viewer))
+                .andExpect(status().isOk());
         mockMvc.perform(nativeRequest(zip, null).file(new MockMultipartFile("buildId", "", "text/plain", "b".getBytes()))
                 .session(owner).with(SecurityMockMvcRequestPostProcessors.csrf().asHeader())).andExpect(status().isBadRequest());
     }
@@ -676,7 +735,7 @@ class SymbolApiIntegrationTests extends AppIngestApiTestSupport {
         // 模拟重启清理：失败事务的未引用文件回收，已提交的四份不可删除。
         versionedRegistry.cleanOrphansOnStartup();
         try (var files = java.nio.file.Files.list(symbolFileStore.root())) { assertEquals(4, files.count()); }
-        assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM crash_symbolication_job WHERE app_id=?", Integer.class, appId()));
+        assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM crash_symbolication_job WHERE app_id=? AND crash_kind='native'", Integer.class, appId()));
     }
 
     /** 实际 processor 1.0.4 使用默认及专用来源，后续上传不改已保存 Jank。 */
@@ -744,7 +803,7 @@ class SymbolApiIntegrationTests extends AppIngestApiTestSupport {
         var conflict = new java.io.ByteArrayOutputStream();
         try (var zip = new java.util.zip.ZipOutputStream(conflict)) {
             zip.putNextEntry(new java.util.zip.ZipEntry("first.so")); zip.write(elf); zip.closeEntry();
-            zip.putNextEntry(new java.util.zip.ZipEntry("second.so")); zip.write(elf); zip.write(1); zip.closeEntry();
+            zip.putNextEntry(new java.util.zip.ZipEntry("second.so.sym")); zip.write(elf); zip.write(1); zip.closeEntry();
         }
         mockMvc.perform(nativeRequest(conflict.toByteArray(), null).session(owner).with(SecurityMockMvcRequestPostProcessors.csrf().asHeader()))
                 .andExpect(status().isUnprocessableEntity()).andExpect(jsonPath("$.code").value("SO_ARCHIVE_IDENTITY_CONFLICT"));
@@ -768,6 +827,49 @@ class SymbolApiIntegrationTests extends AppIngestApiTestSupport {
         assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM app_symbol_file WHERE app_id=?", Integer.class, appId()));
         assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM app_symbol_file_audit WHERE app_id=?", Integer.class, appId()));
         try (var paths = java.nio.file.Files.list(symbolFileStore.root())) { assertEquals(1, paths.count()); }
+    }
+
+    /** 显示名按 Unicode 码点限制，超长候选包括重复身份都不能部分登记。 */
+    @Test
+    void validatesNativeFilenameWithoutTruncation() throws Exception {
+        /** 由 NDK 生成的四 ABI 夹具目录。 */
+        String fixture = System.getenv("APM_ELF_FIXTURES");
+        org.junit.jupiter.api.Assumptions.assumeTrue(fixture != null, "需提供临时 NDK ELF 夹具");
+        /** 隔离应用的管理员会话。 */
+        var owner = login("test@example.com", "Test-password-123!");
+        /** 两种真实 ELF 分别用于不同和相同身份的全批校验。 */
+        byte[] arm = java.nio.file.Files.readAllBytes(java.nio.file.Path.of(fixture, "arm64-v8a", "libapm_fixture.so.dbg"));
+        byte[] x86 = java.nio.file.Files.readAllBytes(java.nio.file.Path.of(fixture, "x86", "libapm_fixture.so.sym"));
+        /** 超长名称含 ASCII 与非 BMP 字符，并覆盖重复身份不能绕过校验。 */
+        for (String name : java.util.List.of("a".repeat(249) + ".so.dbg", "😀".repeat(249) + ".so.sym")) {
+            for (byte[] second : java.util.List.of(arm, x86)) {
+                var output = new java.io.ByteArrayOutputStream();
+                try (var zip = new java.util.zip.ZipOutputStream(output)) {
+                    zip.putNextEntry(new java.util.zip.ZipEntry("arm64-v8a/good.so.dbg")); zip.write(arm); zip.closeEntry();
+                    zip.putNextEntry(new java.util.zip.ZipEntry("x86/" + name)); zip.write(second); zip.closeEntry();
+                }
+                mockMvc.perform(nativeRequest(output.toByteArray(), null).session(owner).with(SecurityMockMvcRequestPostProcessors.csrf().asHeader()))
+                        .andExpect(status().isUnprocessableEntity()).andExpect(jsonPath("$.code").value("INVALID_SYMBOL_ARCHIVE"));
+                assertEquals(0, symbolFileRepository.count());
+                assertEquals(0, symbolAuditRepository.count());
+                assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM crash_symbolication_job WHERE app_id=?", Integer.class, appId()));
+                try (var paths = java.nio.file.Files.list(symbolFileStore.root())) { assertEquals(0, paths.count()); }
+            }
+        }
+        /** 255 码点的纯 ASCII 和非 BMP 名称均应原样登记。 */
+        String ascii = "a".repeat(248) + ".so.dbg";
+        String unicode = "😀".repeat(124) + "a".repeat(124) + ".so.sym";
+        assertEquals(255, unicode.codePointCount(0, unicode.length()));
+        var valid = new java.io.ByteArrayOutputStream();
+        try (var zip = new java.util.zip.ZipOutputStream(valid)) {
+            zip.putNextEntry(new java.util.zip.ZipEntry("arm64-v8a/" + ascii)); zip.write(arm); zip.closeEntry();
+            zip.putNextEntry(new java.util.zip.ZipEntry("x86/" + unicode)); zip.write(x86); zip.closeEntry();
+        }
+        var response = mockMvc.perform(nativeRequest(valid.toByteArray(), null).session(owner).with(SecurityMockMvcRequestPostProcessors.csrf().asHeader()))
+                .andExpect(status().isCreated()).andExpect(jsonPath("$.createdCount").value(2)).andReturn();
+        var names = new java.util.HashSet<String>();
+        objectMapper.readTree(response.getResponse().getContentAsString()).path("items").forEach(item -> names.add(item.path("originalFilename").asText()));
+        assertEquals(java.util.Set.of(ascii, unicode), names);
     }
 
     /** 接收后的真实归档期限、ELF 中断及磁盘故障返回可重试错误，失败整批无副作用。 */
@@ -850,14 +952,20 @@ class SymbolApiIntegrationTests extends AppIngestApiTestSupport {
                     .andExpect(status().isUnprocessableEntity()).andExpect(jsonPath("$.code").value("INVALID_SYMBOL_ARCHIVE"))
                     .andExpect(jsonPath("$.retryable").value(false));
         }
-        /** 合法 ZIP 包含不足 ELF 文件头长度的 SO。 */
-        var truncated = new java.io.ByteArrayOutputStream();
-        try (var zip = new java.util.zip.ZipOutputStream(truncated)) {
-            zip.putNextEntry(new java.util.zip.ZipEntry("truncated.so")); zip.write(new byte[]{0x7f, 'E', 'L', 'F'}); zip.closeEntry();
+        /** 合法候选之后出现截断的两种调试文件时，整批仍不得登记。 */
+        for (String suffix : java.util.List.of(".so.sym", ".so.dbg")) {
+            var truncated = new java.io.ByteArrayOutputStream();
+            try (var zip = new java.util.zip.ZipOutputStream(truncated)) {
+                zip.putNextEntry(new java.util.zip.ZipEntry("arm64-v8a/good.so"));
+                zip.write(java.nio.file.Files.readAllBytes(java.nio.file.Path.of(fixture, "arm64-v8a", "libapm_fixture.so")));
+                zip.closeEntry();
+                zip.putNextEntry(new java.util.zip.ZipEntry("arm64-v8a/truncated" + suffix));
+                zip.write(new byte[]{0x7f, 'E', 'L', 'F'}); zip.closeEntry();
+            }
+            mockMvc.perform(nativeRequest(truncated.toByteArray(), null).session(owner).with(SecurityMockMvcRequestPostProcessors.csrf().asHeader()))
+                    .andExpect(status().isUnprocessableEntity()).andExpect(jsonPath("$.code").value("INVALID_SO"))
+                    .andExpect(jsonPath("$.retryable").value(false));
         }
-        mockMvc.perform(nativeRequest(truncated.toByteArray(), null).session(owner).with(SecurityMockMvcRequestPostProcessors.csrf().asHeader()))
-                .andExpect(status().isUnprocessableEntity()).andExpect(jsonPath("$.code").value("INVALID_SO"))
-                .andExpect(jsonPath("$.retryable").value(false));
         assertEquals(0, symbolFileRepository.count());
         assertEquals(0, symbolAuditRepository.count());
         try (var paths = java.nio.file.Files.list(symbolFileStore.root())) { assertEquals(0, paths.count()); }
@@ -898,7 +1006,7 @@ class SymbolApiIntegrationTests extends AppIngestApiTestSupport {
         var bytes = new java.io.ByteArrayOutputStream();
         try (var zip = new java.util.zip.ZipOutputStream(bytes)) {
             for (String abi : java.util.List.of("armeabi-v7a", "arm64-v8a", "x86", "x86_64")) {
-                zip.putNextEntry(new java.util.zip.ZipEntry(abi + "/libminimal.so"));
+                zip.putNextEntry(new java.util.zip.ZipEntry(abi + "/libminimal.so.sym"));
                 zip.write(java.nio.file.Files.readAllBytes(root.resolve(abi).resolve("libapm_fixture.so")));
                 if (changed && abi.equals("arm64-v8a")) zip.write(1);
                 zip.closeEntry();

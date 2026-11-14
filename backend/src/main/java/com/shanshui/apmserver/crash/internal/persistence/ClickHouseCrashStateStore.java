@@ -47,11 +47,12 @@ public class ClickHouseCrashStateStore implements CrashStatePort {
     @jakarta.annotation.PostConstruct
     public void requireCurrentSchema() {
         query("SELECT app_id,event_id,build_id,event_time,received_time,event_type,crash_kind,crash_fatal,diagnostics_payload,capture_sha256 FROM apm_crash_fact LIMIT 0 FORMAT JSONEachRow");
-        query("SELECT state_version,symbolication_status,symbolication_reason,stack_format,stack_payload,exception_type,fingerprint,fingerprint_version,grouping_kind,symbol_id,symbol_revision,symbol_sha256,processed_at,retry_at,thread_stacks_payload,capture_sha256 FROM apm_crash_state LIMIT 0 FORMAT JSONEachRow");
-        // 新代码不能连接尚未放行 raw_native 的旧状态表，否则 Native 接收会持续失败。
+        query("SELECT state_version,symbolication_status,symbolication_reason,stack_format,stack_payload,exception_type,fingerprint,fingerprint_version,grouping_kind,symbol_id,symbol_revision,symbol_sha256,processed_at,retry_at,thread_stacks_payload,capture_sha256,native_work_remaining FROM apm_crash_state LIMIT 0 FORMAT JSONEachRow");
+        // 新代码需要原始和结构化 Native 状态约束，不能连接尚未迁移的表。
         var definitions = query("SELECT create_table_query FROM system.tables WHERE database=currentDatabase() AND name='apm_crash_state' LIMIT 1 FORMAT JSONEachRow");
-        if (definitions.isEmpty() || !definitions.getFirst().path("create_table_query").asText().contains("native_symbolication_deferred")) {
-            throw new com.shanshui.apmserver.platform.api.EventStoreUnavailableException("Crash 状态表尚未执行 Native 约束迁移 011");
+        if (definitions.isEmpty() || !definitions.getFirst().path("create_table_query").asText().contains("native_symbolication_deferred")
+                || !definitions.getFirst().path("create_table_query").asText().contains("native_stack")) {
+            throw new com.shanshui.apmserver.platform.api.EventStoreUnavailableException("Crash 状态表尚未执行 Native 约束迁移 012");
         }
     }
 
@@ -214,6 +215,45 @@ public class ClickHouseCrashStateStore implements CrashStatePort {
                 .stream().map(row -> new CrashWorkItem(decode(row), row.path("package_name").asText())).toList();
     }
 
+    /** 从最新 Native 状态和事实中选取剩余工作，不读取大载荷。 */
+    @Override
+    public List<Candidate> nativeCandidatePage(UUID appId, String appVersion, Instant from, Instant now,
+                                               Instant afterTime, String afterId, int limit) {
+        if (limit < 1 || limit > 100 || from.isBefore(now.minusSeconds(30L * 86400)) || !from.isBefore(now)) {
+            throw new IllegalArgumentException("Native 候选范围超限");
+        }
+        String scope = "app_id=" + quote(appId.toString()) + " AND event_time >= " + date(from)
+                + " AND event_time < " + date(now.plusSeconds(901));
+        String facts = "SELECT app_id,build_id,event_time,event_id FROM apm_crash_fact FINAL WHERE " + scope
+                + " AND app_version=" + quote(appVersion) + " AND event_type='crash' AND crash_kind='native' AND crash_fatal=1";
+        String cursor = afterTime == null ? "" : " AND (s.event_time,s.event_id)>(" + date(afterTime) + "," + quote(afterId) + ")";
+        return query("SELECT s.event_id,s.build_id,s.event_time,s.symbolication_status,s.retry_at"
+                + " FROM (SELECT app_id,build_id,event_time,event_id,symbolication_status,retry_at,native_work_remaining"
+                + " FROM apm_crash_state FINAL WHERE " + scope + ") s INNER JOIN (" + facts + ") f"
+                + " ON s.app_id=f.app_id AND s.build_id=f.build_id AND s.event_time=f.event_time AND s.event_id=f.event_id"
+                + " WHERE s.native_work_remaining=1" + cursor
+                + " ORDER BY s.event_time,s.event_id LIMIT " + limit + " FORMAT JSONEachRow")
+                .stream().map(row -> new Candidate(row.path("event_id").asText(), row.path("build_id").asText(),
+                        parseTime(row.path("event_time").asText()), row.path("symbolication_status").asText(), null, null,
+                        nullableTime(row, "retry_at"))).toList();
+    }
+
+    /** 只按有限身份载入最新 Native 材料，重复核对类型、版本和剩余工作。 */
+    @Override
+    public List<CrashWorkItem> nativePayloads(UUID appId, String appVersion, List<Candidate> candidates) {
+        if (candidates.isEmpty()) return List.of();
+        if (candidates.size() > 100) throw new IllegalArgumentException("Native 载荷数量超限");
+        String ids = candidates.stream().map(item -> "(" + quote(item.buildId()) + "," + date(item.eventTime()) + "," + quote(item.eventId()) + ")")
+                .collect(java.util.stream.Collectors.joining(","));
+        String scope = "app_id=" + quote(appId.toString()) + " AND (build_id,event_time,event_id) IN (" + ids + ") AND event_time>=now64(3)-INTERVAL 30 DAY";
+        return query("SELECT s.*,f.package_name FROM (SELECT * FROM apm_crash_state FINAL PREWHERE " + scope + ") s"
+                + " INNER JOIN (SELECT app_id,build_id,event_time,event_id,package_name FROM apm_crash_fact FINAL WHERE " + scope
+                + " AND app_version=" + quote(appVersion) + " AND crash_kind='native' AND crash_fatal=1) f"
+                + " ON s.app_id=f.app_id AND s.build_id=f.build_id AND s.event_time=f.event_time AND s.event_id=f.event_id"
+                + " WHERE s.native_work_remaining=1 ORDER BY s.event_time,s.event_id LIMIT 100 FORMAT JSONEachRow")
+                .stream().map(row -> new CrashWorkItem(decode(row), row.path("package_name").asText())).toList();
+    }
+
     /** FINAL 在子查询中先确定最新版本，状态条件不能提前过滤旧 pending。 */
     @Override
     public List<CrashWorkItem> candidates(UUID appId, String buildId, UUID symbolId, int revision,
@@ -237,7 +277,7 @@ public class ClickHouseCrashStateStore implements CrashStatePort {
                 + " ORDER BY l.event_time,l.event_id LIMIT " + limit;
         String limitedState = "SELECT app_id,event_id,build_id,event_time,state_version,symbolication_status,symbolication_reason,"
                 + "stack_format,stack_payload,exception_type,fingerprint,fingerprint_version,grouping_kind,symbol_id,"
-                + "symbol_revision,symbol_sha256,processed_at,retry_at,capture_sha256,thread_stacks_payload"
+                + "symbol_revision,symbol_sha256,processed_at,retry_at,capture_sha256,thread_stacks_payload,native_work_remaining"
                 + " FROM apm_crash_state FINAL PREWHERE " + scope
                 + " AND (app_id,build_id,event_time,event_id) IN (" + selected + ")"
                 + " ORDER BY event_time,event_id LIMIT " + limit;

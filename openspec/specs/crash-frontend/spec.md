@@ -48,7 +48,7 @@
 - **THEN** 页面显示错误提示和重试入口，且不使用上一次查询结果冒充当前结果
 
 ### Requirement: Crash 问题和事件下钻
-前端 MUST 允许从问题排行进入指纹事件列表，再按 eventId 进入详情，保持当前应用和筛选上下文及服务端游标分页。问题和事件 MUST 清楚标记 temporary/resolved；临时问题 MUST 展示 buildId 和待还原或失败状态，不能解释为跨版本稳定问题。补处理期间排行和归属允许变化，页面 MUST 保持既有数据加载、错误和非快照分页提示。
+前端 MUST 允许从问题排行进入指纹事件列表，再按 eventId 进入详情，保持当前应用和筛选上下文及服务端游标分页。问题和事件 MUST 清楚标记 temporary/resolved；临时问题 MUST 展示 buildId 和实际主栈处理状态，不能解释为跨版本稳定问题。Native 即使主栈已还原也保持原临时归组；页面 MUST 分开呈现归组和还原状态，不把 temporary 一律解释为尚未还原。补处理期间排行和归属允许变化，页面 MUST 保持既有数据加载、错误和非快照分页提示。
 
 #### Scenario: 从问题排行查看事件
 - **WHEN** 用户选择临时或正式问题
@@ -65,6 +65,10 @@
 #### Scenario: 临时问题已变化
 - **WHEN** 用户打开已被补处理移空的临时指纹页面
 - **THEN** 显示临时归组可能变化的说明和返回问题列表入口，不伪造唯一正式问题跳转，已知事件仍按 eventId 可达
+
+#### Scenario: Native 已还原仍属临时问题
+- **WHEN** Native 主栈已成功且保留 native-tmp-v1 和 temporary
+- **THEN** 列表展示主栈已还原及构建内归组，不改问题链接、不声称跨构建正式问题
 
 ### Requirement: Crash 事件详情和堆栈展示
 前端 MUST 展示单事件的应用、发生/接收时间、版本、构建、渠道、环境、系统、设备、会话、异常类型、当前指纹和持久化还原状态。JVM 主异常详情 MUST 只解析当前 stack 契约：pending/failed 为脱敏原始异常链，symbolicated 为完整还原输出；删除原始/实时还原双份切换及 raw_only、rawCrash、symbolicatedStackText 的旧版解析和展示分支。MUST 安全呈现完整原因链、内联和多候选，并展示失败原因、处理时间及实际符号表来源。mapping 删除后，已成功结果仍可查看；状态不得解释为所有帧都被正确还原。管理员 MUST 可从未完成 JVM 事件进入带 appVersion、mapping 类型及原 buildId 的管理入口；管理员可清空上传表单中的构建以登记版本默认 mapping。不支持的响应格式 MUST 显示协议错误，不猜测或转换为旧视图。
@@ -197,20 +201,69 @@
 - **THEN** 按线程类型与各自 ID 分组，未知关系清楚可见，保留每线程采集状态和精确地址
 
 ### Requirement: Native Crash 事件详情展示
-前端 MUST 展示 Crash 类型、信号、raw_native 寄存器、模块及原始回溯，明示未提供 Native 还原，不显示 JVM mapping、已还原来源或 JVM 分析任务入口；概览名称与混合统计保持。OWNER/ADMIN MUST 可从模块进入 SO 管理，只预填 appVersion 和可取得的 ABI、完整 ELF Build ID，不传应用 buildId；SO 页面 MUST 没有应用构建输入。已知模块身份 MUST 校验 ZIP 包含该身份，未知身份不得猜测。SO 保存成功 MUST 不显示事件已还原。
+前端 MUST 严格解析 native_stack，展示信号、精确寄存器、模块、主栈原始地址及逐帧当前还原结果、完整内联链、状态、源码位置和实际 SO 来源。部分成功、行号缺失、采集截断与还原失败 MUST 分别表达；已成功帧后续不升级的语义 MUST 清楚。OWNER/ADMIN 可进入精确 SO 或 Java mapping 管理，不提供 JVM 分析任务入口。未知格式必须报协议错误，不实时还原或猜测结果。
 
 #### Scenario: Native 原始详情
-- **WHEN** 打开 raw_native 事件
-- **THEN** 可查看信号、寄存器、模块、原始主栈及共享诊断，显示还原能力延期说明，不出现上传 mapping、已还原来源或创建 JVM 分析任务按钮
+- **WHEN** 打开尚无成功还原单元的 Native 事件
+- **THEN** native_stack 展示原信号、寄存器、模块、主辅原始帧和独立等待原因，不再笼统提示还原能力未提供，不执行实时计算
 
 #### Scenario: 从明确模块上传 SO
-- **WHEN** 管理员选择带完整 ELF Build ID 的模块进入 SO 上传
-- **THEN** 管理页预填事件版本与模块 ABI、完整 ELF Build ID，不带应用构建；目标不匹配时报错，成功只显示文件已保存
+- **WHEN** 管理员选择带完整 ELF Build ID 的未成功模块进入 SO 上传
+- **THEN** 预填 appVersion、模块 ABI 和完整 ELF Build ID，不带应用 buildId；目标不匹配明确报错，成功只说明保存和后台工作登记，不立即显示事件已还原
 
 #### Scenario: 模块缺少 Build ID
 - **WHEN** 模块没有可靠 ELF Build ID
-- **THEN** 页面明确模块身份未知，可进入该版本构建的通用 SO 管理，但不以文件名判断已有匹配或宣称上传文件与该模块一致
+- **THEN** 明确该模块缺少可匹配身份，可进入该版本通用 SO 管理，但不按名称判断已匹配或声称上传即可修复此帧
 
 #### Scenario: 应用切换及只读成员
-- **WHEN** 用户切换应用、事件或符号类型，或当前角色没有写权限
-- **THEN** 清除不再适用的预填模块、文件、冲突和旧请求结果，只读成员没有上传、覆盖或删除操作
+- **WHEN** 切换应用、事件、符号类型或会话失效，或者当前角色没有写权限
+- **THEN** 清理旧线程选择、预填模块、文件、冲突和迟到结果，只读成员能看已存材料但没有上传、覆盖或删除操作
+
+#### Scenario: 函数成功但无行号
+- **WHEN** 一帧已用真实 SO 取得函数名，源码行号缺失
+- **THEN** 显示帧已还原和行号未知，不显示失败，并说明后续符号替换不会升级这个已固定结果
+
+#### Scenario: 分批上传后的详情刷新
+- **WHEN** 第一轮只完成部分帧，第二轮补齐其他模块或线程
+- **THEN** 刷新后展示同一已发布版本的完整当前结果，旧成功帧来源不变，不把两次响应拼成快照
+
+### Requirement: AGP Native 符号包上传入口与能力说明
+SO 上传页面 MUST 明确支持直接选择 AGP 生成的 `native-debug-symbols.zip`，说明包内支持的 `.so`、`.so.sym`、`.so.dbg` 及当前大小限制，不要求用户逐文件上传或自行改名。MUST 沿用应用版本、实际目标预填、OWNER/ADMIN 写权限、整批冲突确认、会话清理及上传成功与后台完成分离。页面 MUST 说明函数符号不保证源码行号，源码位置取决于实际调试材料，且首次函数成功固定后不因后续替换自动补齐行号；不得仅凭文件名或后缀宣称完整调试信息。
+
+#### Scenario: 管理员选择 AGP 符号包
+- **WHEN** 管理员打开 SO 上传弹窗并选择 `native-debug-symbols.zip`
+- **THEN** 可直接提交整个 ZIP，页面明确应用版本和支持的包内格式；成功展示批次登记结果及后台进度，不声称当前事件立即还原
+
+#### Scenario: 上传前识别行号能力边界
+- **WHEN** 用户准备上传仅含函数符号的 `.so.sym` 或替换为调试信息更丰富的符号文件
+- **THEN** 上传页面提示源码行号取决于实际材料，并说明已有成功帧不升级；不要求用户填写无法从文件名判断的符号等级，不显示未经校验的能力结论
+
+#### Scenario: 从详情上传目标模块与发生冲突
+- **WHEN** 管理员从未成功 Native 模块进入上传，选择多 ABI AGP ZIP 后遇到内容冲突
+- **THEN** 保留该版本和准确目标 ABI/Build ID，不带应用 buildId，沿用整批快照确认；目标缺失或确认过期明确报错，不按包内同名库视为匹配
+
+### Requirement: Native 事件的 Java 与其他线程独立展示
+Native 详情 MUST 分别展示关联 Java 栈、Java 快照及其他 Native 线程的采集和处理状态，Java 成功使用完整还原文本和实际 mapping 来源，未成功保留原始帧和原因。MUST 保留 Java ID、系统 TID、空栈及未知关联关系，不将主栈成功沿用到辅助线程。管理员可为未成功 Java 栈进入预填 appVersion 和原 buildId 的 mapping 管理，且可选择该版本默认 mapping。
+
+#### Scenario: Native 已成功而 Java 等待
+- **WHEN** Native 主栈全部成功但 Java 栈缺 mapping
+- **THEN** 显示主栈成功及 Java 等待，提供对应 mapping 上传入口，不要求重传 SO、不显示全部线程完成
+
+#### Scenario: Java 先完成
+- **WHEN** Java 栈有 mapping 而 Native 缺 SO
+- **THEN** Java 完整还原文本可读，Native 仍显示原始地址及 SO 等待，不以主栈未完成隐藏 Java 结果
+
+#### Scenario: 同名与未知关联
+- **WHEN** 多个 Native/Java 线程同名，某个已还原 Java 快照关系仍为 unknown
+- **THEN** 按各自 ID 展示独立结果，关系继续未知，不把还原后的 Java 栈认作崩溃线程
+
+### Requirement: SO 版本进度不冒充事件完成
+SO 页面 MUST 展示该版本 Native 工作的执行、等待、退避与空闲，并将已确认状态发布次数、失败单元次数与唯一事件数区分；同版本不同 SO 共用进度。上传成功不代表还原成功，空闲不代表所有帧完成。mapping 页的 JVM 进度 MUST 不被用作 Native Java 完成证明；详情以实际已存的逐单元状态为准。
+
+#### Scenario: 多轮增量与共享版本进度
+- **WHEN** 同一版本两个 SO 先后上传，使同一 Native 事件多轮更新
+- **THEN** 两个 SO 的页面显示相同版本进度，发布次数按实际更新说明，不显示为两个已完成事件
+
+#### Scenario: 轮询结束
+- **WHEN** 到达轮询时限或任务空闲但仍有未成功单元
+- **THEN** 停止自动轮询并允许手动刷新，保留缺失或失败提示，不宣称后台永久全部完成

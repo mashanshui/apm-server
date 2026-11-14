@@ -17,6 +17,12 @@ public interface SymbolRegistry {
     /** 按应用版本与可选构建选择专用或默认 mapping 并固定文件租约。 */
     Optional<SymbolFileLease> acquireVersioned(UUID appId, String appVersion, String buildId);
 
+    /** 按完整模块身份取得固定修订的 SO 读取租约。 */
+    Optional<SymbolFileLease> acquireNative(UUID appId, String appVersion, String abi, String elfBuildId);
+
+    /** 使用固定 SO 租约按模块批量还原地址，不接受调用方文件路径。 */
+    NativeSymbolicationResult symbolizeNative(SymbolFileLease lease, List<String> addresses, Duration budget);
+
     /** 使用租约中的固定 mapping 还原一组完整堆栈文本。 */
     SymbolicationResult retrace(SymbolFileLease lease, List<String> stackLines);
 

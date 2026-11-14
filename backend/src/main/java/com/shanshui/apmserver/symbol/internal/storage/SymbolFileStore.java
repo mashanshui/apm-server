@@ -113,7 +113,7 @@ public class SymbolFileStore {
     }
 
     /** 取得数据库当前版本对应文件的读取租约。 */
-    public SymbolFileLease open(SymbolFileEntity entity) {
+    public synchronized SymbolFileLease open(SymbolFileEntity entity) {
         Path path = safePath(entity.getStorageKey());
         leases.computeIfAbsent(entity.getStorageKey(), ignored -> new AtomicInteger()).incrementAndGet();
         try {
@@ -130,7 +130,7 @@ public class SymbolFileStore {
     }
 
     /** 标记旧文件并在没有读取者时立即回收。 */
-    public void retire(String storageKey) {
+    public synchronized void retire(String storageKey) {
         if (storageKey == null || storageKey.isBlank()) {
             return;
         }
@@ -164,8 +164,7 @@ public class SymbolFileStore {
                         .filter(path -> path.getFileName().toString().endsWith(SYMBOL_SUFFIX))
                         .map(path -> path.getFileName().toString())
                         .filter(key -> !referenced.test(key))
-                        .filter(key -> leases.getOrDefault(key, new AtomicInteger()).get() == 0)
-                        .forEach(this::deleteOrphanQuietly);
+                        .forEach(this::deleteOrphanWithoutLease);
             }
         } catch (IOException ex) {
             throw new SymbolStoreUnavailableException(ex);
@@ -199,12 +198,19 @@ public class SymbolFileStore {
     }
 
     /** 释放读取租约，并按需删除已退休文件。 */
-    private void release(String storageKey) {
+    private synchronized void release(String storageKey) {
         AtomicInteger count = leases.get(storageKey);
         if (count != null && count.decrementAndGet() <= 0) {
             leases.remove(storageKey, count);
             collect(storageKey);
         }
+    }
+
+    /** 与租约登记和释放串行检查孤立文件，避免清理正在使用的文件。 */
+    private synchronized void deleteOrphanWithoutLease(String storageKey) {
+        /** 当前文件的在途引用数。 */
+        AtomicInteger count = leases.get(storageKey);
+        if (count == null || count.get() == 0) deleteOrphanQuietly(storageKey);
     }
 
     /** 在没有租约时回收一个已退休文件。 */
@@ -300,9 +306,12 @@ public class SymbolFileStore {
         @Override
         public synchronized SymbolFileLease retain() {
             if (closed) throw new IllegalStateException("已关闭的符号表租约不能再次保活");
-            AtomicInteger count = leases.get(storageKey);
-            if (count == null || count.get() <= 0) throw new IllegalStateException("符号表租约计数不存在");
-            count.incrementAndGet();
+            synchronized (SymbolFileStore.this) {
+                /** 与其他租约登记和释放共用计数锁。 */
+                AtomicInteger count = leases.get(storageKey);
+                if (count == null || count.get() <= 0) throw new IllegalStateException("符号表租约计数不存在");
+                count.incrementAndGet();
+            }
             return new Lease(symbolId, revision, storageKey, path, sha256);
         }
 

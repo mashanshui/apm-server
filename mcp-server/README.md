@@ -45,6 +45,8 @@ Inspector CLI 2.8.0 可用 --transport http --protocol-era modern --header "Auth
 
 ## 当前 Crash 堆栈契约
 
-Crash 详情包含独立主 `stack:{format,content}` 和 `diagnostics`，未采集诊断为 null；JVM 使用 raw_chain 或 retrace_text，Native 使用 raw_native 和 `native_symbolication_deferred`。Native 地址不转为 JavaScript 数字，Native 线程按系统 TID、Java 线程按 Java ID 区分。JVM 主异常首次成功固定，mapping 删除重传不改写旧结果；Native 不提供 SO 符号还原或分析任务。Issue 显示 temporary 与 buildId 或 resolved；旧临时指纹可能变为空列表，分页不是快照。
+Crash 详情包含独立主 `stack:{format,content}` 和 `diagnostics`，未采集诊断为 null；JVM 使用 raw_chain 或 retrace_text，Native 统一使用 native_stack。Native 帧携带独立状态、内联链及 SO 来源，关联 Java 栈使用独立 mapping 来源；主栈成功可与辅助线程等待共存。地址不转为 JavaScript 数字，Native 线程按系统 TID、Java 线程按 Java ID 区分。首次成功来源固定；Native 不提供分析任务。工作树已接入 Native 后台自动调度；真实设备和生产环境端到端验收未完成。Issue 显示 temporary 与 buildId 或 resolved；分页不是快照。
 
 MCP 的 Crash 大片段名称为 `stack` 和 `diagnostics`，摘要不夹带两者正文。续读绑定对应 JSON 字节摘要，内容变化返回 EVIDENCE_CHANGED。未知状态或格式返回 QUERY_BACKEND_INVALID_RESPONSE。冻结分析证据版本 3 仍只包含主异常片段，报告版本 4 未扩展；授权查询现场与冻结证据不是同一份材料。
+
+混合 Native 与 Java 来源的分片读取示例见 [MCP API](../docs/api/mcp-api.md#当前-crash-堆栈契约)。主栈 SO 来源位于每帧的 `resolution.source`，关联 Java 的 mapping 来源位于 `javaStack.source`；辅助线程通过 `diagnostics` 获取。

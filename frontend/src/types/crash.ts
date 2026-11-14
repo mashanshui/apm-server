@@ -3,7 +3,8 @@ import type { CrashDiagnostics, DiagnosticPartition } from './crashDiagnostics'
 // 持久化状态与归组类别仅支持当前契约。
 export type SymbolicationStatus = 'pending' | 'failed' | 'symbolicated'
 export type GroupingKind = 'temporary' | 'resolved'
-export type CrashStack = { format: 'raw_chain'; content: CrashPayload } | { format: 'raw_native'; content: NativeCrash } | { format: 'retrace_text'; content: string }
+export type CrashStack = { format: 'raw_chain'; content: CrashPayload }
+  | { format: 'native_stack'; content: NativeCurrent } | { format: 'retrace_text'; content: string }
 
 export type CrashStatus = 'ok' | 'no_data' | 'denominator_insufficient' | string
 
@@ -134,6 +135,48 @@ export interface NativeBacktrace extends DiagnosticPartition {
   /** 原始帧顺序。 */ frames: NativeFrame[]
 }
 
+/** 已固定的 SO 或 mapping 来源。 */
+export interface NativeSource {
+  /** 来源类型。 */ type: 'NATIVE_SO' | 'MAPPING'
+  /** 来源身份。 */ symbolFileId: string
+  /** 固定修订。 */ revision: number
+  /** 来源摘要。 */ sha256: string
+}
+
+/** Native 物理帧的独立处理结果。 */
+export interface NativeResolution {
+  /** 处理状态。 */ status: 'pending' | 'failed' | 'symbolicated' | 'not_applicable'
+  /** 安全原因。 */ reason?: string | null
+  /** 内联调用链。 */ inline?: Array<{ function?: string | null; file?: string | null; line?: number | null; column?: number | null }> | null
+  /** 首次成功来源。 */ source?: NativeSource | null
+  /** 最近尝试来源。 */ attemptedSource?: NativeSource | null
+  /** 最近处理时间。 */ processedAt?: string | null
+  /** 临时故障重试时间。 */ retryAt?: string | null
+}
+
+/** 结构化帧保留原物理身份。 */
+export interface NativeCurrentFrame extends NativeFrame { /** 逐帧结果。 */ resolution: NativeResolution }
+
+/** 带逐帧处理结果的 Native 回溯。 */
+export interface NativeCurrentBacktrace extends DiagnosticPartition { /** 原物理帧。 */ frames: NativeCurrentFrame[] }
+
+/** 关联 Java 栈的采集与还原状态。 */
+export interface NativeCurrentJava extends DiagnosticPartition {
+  /** 处理状态。 */ symbolicationStatus: 'pending' | 'failed' | 'symbolicated' | 'not_applicable'
+  /** 安全原因。 */ symbolicationReason?: string | null
+  /** 唯一当前栈。 */ stack: { format: 'raw_frames'; content: StackFrame[] } | { format: 'retrace_text'; content: string }
+  /** 首次成功来源。 */ source?: NativeSource | null
+  /** 最近尝试来源。 */ attemptedSource?: NativeSource | null
+  /** 最近处理时间。 */ processedAt?: string | null
+  /** 下次重试时间。 */ retryAt?: string | null
+}
+
+/** 带逐帧及 Java 独立来源的 Native 当前现场。 */
+export interface NativeCurrent extends Omit<NativeCrash, 'backtrace' | 'javaStack'> {
+  /** 原物理帧与还原结果。 */ backtrace: NativeCurrentBacktrace
+  /** 可靠关联的当前 Java 栈。 */ javaStack?: NativeCurrentJava | null
+}
+
 /** Native 主线程现场；无还原文本或内存转储。 */
 export interface NativeCrash {
   /** 崩溃进程实际 ABI。 */ abi: string
@@ -180,6 +223,8 @@ export interface CrashEventDetailResponse {
   symbolFileId: string | null
   symbolFileRevision: number | null
   symbolicationReason: string | null
+  /** Native 主栈的逐状态物理帧数量。 */
+  nativeFrameCounts?: { symbolicated: number; pending: number; failed: number; notApplicable: number } | null
   /** 现场未采集时为 null。 */
   diagnostics: CrashDiagnostics | null
 }

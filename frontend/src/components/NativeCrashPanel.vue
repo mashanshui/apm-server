@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import type { NativeCrash } from '../types/crash'
+import type { NativeCurrent } from '../types/crash'
 import type { DiagnosticPartition } from '../types/crashDiagnostics'
 import NativeFrameList from './NativeFrameList.vue'
 
 /** 服务端返回的唯一原始 Native 主现场。 */
-defineProps<{ crash: NativeCrash; appId?: string; appVersion?: string; canManage?: boolean }>()
+defineProps<{ crash: NativeCurrent; appId?: string; appVersion?: string; buildId?: string; canManage?: boolean }>()
 
 /** 将原始现场的采集状态和安全原因显示为中文。 */
 function collectionText(partition: DiagnosticPartition): string {
@@ -13,11 +13,21 @@ function collectionText(partition: DiagnosticPartition): string {
     io_error: '读取失败', memory_pressure: '内存不足', interrupted: '采集被中断', size_limit: '大小受限', count_limit: '数量受限' }
   return `${statuses[partition.status]}${partition.reason ? ` · ${reasons[partition.reason]}` : ''}${partition.truncated ? ' · 已截断' : ''}`
 }
+
+/** Java 栈处理状态与采集状态分开展示。 */
+function javaState(status: string): string {
+  return ({ pending: '等待还原', failed: '还原失败', symbolicated: '已还原', not_applicable: '无帧，不适用还原' } as Record<string, string>)[status] ?? '状态未知'
+}
+
+/** 区分等待后台检查与实际缺少 mapping。 */
+function javaReason(reason: string): string {
+  return ({ native_symbolication_deferred: '等待后台处理', missing_mapping: '缺少匹配的 mapping' } as Record<string, string>)[reason] ?? reason
+}
 </script>
 
 <template>
   <section class="panel detail-card native-crash" aria-label="Native 崩溃现场">
-    <div class="panel-header" style="padding: 0 0 16px"><div><h2>Native 崩溃现场</h2><p>原始 Native 堆栈；本期未提供符号还原。函数名来自现场，不代表已还原。</p></div></div>
+    <div class="panel-header" style="padding: 0 0 16px"><div><h2>Native 崩溃现场</h2><p>保留原始地址与采集状态；每帧展示独立还原结果和实际来源。</p></div></div>
     <dl class="native-meta">
       <div><dt>信号</dt><dd>{{ crash.signal.name }}（{{ crash.signal.number }}）</dd></div>
       <div><dt>信号码</dt><dd>{{ crash.signal.code }}<template v-if="crash.signal.codeName"> · {{ crash.signal.codeName }}</template></dd></div>
@@ -36,8 +46,12 @@ function collectionText(partition: DiagnosticPartition): string {
     <ul v-else class="native-modules"><li v-for="module in crash.modules" :key="module.id"><strong>{{ module.name }}</strong> · {{ module.abi }} · ELF Build ID {{ module.elfBuildId ?? '未知' }}<span v-if="module.path"> · {{ module.path }}</span><RouterLink v-if="canManage && appId && appVersion" class="button" :to="{ name: 'app-symbols', params: { appId }, query: { type: 'NATIVE_SO', appVersion, ...(module.elfBuildId ? { targetAbi: module.abi, targetElfBuildId: module.elfBuildId } : {}) } }">{{ module.elfBuildId ? '上传此模块 SO' : '身份未知 · 管理此版本 SO' }}</RouterLink></li></ul>
     <template v-if="crash.javaStack">
       <h3>关联的 Java 栈 <small>{{ collectionText(crash.javaStack) }}</small></h3>
-      <p v-if="!crash.javaStack.frames.length" class="native-empty">没有可可靠关联的 Java 堆栈帧。</p>
-      <ol v-else class="native-java"><li v-for="(frame, index) in crash.javaStack.frames" :key="index"><code>{{ frame.className }}.{{ frame.methodName }}（{{ frame.fileName ?? '未知文件' }}:{{ frame.lineNumber ?? '?' }}）</code></li></ol>
+        <p>Java 栈状态：{{ javaState(crash.javaStack.symbolicationStatus) }}<template v-if="crash.javaStack.symbolicationReason"> · {{ javaReason(crash.javaStack.symbolicationReason) }}</template></p>
+        <p v-if="crash.javaStack.source">mapping {{ crash.javaStack.source.symbolFileId }} · revision {{ crash.javaStack.source.revision }} · SHA-256 {{ crash.javaStack.source.sha256 }}</p>
+        <pre v-if="crash.javaStack.stack.format === 'retrace_text'">{{ crash.javaStack.stack.content }}</pre>
+        <p v-else-if="!crash.javaStack.stack.content.length" class="native-empty">没有可可靠关联的 Java 堆栈帧。</p>
+        <ol v-else class="native-java"><li v-for="(frame, index) in crash.javaStack.stack.content" :key="index"><code>{{ frame.className }}.{{ frame.methodName }}（{{ frame.fileName ?? '未知文件' }}:{{ frame.lineNumber ?? '?' }}）</code></li></ol>
+        <RouterLink v-if="canManage && appId && appVersion && crash.javaStack.symbolicationStatus !== 'symbolicated'" class="button" :to="{ name: 'app-symbols', params: { appId }, query: { type: 'MAPPING', appVersion, ...(buildId ? { buildId } : {}) } }">上传此版本 mapping</RouterLink>
     </template>
   </section>
 </template>

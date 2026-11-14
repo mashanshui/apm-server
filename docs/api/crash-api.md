@@ -127,17 +127,34 @@ Issue 摘要增加 `groupingKind=temporary|resolved`，temporary 必须附 `buil
 |---|---|
 | `crashKind`、`fatal` | 不变事件资格，独立于原始载荷是否还存在 |
 | `symbolicationStatus` | `pending`、`failed`、`symbolicated`，没有 raw_only 适配 |
-| `stack` | JVM 为 `raw_chain` 原始异常链或 `retrace_text` 还原文本；Native 为 `{ "format": "raw_native", "content": nativeCrash }` |
+| `stack` | JVM 为 `raw_chain` 原始异常链或 `retrace_text` 还原文本；Native 统一为 `native_stack` 结构化当前现场 |
 | `fingerprint`、`fingerprintVersion`、`groupingKind` | 同一已发布状态中的当前归组 |
 | `symbolicationReason` | 安全等待/失败类别；初始 awaiting_processing 只表示等待后台处理 |
-| `symbolFileId`、`symbolFileRevision`、`symbolFileSha256`、`processedAt` | 实际成功或最后尝试的来源与处理时间，不能用当前注册表代替 |
+| `symbolFileId`、`symbolFileRevision`、`symbolFileSha256`、`processedAt` | JVM 顶层记录实际来源；Native 顶层来源为空，处理时间为最近一次处理时间，来源归各帧和 Java 栈 |
 | `diagnostics` | 独立的诊断对象；历史或未采集事件为 null，不嵌入主 `stack` |
 
-JVM pending/failed 保留完整脱敏原始链，格式为 raw_chain；symbolicated 仅返回完整 retrace_text，来源字段和处理时间必须存在。Native 始终返回 `pending`、`raw_native`、`temporary` 和 `native_symbolication_deferred`，该状态表示本期未提供 Native 符号还原，不表示已经进入 JVM 队列；符号来源与处理时间为空。详情和分析任务创建不调用 R8；JVM 成功后删除、替换或重新上传 mapping 都不改变该事件。响应不再包含 rawCrash、symbolicatedStackText 或其他旧字段别名。
+JVM pending/failed 保留完整脱敏原始链，格式为 raw_chain；symbolicated 仅返回完整 retrace_text，来源字段和处理时间必须存在。Native 首次接收在存储中保留 `pending/raw_native/temporary`；详情查询在内存中将其投影为 `native_stack`，不写入状态或同步还原。尚未检查来源的主辅帧和 Java 栈使用 `native_symbolication_deferred`，不能据此断定符号文件缺失。Native 主栈依据物理帧的处理状态返回 pending、failed 或 symbolicated；`nativeFrameCounts` 给出各状态物理帧数。每帧的 `resolution` 保留内联链、实际或尝试 SO 来源与重试时间；关联 Java 栈独立携带 mapping 来源。主栈成功不代表其他线程已完成；事件指纹和捕获身份不改变。列表摘要读取持久化状态；首次发布前，若所有主帧均不可处理，详情投影可能显示 failed 而列表仍为 pending，后台发布后按已发布状态收敛。工作树已接入 Native 自动调度；真实设备和生产环境端到端验收未完成。详情和分析任务创建不调用 R8；响应不包含旧双份字段。
+
+同一事件本轮新增 Native 帧结果超过累计输出预算时，受影响帧保留原始地址，`resolution.status` 为 `failed`、`reason` 为 `native_output_limit`，并携带实际尝试来源与 `retryAt`。关联或其他 Java 栈超过本轮累计输出预算时保留原始帧，独立状态为 `failed`、原因为 `output_limit`，同样携带尝试来源和重试时间。此类单元可在退避后用相同来源继续处理，已成功结果不变。
+
+例如，结构化主栈中一个已成功帧的相关字段如下（省略其余事件和帧字段）：
+
+```json
+{
+  "relativePc": "0x1a2b4",
+  "resolution": {
+    "status": "symbolicated",
+    "inline": [{"function": "example", "file": "source.cc", "line": 7, "column": null}],
+    "source": {"type": "NATIVE_SO", "symbolFileId": "00000000-0000-4000-8000-000000000001", "revision": 1, "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
+  }
+}
+```
+
+这是字段片段而非完整响应；查询调用方使用 `native_stack` 并按帧读取来源，不把上传成功当成还原完成。
 
 详情中的 `diagnostics.otherThreads.threads[]` 保留线程身份，并以 `stack: {format, content}` 返回唯一当前栈：`raw_frames` 对应原始帧数组，`retrace_text` 对应完整还原文本。每个线程独立携带 `symbolicationStatus=pending|failed|symbolicated|not_applicable`、安全原因和实际 mapping 来源；空帧为 `not_applicable`。主异常首次还原成功时，辅助线程在同一 mapping 下依次处理，成功或失败结果随主结果固定；辅助失败保留原始帧，不影响主异常归组和指纹。线程快照可能与抛出异常并非同一瞬间。
 
-Native 事件的 Java 辅助线程始终保留原始帧，不进入 R8；非空帧的原因是 `native_symbolication_deferred`。`diagnostics.nativeThreads` 返回其他 Native 线程的系统 TID 与原始 `backtrace`，模块引用仍指向主 `stack.content.modules`。
+Native 事件的 Java 辅助线程在结构化状态中独立返回原始帧或完整 R8 文本、处理状态和 mapping 来源；`diagnostics.nativeThreads` 按系统 TID 返回带逐帧处理状态的 `backtrace`，模块引用仍指向主 `stack.content.modules`。首次成功的帧和 Java 栈不因符号文件替换或删除而重新计算。
 
 ## 统计公式
 
@@ -164,4 +181,4 @@ crashFreeSessionRate = 1 - crashedSessions / startedSessions
 - `buildId` 是同应用版本构建专用 mapping 的精确匹配键，专用登记不存在时才使用该版本默认 mapping；事件构建仍必填。按结构化标识清理和限长，不套用面向自然语言的电话号码脱敏，避免合法构建标识被改写后无法匹配 mapping。
 - 后台成功仅改变原发生日期的问题归属，不增加事件、设备、崩溃会话或启动分母。格式合法但不匹配 APK 的 mapping 可能造成不可纠正的首次成功结果；业务当前材料只有一份，不承诺旧物理版本和备份立即擦除。上传、删除及后台进度见[Android 符号表管理 API](symbol-api.md)。
 
-服务端接收 `schemaVersion=2`、`eventType=crash`、`crash.kind=jvm|native`、`crash.fatal=true`。旧 schema v1、正文旧字段 `appId`、ANR、非致命异常、Protobuf 和完整 Issue 生命周期均不兼容；Native SO 文件管理已接入版本化符号表 API，Native 地址还原仍未实现。
+服务端接收 `schemaVersion=2`、`eventType=crash`、`crash.kind=jvm|native`、`crash.fatal=true`。旧 schema v1、正文旧字段 `appId`、ANR、非致命异常、Protobuf 和完整 Issue 生命周期均不兼容；Native SO 文件管理与结构化状态已在工作树实现，真实设备和生产环境端到端验收尚未完成。

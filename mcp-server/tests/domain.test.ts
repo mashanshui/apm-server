@@ -126,17 +126,20 @@ test('crash diagnostics are chunked and validated independently', async () => {
 
 /** Native 材料沿用摘要绑定的分片，地址与同名线程身份保持原样。 */
 test('native crash detail preserves raw frames and binds diagnostic continuation', async () => {
+  /** 未还原的主辅帧使用同一结构化状态。 */
+  const pending = { status: 'pending', reason: 'missing_so' };
   const native = {
     abi: 'arm64-v8a', systemTid: 7, signal: { number: 11, name: 'SIGSEGV', code: 1, faultAddress: '0x0' },
     registers: { status: 'ok', truncated: false, values: { pc: '0xffffffffffffffff' } },
     modules: [{ id: 'm1', name: 'liba.so', abi: 'arm64-v8a', elfBuildId: 'abcdef12' }],
-    backtrace: { status: 'ok', truncated: false, frames: [{ index: 0, moduleId: 'm1', relativePc: '0x11' }] },
-    javaStack: { status: 'unavailable', reason: 'unsupported', truncated: false, frames: [] },
+    backtrace: { status: 'ok', truncated: false, frames: [{ index: 0, moduleId: 'm1', relativePc: '0x11', resolution: pending }] },
+    javaStack: { status: 'unavailable', reason: 'unsupported', truncated: false, symbolicationStatus: 'not_applicable',
+      symbolicationReason: 'empty', stack: { format: 'raw_frames', content: [] } },
   };
   const diagnostics = {
     crashedThread: { status: 'ok', truncated: false, systemTid: 7, name: 'same' },
     nativeThreads: { status: 'ok', truncated: false, threads: [{ systemTid: 8, name: 'same',
-      backtrace: { status: 'ok', truncated: false, frames: [{ index: 0, moduleId: 'm1', relativePc: '0x0' }] } }] },
+      backtrace: { status: 'ok', truncated: false, frames: [{ index: 0, moduleId: 'm1', relativePc: '0x0', resolution: pending }] } }] },
     otherThreads: { status: 'ok', truncated: false, threads: [{ javaId: '8', name: 'same', state: 'RUNNABLE', priority: 5,
       daemon: false, mainThread: true, truncated: false, relationToCrash: 'unknown', symbolicationStatus: 'not_applicable',
       stack: { format: 'raw_frames', content: [] } }] },
@@ -144,7 +147,7 @@ test('native crash detail preserves raw frames and binds diagnostic continuation
       lines: Array.from({ length: 40 }, (_, index) => `日志 ${index} ${'x'.repeat(800)}`) } },
   };
   const base = { appId: 'app-a', eventId: 'e1', crashKind: 'native', fatal: true, symbolicationStatus: 'pending',
-    groupingKind: 'temporary', symbolicationReason: 'native_symbolication_deferred', stack: { format: 'raw_native', content: native } };
+    groupingKind: 'temporary', symbolicationReason: 'missing_so', stack: { format: 'native_stack', content: native } };
   let current = diagnostics;
   await withClient(() => ({ ...base, diagnostics: current }), async client => {
     const summary = await client.callTool({ name: 'get_crash_event', arguments: { eventId: 'e1' } });
@@ -176,10 +179,99 @@ test('native crash detail preserves raw frames and binds diagnostic continuation
     { ...base, stack: { format: 'raw_chain', content: native }, diagnostics },
     { ...base, diagnostics: { ...diagnostics, nativeThreads: { ...diagnostics.nativeThreads,
       threads: [{ ...diagnostics.nativeThreads.threads[0], systemTid: 7 }] } } },
-    { ...base, stack: { format: 'raw_native', content: { ...native, backtrace: { ...native.backtrace,
-      frames: [{ index: 0, moduleId: 'missing', relativePc: '0x11' }] } } }, diagnostics },
+    { ...base, stack: { format: 'raw_native', content: native }, diagnostics },
+    { ...base, stack: { format: 'native_stack', content: { ...native, backtrace: { ...native.backtrace,
+      frames: [{ index: 0, moduleId: 'missing', relativePc: '0x11', resolution: pending }] } } }, diagnostics },
   ]) {
     await withClient(() => invalid, async client => {
+      const result = await client.callTool({ name: 'get_crash_event', arguments: { eventId: 'e1' } });
+      assert.equal(result.isError, true);
+      assert.match(JSON.stringify(result.content), /QUERY_BACKEND_INVALID_RESPONSE/);
+    });
+  }
+});
+
+/** Native 主辅栈的来源和分片摘要随增量状态严格校验。 */
+test('structured native frames preserve sources and reject changed evidence', async () => {
+  const so = { type: 'NATIVE_SO', symbolFileId: '11111111-1111-4111-8111-111111111111', revision: 1, sha256: 'a'.repeat(64) };
+  const success = { status: 'symbolicated', reason: null, inline: [{ function: 'f', file: 'source.cc', line: 1, column: null }],
+    source: so, attemptedSource: so, processedAt: '2026-11-12T00:00:00Z', retryAt: null };
+  const pending: { status: string; reason: string | null; inline: typeof success.inline | null; source: typeof so | null;
+    attemptedSource: typeof so | null; processedAt: string | null; retryAt: string | null } =
+    { status: 'pending', reason: 'missing_so', inline: null, source: null, attemptedSource: null, processedAt: null, retryAt: null };
+  const native = { abi: 'arm64-v8a', systemTid: 7, signal: { number: 11, name: 'SIGSEGV', code: 1, faultAddress: '0x0' },
+    registers: { status: 'ok', truncated: false, values: { pc: '0xffffffffffffffff' } },
+    modules: [{ id: 'm1', name: 'liba.so', abi: 'arm64-v8a', elfBuildId: 'abcdef12' }],
+    backtrace: { status: 'ok', truncated: false, frames: [{ index: 0, moduleId: 'm1', relativePc: '0x11', resolution: success }] }, javaStack: null };
+  let diagnostics = { crashedThread: { status: 'ok', truncated: false, systemTid: 7 },
+    nativeThreads: { status: 'ok', truncated: false, threads: [{ systemTid: 8,
+      backtrace: { status: 'ok', truncated: false, frames: [{ index: 0, moduleId: 'm1', relativePc: '0x0', resolution: pending }] } }] } };
+  let stack: { format: string; content: unknown } = { format: 'native_stack', content: native };
+  const response = () => ({ appId: 'app-a', eventId: 'e1', crashKind: 'native', fatal: true, symbolicationStatus: 'symbolicated',
+    groupingKind: 'temporary', symbolFileId: null, symbolFileRevision: null, symbolFileSha256: null,
+    processedAt: '2026-11-12T00:00:00Z', stack, diagnostics });
+  await withClient(response, async client => {
+    const chunks: Buffer[] = [];
+    let offset = 0;
+    let digest: string | undefined;
+    while (true) {
+      const result = await client.callTool({ name: 'get_crash_event', arguments: { eventId: 'e1', section: 'stack', chunkBytes: 32,
+        offset, ...(digest ? { contentDigest: digest } : {}) } });
+      assert.notEqual(result.isError, true);
+      const page = result.structuredContent as { data: { content: string; contentDigest: string }; continuation?: { offset: number } };
+      chunks.push(Buffer.from(page.data.content, 'base64'));
+      digest = page.data.contentDigest;
+      if (!page.continuation) break;
+      offset = page.continuation.offset;
+    }
+    assert.deepEqual(JSON.parse(Buffer.concat(chunks).toString('utf8')), stack);
+    stack = { ...stack, content: { ...native, backtrace: { ...native.backtrace,
+      frames: [{ ...native.backtrace.frames[0]!, resolution: { ...success, inline: [{ function: 'g', file: 'source.cc', line: 1, column: null }] } }] } } };
+    const changed = await client.callTool({ name: 'get_crash_event', arguments: { eventId: 'e1', section: 'stack', offset: 32, contentDigest: digest } });
+    assert.equal(changed.isError, true);
+    assert.match(JSON.stringify(changed.content), /EVIDENCE_CHANGED/);
+    // 辅助线程在分片期间独立成功时，旧诊断摘要同样不得续读。
+    const firstDiagnostics = await client.callTool({ name: 'get_crash_event', arguments: { eventId: 'e1', section: 'diagnostics', chunkBytes: 32 } });
+    assert.notEqual(firstDiagnostics.isError, true);
+    const oldDigest = (firstDiagnostics.structuredContent as { data: { contentDigest: string } }).data.contentDigest;
+    diagnostics = { ...diagnostics, nativeThreads: { ...diagnostics.nativeThreads, threads: [{ systemTid: 8,
+      backtrace: { status: 'ok', truncated: false, frames: [{ index: 0, moduleId: 'm1', relativePc: '0x0', resolution: success }] } }] } };
+    const changedDiagnostics = await client.callTool({ name: 'get_crash_event', arguments: {
+      eventId: 'e1', section: 'diagnostics', offset: 32, contentDigest: oldDigest } });
+    assert.equal(changedDiagnostics.isError, true);
+    assert.match(JSON.stringify(changedDiagnostics.content), /EVIDENCE_CHANGED/);
+  });
+  for (const resolution of [pending, { ...pending, status: 'failed', reason: 'native_no_function', attemptedSource: so, processedAt: '2026-11-12T00:00:00Z' }]) {
+    const content = { ...native, backtrace: { ...native.backtrace, frames: [{ ...native.backtrace.frames[0]!, resolution }] } };
+    await withClient(() => ({ ...response(), symbolicationStatus: resolution.status, symbolicationReason: resolution.reason,
+      processedAt: resolution.processedAt, stack: { format: 'native_stack', content } }), async client => {
+      const result = await client.callTool({ name: 'get_crash_event', arguments: { eventId: 'e1' } });
+      assert.notEqual(result.isError, true);
+    });
+  }
+  const mapping = { type: 'MAPPING', symbolFileId: '22222222-2222-4222-8222-222222222222', revision: 2, sha256: 'b'.repeat(64) };
+  const associated = { ...native, javaStack: { status: 'ok', truncated: false, symbolicationStatus: 'symbolicated', symbolicationReason: null,
+    stack: { format: 'retrace_text', content: 'at A.a(A.java:1)' }, source: mapping, attemptedSource: mapping,
+    processedAt: '2026-11-12T00:00:00Z', retryAt: null } };
+  await withClient(() => ({ ...response(), stack: { format: 'native_stack', content: associated },
+    diagnostics: { ...diagnostics, crashedThread: { ...diagnostics.crashedThread, javaId: '7' } } }), async client => {
+    const result = await client.callTool({ name: 'get_crash_event', arguments: { eventId: 'e1' } });
+    assert.notEqual(result.isError, true);
+  });
+  await withClient(() => ({ ...response(), stack: { format: 'native_stack', content: { ...associated,
+    javaStack: { ...associated.javaStack, source: { ...mapping, type: 'NATIVE_SO' } } } },
+    diagnostics: { ...diagnostics, crashedThread: { ...diagnostics.crashedThread, javaId: '7' } } }), async client => {
+    const result = await client.callTool({ name: 'get_crash_event', arguments: { eventId: 'e1' } });
+    assert.equal(result.isError, true);
+  });
+  for (const badFrame of [
+    { ...native.backtrace.frames[0]!, resolution: { ...success, source: null } },
+    { ...native.backtrace.frames[0]!, resolution: { ...success, source: { ...so, type: 'MAPPING' } } },
+    { ...native.backtrace.frames[0]!, moduleId: 'missing' },
+    { ...native.backtrace.frames[0]!, relativePc: '0x00' },
+  ]) {
+    stack = { format: 'native_stack', content: { ...native, backtrace: { ...native.backtrace, frames: [badFrame] } } };
+    await withClient(response, async client => {
       const result = await client.callTool({ name: 'get_crash_event', arguments: { eventId: 'e1' } });
       assert.equal(result.isError, true);
       assert.match(JSON.stringify(result.content), /QUERY_BACKEND_INVALID_RESPONSE/);

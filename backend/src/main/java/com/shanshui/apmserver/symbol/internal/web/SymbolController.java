@@ -161,7 +161,7 @@ public class SymbolController {
 
     /** 活动符号表的构建进度，普通应用成员同样可查看。 */
     @GetMapping("/{symbolId}/crash-symbolication")
-    public ResponseEntity<com.shanshui.apmserver.crash.api.CrashSymbolicationWork.Progress> progress(
+    public ResponseEntity<Object> progress(
             @PathVariable UUID appId, @PathVariable UUID symbolId, Authentication authentication) {
         accessControl.requireView(appId, authentication);
         return noStore(managementService.progress(appId, symbolId, work));

@@ -67,6 +67,31 @@ class SymbolFileStoreTests {
         assertFalse(Files.exists(lease.path()));
     }
 
+    /** 末个旧租约释放与新读取并发时，新租约仍能阻止退休回收。 */
+    @Test
+    void retainsFileWhenOpeningAndClosingConcurrently() throws Exception {
+        /** 反复交错登记和释放，覆盖同一存储键的计数转换。 */
+        SymbolFileStore store = store(128);
+        try (var workers = java.util.concurrent.Executors.newFixedThreadPool(2)) {
+            for (int index = 0; index < 500; index++) {
+                var staged = store.stage(new ByteArrayInputStream("symbols".getBytes()), 128);
+                var key = store.publish(staged);
+                var entity = new SymbolFileEntity(UUID.randomUUID(), UUID.randomUUID(), "build", 1, key,
+                        "symbols.so", staged.sizeBytes(), staged.sha256(), UUID.randomUUID(), Instant.now(), Instant.now());
+                var old = store.open(entity);
+                var gate = new java.util.concurrent.CyclicBarrier(2);
+                var closer = workers.submit(() -> { gate.await(); old.close(); return null; });
+                var opener = workers.submit(() -> { gate.await(); return store.open(entity); });
+                var current = opener.get();
+                closer.get();
+                store.retire(key);
+                assertEquals("symbols", Files.readString(current.path()));
+                current.close();
+                assertFalse(Files.exists(current.path()));
+            }
+        }
+    }
+
     /** 启动清理只能删除数据库未引用的 mapping 文件和遗留暂存文件。 */
     @Test
     void collectsOnlyUnreferencedMappingFiles() throws Exception {

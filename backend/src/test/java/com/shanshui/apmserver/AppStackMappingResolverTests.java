@@ -122,6 +122,14 @@ class AppStackMappingResolverTests {
             }
         };
         SymbolRegistry registry = new SymbolRegistry() {
+            /** 当前测试不使用 Native SO。 */
+            @Override public Optional<SymbolFileLease> acquireNative(UUID appId, String appVersion, String abi, String elfBuildId) {
+                throw new UnsupportedOperationException();
+            }
+            /** 当前测试不执行 Native 地址还原。 */
+            @Override public com.shanshui.apmserver.symbol.api.NativeSymbolicationResult symbolizeNative(SymbolFileLease lease, java.util.List<String> addresses, java.time.Duration budget) {
+                throw new UnsupportedOperationException();
+            }
             /** 测试仅声明存在版本来源。 */
             public boolean hasVersion(UUID appId, String version) { return true; }
             /** 当前旧链路测试不调用版本选择接口。 */
@@ -162,6 +170,14 @@ class AppStackMappingResolverTests {
     @Test
     void propagatesRegistryUnavailableAsRetryableFailure() {
         SymbolRegistry registry = new SymbolRegistry() {
+            /** 当前测试不使用 Native SO。 */
+            @Override public Optional<SymbolFileLease> acquireNative(UUID appId, String appVersion, String abi, String elfBuildId) {
+                throw new UnsupportedOperationException();
+            }
+            /** 当前测试不执行 Native 地址还原。 */
+            @Override public com.shanshui.apmserver.symbol.api.NativeSymbolicationResult symbolizeNative(SymbolFileLease lease, java.util.List<String> addresses, java.time.Duration budget) {
+                throw new UnsupportedOperationException();
+            }
             /** 测试仅声明存在版本来源。 */
             public boolean hasVersion(UUID appId, String version) { return true; }
             /** 当前旧链路测试不调用版本选择接口。 */

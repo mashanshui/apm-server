@@ -34,6 +34,44 @@ class VersionedSymbolMigrationTests {
         jdbc.update("INSERT INTO apm_app VALUES (?,'com.example.versioned','迁移验证',NULL,?,clock_timestamp(),clock_timestamp())", app, user);
         return new Fixture(flyway, jdbc, app, user);
     }
+
+    /** V20 迁移必须阻止有效租约和未确认载荷，同时保留 JVM 旧行及其来源。 */
+    @Test
+    void migratesNativeWorkOnlyAfterDrainingExistingJvmState() {
+        var fixture = fixture("19");
+        var jdbc = fixture.jdbc();
+        UUID symbol = UUID.randomUUID();
+        jdbc.update("INSERT INTO app_symbol_file(symbol_id,app_id,build_id,revision,storage_key,original_filename,size_bytes,sha256,uploaded_by,uploaded_at,updated_at) VALUES (?,?,'legacy',3,'legacy.mapping','mapping.txt',10,?,?,clock_timestamp(),clock_timestamp())", symbol, fixture.app(), "a".repeat(64), fixture.user());
+        jdbc.update("INSERT INTO crash_symbolication_job(app_id,app_version,state,lease_owner,lease_expires_at,succeeded_count) VALUES (?,'1.0','running',?,clock_timestamp()+interval '1 minute',7)", fixture.app(), UUID.randomUUID());
+        assertThrows(RuntimeException.class, () -> fixture.flyway().migrate());
+        jdbc.update("UPDATE crash_symbolication_job SET state='idle',lease_owner=NULL,lease_expires_at=NULL");
+        long version = jdbc.queryForObject("SELECT nextval('crash_symbolication_state_version')", Long.class);
+        jdbc.update("INSERT INTO crash_symbolication_publication(app_id,event_id,build_id,app_version,event_time,expires_at,state_version,symbol_id,symbol_revision,symbol_sha256,result_sha256,pending_payload) VALUES (?,'fixed','legacy','1.0',clock_timestamp()-interval '1 day',clock_timestamp()+interval '29 days',?,?,3,?,?,'fixed-payload')", fixture.app(), version, symbol, "a".repeat(64), "b".repeat(64));
+        assertThrows(RuntimeException.class, () -> fixture.flyway().migrate());
+        assertEquals("fixed-payload", jdbc.queryForObject("SELECT pending_payload FROM crash_symbolication_publication", String.class));
+        jdbc.update("UPDATE crash_symbolication_publication SET pending_payload=NULL,published_at=clock_timestamp()");
+        fixture.flyway().migrate();
+        assertEquals("jvm", jdbc.queryForObject("SELECT crash_kind FROM crash_symbolication_job", String.class));
+        assertEquals(7, jdbc.queryForObject("SELECT succeeded_count FROM crash_symbolication_job", Integer.class));
+        assertEquals(symbol, jdbc.queryForObject("SELECT symbol_id FROM crash_symbolication_publication", UUID.class));
+        assertEquals("a".repeat(64), jdbc.queryForObject("SELECT symbol_sha256 FROM crash_symbolication_publication", String.class));
+        assertEquals(version, jdbc.queryForObject("SELECT last_value FROM crash_symbolication_state_version", Long.class));
+        jdbc.update("INSERT INTO crash_symbolication_job(app_id,app_version,crash_kind,state) VALUES (?,'1.0','native','waiting_symbols')", fixture.app());
+        assertEquals(2, jdbc.queryForObject("SELECT count(*) FROM crash_symbolication_job WHERE app_id=? AND app_version='1.0'", Integer.class, fixture.app()));
+        assertThrows(org.springframework.dao.DataIntegrityViolationException.class, () -> jdbc.update(
+                "INSERT INTO crash_symbolication_job(app_id,app_version,crash_kind,state) VALUES (?,'1.0','native','waiting_symbols')", fixture.app()));
+        assertThrows(org.springframework.dao.DataIntegrityViolationException.class, () -> jdbc.update(
+                "INSERT INTO crash_symbolication_job(app_id,app_version,crash_kind,state) VALUES (?,'2.0','native','waiting_mapping')", fixture.app()));
+        assertThrows(org.springframework.dao.DataIntegrityViolationException.class, () -> jdbc.update(
+                "UPDATE crash_symbolication_job SET published_count=-1 WHERE crash_kind='native'"));
+        assertThrows(org.springframework.dao.DataIntegrityViolationException.class, () -> jdbc.update(
+                "UPDATE crash_symbolication_publication SET symbol_revision=NULL WHERE event_id='fixed'"));
+        jdbc.update("INSERT INTO crash_symbolication_publication(app_id,event_id,build_id,app_version,event_time,expires_at,state_version,crash_kind,base_state_version,result_sha256,pending_payload) VALUES (?,'native','build','1.0',clock_timestamp()-interval '1 day',clock_timestamp()+interval '29 days',2,'native',0,?,'native-payload')", fixture.app(), "c".repeat(64));
+        assertThrows(org.springframework.dao.DataIntegrityViolationException.class, () -> jdbc.update(
+                "UPDATE crash_symbolication_publication SET symbol_id=? WHERE event_id='native'", symbol));
+        assertThrows(org.springframework.dao.DataIntegrityViolationException.class, () -> jdbc.update(
+                "UPDATE crash_symbolication_publication SET base_state_version=state_version WHERE event_id='native'"));
+    }
     /** 有效租约或未确认字节都阻止切换，排空后不重写旧文件、来源或序列。 */
     @Test
     void refusesInflightWorkAndPreservesRetiredJobsAndPublishedSources() {

@@ -266,6 +266,29 @@ public class SymbolManagementService {
         }
     }
 
+    /** 按完整 SO 身份锁定活动行并登记文件租约。 */
+    @org.springframework.transaction.annotation.Transactional
+    public java.util.Optional<com.shanshui.apmserver.symbol.api.SymbolFileLease> acquireNative(
+            UUID appId, String appVersion, String abi, String elfBuildId) {
+        validateIdentity(appVersion, "appVersion", 128);
+        if (abi == null || !java.util.Set.of("armeabi-v7a", "arm64-v8a", "x86", "x86_64").contains(abi)
+                || elfBuildId == null || !elfBuildId.matches("(?:[0-9a-f]{2}){1,64}")) {
+            throw new SymbolValidationException("INVALID_IDENTITY", "SO 身份无效", 400);
+        }
+        try {
+            /** 数据库行锁覆盖文件租约登记，避免并发替换或删除。 */
+            var result = fileRepository.lockNativeIdentity(appId, appVersion, abi, elfBuildId).map(fileStore::open);
+            log.info("SO 精确选择完成：找到来源={}", result.isPresent());
+            return result;
+        } catch (DataAccessException failure) {
+            log.warn("SO 精确选择失败：数据库不可用");
+            throw new SymbolStoreUnavailableException(failure);
+        } catch (SymbolStoreUnavailableException failure) {
+            log.warn("SO 精确选择失败：固定来源不可读");
+            throw failure;
+        }
+    }
+
     /** 先提交软删除，再按已有读取租约退休文件。 */
     public void delete(UUID appId, UUID symbolId, UUID userId, int expectedRevision) {
         if (expectedRevision < 1) throw new SymbolValidationException("INVALID_REVISION", "expectedRevision 必须为正数", 400);
@@ -277,13 +300,14 @@ public class SymbolManagementService {
     }
 
     /** 进度仅查询当前符号表及对应构建任务，删除身份不再提供轮询。 */
-    public com.shanshui.apmserver.crash.api.CrashSymbolicationWork.Progress progress(UUID appId, UUID symbolId,
+    public Object progress(UUID appId, UUID symbolId,
             com.shanshui.apmserver.crash.api.CrashSymbolicationWork work) {
         SymbolFileEntity current = findById(appId, symbolId);
-        if (!"MAPPING".equals(current.getSymbolType()) || current.getAppVersion() == null) {
-            throw new SymbolValidationException("SYMBOL_PROGRESS_NOT_APPLICABLE", "此登记不适用 JVM 还原进度", 422);
+        if (current.getAppVersion() == null) {
+            throw new SymbolValidationException("SYMBOL_PROGRESS_NOT_APPLICABLE", "无版本登记不适用还原进度", 422);
         }
-        return work.progress(appId, current.getAppVersion());
+        return "NATIVE_SO".equals(current.getSymbolType()) ? work.nativeProgress(appId, current.getAppVersion())
+                : work.progress(appId, current.getAppVersion());
     }
 
     /** 逐文件有界检查当前引用，不加载所有历史元数据；数据库不可用时保留文件。 */

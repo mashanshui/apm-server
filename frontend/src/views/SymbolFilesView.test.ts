@@ -4,6 +4,7 @@ import { reactive } from 'vue'
 import { createPinia, setActivePinia } from 'pinia'
 import SymbolFilesView from './SymbolFilesView.vue'
 import { useAppStore } from '../stores/apps'
+import { useSessionStore } from '../stores/session'
 import { ApiError } from '../api/http'
 import { symbolApi } from '../api/symbolApi'
 
@@ -353,6 +354,56 @@ describe('SymbolFilesView', () => {
     expect(mockedSymbolApi.progress).toHaveBeenCalledTimes(61)
   })
 
+  /** 慢响应耗时计入整个周期，截止时保留上次 SO 进度并拒绝迟到结果。 */
+  it('counts slow native responses against the deadline and permits manual refresh', async () => {
+    vi.useFakeTimers()
+    routeState.query = { type: 'NATIVE_SO', appVersion: '2.0' }
+    const native = { ...currentSymbol, type: 'NATIVE_SO' as const, appVersion: '2.0', mappingScope: null, buildId: null, abi: 'arm64-v8a', elfBuildId: 'aabb' }
+    mockedSymbolApi.list.mockResolvedValue({ appId: 'app-1', items: [native], nextCursor: null })
+    const first = deferred<Awaited<ReturnType<typeof symbolApi.progress>>>()
+    const late = deferred<Awaited<ReturnType<typeof symbolApi.progress>>>()
+    mockedSymbolApi.progress.mockReturnValueOnce(first.promise).mockReturnValueOnce(late.promise)
+      .mockResolvedValue({ crashKind: 'native', state: 'waiting_symbols', publishedCount: 7, failedUnitCount: 0, updatedAt: null, errorCategory: null })
+    const wrapper = mount(SymbolFilesView, { global: { stubs: { AppLayout: { template: '<div><slot /></div>' }, RouterLink: true } } })
+    await flushPromises()
+    await wrapper.findAll('button').find(item => item.text() === '查看进度')!.trigger('click')
+    await vi.advanceTimersByTimeAsync(100_000)
+    first.resolve({ crashKind: 'native', state: 'running', publishedCount: 3, failedUnitCount: 0, updatedAt: null, errorCategory: null })
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(5_000)
+    const signal = mockedSymbolApi.progress.mock.calls.at(-1)?.[2]
+    await vi.advanceTimersByTimeAsync(195_000)
+    expect(signal?.aborted).toBe(true)
+    expect(mockedSymbolApi.progress).toHaveBeenCalledTimes(2)
+    expect(wrapper.text()).toContain('状态更新 3 次')
+    expect(wrapper.text()).toContain('自动查询已停止')
+    late.resolve({ crashKind: 'native', state: 'running', publishedCount: 999, failedUnitCount: 0, updatedAt: null, errorCategory: null })
+    await flushPromises()
+    expect(wrapper.text()).not.toContain('999')
+    await wrapper.findAll('button').find(item => item.text() === '刷新进度')!.trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('状态更新 7 次')
+    expect(wrapper.text()).not.toContain('自动查询已停止')
+    wrapper.unmount()
+  })
+
+  /** 首个 mapping 请求长期挂起时，截止后停止加载提示并允许重新查询。 */
+  it('cancels a progress request that never completes', async () => {
+    vi.useFakeTimers()
+    const pending = deferred<Awaited<ReturnType<typeof symbolApi.progress>>>()
+    mockedSymbolApi.progress.mockReturnValueOnce(pending.promise)
+    const wrapper = mount(SymbolFilesView, { global: { stubs: { AppLayout: { template: '<div><slot /></div>' }, RouterLink: true } } })
+    await flushPromises()
+    await wrapper.findAll('button').find(item => item.text() === '查看进度')!.trigger('click')
+    const signal = mockedSymbolApi.progress.mock.calls[0]?.[2]
+    await vi.advanceTimersByTimeAsync(300_000)
+    expect(signal?.aborted).toBe(true)
+    expect(wrapper.text()).toContain('自动查询已停止')
+    expect(wrapper.text()).not.toContain('正在查询进度')
+    expect(wrapper.findAll('button').some(item => item.text() === '刷新进度')).toBe(true)
+    wrapper.unmount()
+  })
+
   /** 相同 buildId 重传获得新 symbolId，旧请求不能写入新进度。 */
   it('isolates delayed progress after a symbol replacement and app switch', async () => {
     const pending = deferred<Awaited<ReturnType<typeof symbolApi.progress>>>()
@@ -386,7 +437,7 @@ describe('SymbolFilesView', () => {
     wrapper.unmount()
   })
 
-  /** SO 全批确认包含预期不存在项，成功后不轮询 JVM。 */
+  /** SO 全批确认包含预期不存在项，上传响应不伪装成事件还原成功。 */
   it('confirms every native identity and never polls native progress', async () => {
     routeState.query = { type: 'NATIVE_SO', appVersion: '2.0', targetAbi: 'arm64-v8a', targetElfBuildId: 'aabb' }
     const existing = { ...currentSymbol, type: 'NATIVE_SO' as const, appVersion: '2.0', mappingScope: null, buildId: null, abi: 'arm64-v8a', elfBuildId: 'aabb' }
@@ -398,7 +449,13 @@ describe('SymbolFilesView', () => {
     const wrapper = mount(SymbolFilesView, { global: { stubs: { AppLayout: { template: '<div><slot /></div>' }, RouterLink: true } } })
     await flushPromises()
     expect(wrapper.find('#symbol-build-id').exists()).toBe(false)
-    const file = createFile('zip', 'symbols.zip')
+    expect(wrapper.get('.symbol-dialog-description').text()).toContain('native-debug-symbols.zip')
+    expect(wrapper.get('.symbol-dialog-description').text()).toContain('.so.sym')
+    expect(wrapper.get('.symbol-dialog-description').text()).toContain('.so.dbg')
+    expect(wrapper.get('.symbol-upload-hint').text()).toContain('仅有函数符号时无法显示源码行号')
+    expect(wrapper.get('.symbol-upload-hint').text()).toContain('替换符号文件不会补充该帧行号')
+    expect(wrapper.get('.symbol-file-picker').text()).toContain('最大 256 MiB')
+    const file = createFile('zip', 'native-debug-symbols.zip')
     Object.defineProperty(wrapper.get('#symbol-file').element, 'files', { configurable: true, value: [file] })
     await wrapper.get('#symbol-file').trigger('change')
     await wrapper.get('.symbol-upload-form').trigger('submit'); await flushPromises()
@@ -409,7 +466,64 @@ describe('SymbolFilesView', () => {
       { abi: 'arm64-v8a', elfBuildId: 'aabb' }, [{ abi: 'arm64-v8a', elfBuildId: 'aabb', symbolId: 'symbol-1', revision: 2 },
         { abi: 'x86', elfBuildId: 'ccdd', symbolId: null, revision: null }], expect.any(AbortSignal))
     expect(mockedSymbolApi.progress).not.toHaveBeenCalled()
-    expect(wrapper.text()).toContain('本期未提供 Native 还原')
+    expect(wrapper.text()).toContain('后台工作已登记')
+    wrapper.unmount()
+  })
+
+  /** 同版本 SO 进度显示状态更新次数，而不是完成事件数。 */
+  it('shows native publication progress without treating updates as events', async () => {
+    routeState.query = { type: 'NATIVE_SO', appVersion: '2.0' }
+    const native = { ...currentSymbol, type: 'NATIVE_SO' as const, appVersion: '2.0', mappingScope: null, buildId: null, abi: 'arm64-v8a', elfBuildId: 'aabb' }
+    mockedSymbolApi.list.mockResolvedValue({ appId: 'app-1', items: [native], nextCursor: null })
+    mockedSymbolApi.progress.mockResolvedValue({ crashKind: 'native', state: 'waiting_symbols', publishedCount: 3, failedUnitCount: 2, updatedAt: null, errorCategory: null })
+    const wrapper = mount(SymbolFilesView, { global: { stubs: { AppLayout: { template: '<div><slot /></div>' }, RouterLink: true } } })
+    await flushPromises()
+    await wrapper.findAll('button').find(item => item.text() === '查看进度')!.trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('状态更新 3 次')
+    expect(wrapper.text()).toContain('新增失败单元 2 次')
+    expect(wrapper.text()).toContain('不是完成事件数')
+    wrapper.unmount()
+  })
+
+  /** 会话失效时立刻取消 Native 进度，迟到响应不得重建页面状态。 */
+  it('clears native progress immediately on expired session and ignores late results', async () => {
+    routeState.query = { type: 'NATIVE_SO', appVersion: '2.0' }
+    const native = { ...currentSymbol, type: 'NATIVE_SO' as const, appVersion: '2.0', mappingScope: null, buildId: null, abi: 'arm64-v8a', elfBuildId: 'aabb' }
+    mockedSymbolApi.list.mockResolvedValue({ appId: 'app-1', items: [native], nextCursor: null })
+    const pending = deferred<Awaited<ReturnType<typeof symbolApi.progress>>>()
+    mockedSymbolApi.progress.mockReturnValue(pending.promise)
+    const wrapper = mount(SymbolFilesView, { global: { stubs: { AppLayout: { template: '<div><slot /></div>' }, RouterLink: true } } })
+    await flushPromises()
+    await wrapper.findAll('button').find(item => item.text() === '查看进度')!.trigger('click')
+    const signal = mockedSymbolApi.progress.mock.calls.at(-1)?.[2]
+    window.dispatchEvent(new CustomEvent('apm:auth-expired'))
+    await flushPromises()
+    expect(signal?.aborted).toBe(true)
+    expect(wrapper.text()).not.toContain('symbol-1')
+    expect(wrapper.find('[aria-label="构建还原进度"]').exists()).toBe(false)
+    pending.resolve({ crashKind: 'native', state: 'running', publishedCount: 999, failedUnitCount: 0, updatedAt: null, errorCategory: null })
+    await flushPromises()
+    expect(wrapper.text()).not.toContain('999')
+    wrapper.unmount()
+  })
+
+  /** 主动退出登录也会清理只读角色当前的列表和轮询。 */
+  it('clears progress on logout even for a viewer', async () => {
+    useAppStore().apps[0].role = 'VIEWER'
+    const session = useSessionStore()
+    session.user = { id: 'test', email: 'test@example.invalid', displayName: '测试' }
+    const pending = deferred<Awaited<ReturnType<typeof symbolApi.progress>>>()
+    mockedSymbolApi.progress.mockReturnValue(pending.promise)
+    const wrapper = mount(SymbolFilesView, { global: { stubs: { AppLayout: { template: '<div><slot /></div>' }, RouterLink: true } } })
+    await flushPromises()
+    await wrapper.findAll('button').find(item => item.text() === '查看进度')!.trigger('click')
+    const signal = mockedSymbolApi.progress.mock.calls.at(-1)?.[2]
+    session.clear()
+    await flushPromises()
+    expect(signal?.aborted).toBe(true)
+    expect(wrapper.find('[aria-label="构建还原进度"]').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('release-1')
     wrapper.unmount()
   })
 

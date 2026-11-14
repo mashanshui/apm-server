@@ -13,6 +13,8 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 public class CrashBackgroundScheduling {
     /** 有界构建执行器。 */
     private final CrashBackgroundProcessor processor;
+    /** Native 工作复用单线程，避免并发增加后台负载。 */
+    private final NativeBackgroundProcessor nativeProcessor;
     /** 持久化轮转对账。 */
     private final CrashSymbolicationReconciler reconciler;
     /** 到期轻量记录和在途载荷清理。 */
@@ -21,12 +23,15 @@ public class CrashBackgroundScheduling {
     private final CrashSymbolicationJobs jobs;
     /** 关闭时不再开始后台工作，已有 pending 仍保留。 */
     private final boolean enabled;
+    /** 类型交替领取，避免任一类型长期饥饿。 */
+    private boolean nativeTurn;
 
     /** 注入执行器与明确部署开关。 */
-    public CrashBackgroundScheduling(CrashBackgroundProcessor processor, CrashSymbolicationReconciler reconciler,
+    public CrashBackgroundScheduling(CrashBackgroundProcessor processor, NativeBackgroundProcessor nativeProcessor, CrashSymbolicationReconciler reconciler,
             CrashSymbolicationPublications publications, CrashSymbolicationJobs jobs,
             @Value("${apm.crash.background.enabled:true}") boolean enabled) {
         this.processor = processor;
+        this.nativeProcessor = nativeProcessor;
         this.reconciler = reconciler;
         this.publications = publications;
         this.jobs = jobs;
@@ -47,7 +52,11 @@ public class CrashBackgroundScheduling {
     /** 请求路径只登记，批次执行总在独立线程中开始。 */
     @Scheduled(scheduler = "crashSymbolicationScheduler", fixedDelayString = "${apm.crash.background.interval-ms:1000}",
             initialDelayString = "${apm.crash.background.initial-delay-ms:5000}")
-    public void process() { if (enabled) processor.runOnce(); }
+    public void process() {
+        if (!enabled) return;
+        nativeTurn = !nativeTurn;
+        if (nativeTurn) nativeProcessor.runOnce(); else processor.runOnce();
+    }
 
     /** 轮转和清理均有数据库返回数量上限，失败交给下一次持久化重试。 */
     @Scheduled(fixedDelayString = "${apm.crash.background.reconcile-interval-ms:30000}",

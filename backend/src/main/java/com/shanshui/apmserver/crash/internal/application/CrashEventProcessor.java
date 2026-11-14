@@ -89,6 +89,13 @@ public class CrashEventProcessor implements CrashEventProcessing {
                 // 不记录含原始内容的异常；通知的可靠性由持久化轮转检查点补偿。
             }
         }
+        if (nativeCrash) {
+            try {
+                work.wakeNative(appId, metadata.appVersion());
+            } catch (Exception unavailable) {
+                log.warn("Native 接收后工作通知失败，等待活动来源对账");
+            }
+        }
         return new SignalIngestResult(appendResult, metadata, null);
     }
 }

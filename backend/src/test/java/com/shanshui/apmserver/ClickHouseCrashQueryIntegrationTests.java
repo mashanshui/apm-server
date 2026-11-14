@@ -60,6 +60,8 @@ class ClickHouseCrashQueryIntegrationTests {
         for (String statement : diagnosticsDdl.split(";")) if (!statement.isBlank()) client.execute(statement);
         String nativeDdl = new String(getClass().getResourceAsStream("/db/clickhouse/011_native_crash_state.sql").readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
         for (String statement : nativeDdl.split(";")) if (!statement.isBlank()) client.execute(statement);
+        String symbolicationDdl = new String(getClass().getResourceAsStream("/db/clickhouse/012_native_symbolication_state.sql").readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+        for (String statement : symbolicationDdl.split(";")) if (!statement.isBlank()) client.execute(statement);
         properties.setDatabase("apm");
         UUID appId = UUID.fromString("11111111-1111-4111-8111-111111111111");
         UUID other = UUID.fromString("22222222-2222-4222-8222-222222222222");
@@ -218,6 +220,21 @@ class ClickHouseCrashQueryIntegrationTests {
                 .filter(item -> "native-fp".equals(item.fingerprint())).findFirst().orElseThrow();
         assertEquals(2, nativeIssue.eventCount());
         assertEquals("native-tmp-v1", nativeIssue.fingerprintVersion());
+        // 同一 Native 事件经过两轮逐帧成功，混合集合与分母必须完全不变。
+        var nativeStateStore = new com.shanshui.apmserver.crash.internal.persistence.ClickHouseCrashStateStore(client, new ObjectMapper(), CrashTestSupport.queryProperties());
+        for (int round = 1; round <= 2; round++) {
+            nativeStateStore.publish(nativeRound(appId, "native-1", "10:30:00", round));
+            assertEquals(mixed, query.overview(appId, from, to, CrashQueryCommand.empty()).stats());
+            var issue = query.issues(appId, from, to, CrashQueryCommand.empty()).issues().stream()
+                    .filter(item -> "native-fp".equals(item.fingerprint())).findFirst().orElseThrow();
+            assertEquals(2, issue.eventCount());
+            assertEquals("native-tmp-v1", issue.fingerprintVersion());
+            assertEquals("temporary", issue.groupingKind());
+            var roundEvents = query.events(appId, "native-fp", from, to, CrashQueryCommand.empty()).events();
+            assertEquals(2, roundEvents.size());
+            assertEquals(round == 1 ? "pending" : "symbolicated", roundEvents.stream()
+                    .filter(item -> "native-1".equals(item.eventId())).findFirst().orElseThrow().symbolicationStatus());
+        }
         var nativeEvents = query.events(appId, "native-fp", from, to, CrashQueryCommand.empty()).events();
         assertEquals(List.of("native-2", "native-1"), nativeEvents.stream().map(item -> item.eventId()).toList());
         assertEquals(Instant.parse(DAY + "T11:40:00Z"), nativeEvents.getFirst().occurredAt());
@@ -239,6 +256,27 @@ class ClickHouseCrashQueryIntegrationTests {
         assertTrue(!actualSql.isBlank());
         String plan = client.execute("EXPLAIN PLAN actions=1 " + actualSql);
         assertTrue(!plan.contains("diagnostics_payload") && !plan.contains("stack_payload"));
+    }
+
+    /** 生成同一采集身份的两轮 Native 快照，不改变指纹或原始分母。 */
+    private com.shanshui.apmserver.crash.internal.domain.CrashState nativeRound(UUID app, String eventId, String time, int round) {
+        var occurred = Instant.parse(DAY + "T" + time + "Z");
+        var base = new com.shanshui.apmserver.crash.internal.domain.CrashState(app, eventId, "build-1", occurred,
+                0, "pending", "native_symbolication_deferred", "raw_native", "{}", "SIGSEGV", "native-fp",
+                "native-tmp-v1", "temporary", null, null, null, null, null, "a".repeat(64), "{}");
+        var source = new com.shanshui.apmserver.crash.api.NativeStack.Source("NATIVE_SO", UUID.fromString("33333333-3333-4333-8333-333333333333"), 1, "b".repeat(64));
+        var success = new com.shanshui.apmserver.crash.api.NativeStack.Resolution("symbolicated", null,
+                List.of(new com.shanshui.apmserver.crash.api.NativeStack.Inline("function", null, null, null)), source, source, occurred, null);
+        var pending = new com.shanshui.apmserver.crash.api.NativeStack.Resolution("pending", "missing_so", null, null, null, null, null);
+        var module = new com.shanshui.apmserver.crash.api.NativeCrash.Module("module", "lib.so", null, "arm64-v8a", "abcd");
+        var frames = List.of(new com.shanshui.apmserver.crash.api.NativeStack.Frame(0, "module", "0x1", null, null, success),
+                new com.shanshui.apmserver.crash.api.NativeStack.Frame(1, "module", "0x2", null, null, round == 1 ? pending : success));
+        var main = new com.shanshui.apmserver.crash.api.NativeStack("arm64-v8a", 1, null, true, null, null, List.of(module),
+                new com.shanshui.apmserver.crash.api.NativeStack.Backtrace("ok", null, false, null, frames), null);
+        var auxiliary = new com.shanshui.apmserver.crash.api.NativeCurrentAuxiliaryStacks(List.of(), List.of());
+        var candidate = new com.shanshui.apmserver.crash.internal.application.NativeSnapshotSummary(new ObjectMapper())
+                .summarize(base, main, auxiliary).state();
+        return com.shanshui.apmserver.crash.internal.persistence.CrashSymbolicationPublications.versioned(candidate, round);
     }
 
     /** 使用受控的大型合成诊断写入一个 Native 事件，重复提交保持相同摘要。 */

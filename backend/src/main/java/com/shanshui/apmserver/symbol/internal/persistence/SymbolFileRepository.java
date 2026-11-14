@@ -43,6 +43,13 @@ public interface SymbolFileRepository extends JpaRepository<SymbolFileEntity, UU
     Optional<SymbolFileEntity> nativeIdentity(@Param("appId") UUID appId, @Param("version") String version,
                                             @Param("abi") String abi, @Param("elf") String elf);
 
+    /** 读取租约登记期间锁定精确匹配的活动 SO。 */
+    @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_READ)
+    @Query("select s from SymbolFileEntity s where s.appId=:appId and s.appVersion=:version "
+            + "and s.symbolType='NATIVE_SO' and s.nativeAbi=:abi and s.elfBuildId=:elf and s.deletedAt is null")
+    Optional<SymbolFileEntity> lockNativeIdentity(@Param("appId") UUID appId, @Param("version") String version,
+                                                  @Param("abi") String abi, @Param("elf") String elf);
+
     /** 按服务端存储键查找当前引用。 */
     Optional<SymbolFileEntity> findByStorageKey(String storageKey);
 

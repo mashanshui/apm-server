@@ -12,5 +12,6 @@ public interface SymbolBuildIndex {
     record Build(
             /** 当前活动符号表身份。 */ UUID symbolId,
             /** 所属应用。 */ UUID appId,
-            /** 精确版本。 */ String appVersion) {}
+            /** 精确版本。 */ String appVersion,
+            /** MAPPING 或 NATIVE_SO。 */ String symbolType) {}
 }

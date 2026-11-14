@@ -45,6 +45,8 @@ public class NativeBatchService {
                 var unique = new TreeMap<String, NativeBatch.Candidate>();
                 try {
                 for (var entry : archive.entries()) {
+                    /** 在去重前检查每个显示名，避免重复身份绕过名称长度限制。 */
+                    String displayName = safeName(entry.name());
                     var elf = new ElfInspector().inspect(entry.path(), deadline);
                     /** 实际文件已受归档预算校验，摘要仍在有期限流中计算。 */
                     var digest = java.security.MessageDigest.getInstance("SHA-256");
@@ -58,7 +60,7 @@ public class NativeBatchService {
                         store.discard(staged);
                         if (!previous.staged().sha256().equals(staged.sha256())) throw new SymbolValidationException("SO_ARCHIVE_IDENTITY_CONFLICT", "归档内同一模块存在不同内容", 422);
                     } else {
-                        unique.put(key, new NativeBatch.Candidate(safeName(entry.name()), elf, staged, null));
+                        unique.put(key, new NativeBatch.Candidate(displayName, elf, staged, null));
                         if (unique.size() > 128) throw new SymbolValidationException("INVALID_SYMBOL_ARCHIVE", "SO 模块身份超过上限", 422);
                     }
                 }
@@ -113,10 +115,14 @@ public class NativeBatchService {
             throw new SymbolStoreUnavailableException(unknown);
         } finally { store.discard(zip); }
     }
-    /** 受限显示名称不作为路径；控制字符已由归档校验拒绝。 */
+    /** 显示名称不作为路径；过长时拒绝整批，不截断 Unicode 字符或文件后缀。 */
     private static String safeName(String name) {
+        /** 只取归档条目中的文件名，不使用其父目录作为保存路径。 */
         String value = name.substring(name.lastIndexOf('/') + 1);
-        return value.length() > 255 ? value.substring(0, 255) : value;
+        if (value.codePointCount(0, value.length()) > 255) {
+            throw new SymbolValidationException("INVALID_SYMBOL_ARCHIVE", "符号文件名不能超过 255 个字符", 422);
+        }
+        return value;
     }
     /** 统一单调期限，所有拷贝循环共同执行。 */
     private static void checkDeadline(long deadline) throws IOException {

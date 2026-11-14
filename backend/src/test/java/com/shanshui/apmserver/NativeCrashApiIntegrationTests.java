@@ -32,6 +32,7 @@ class NativeCrashApiIntegrationTests extends AppIngestApiTestSupport {
     /** HTTP 测试入口。 */ @Autowired private MockMvc mvc;
     /** 隔离内存事件存储。 */ @Autowired private InMemoryCrashRepository repository;
     /** 与真实接收器一致的 JSON 映射器。 */ @Autowired private ObjectMapper mapper;
+    /** 当前事件状态测试适配器。 */ @Autowired private com.shanshui.apmserver.crash.internal.persistence.InMemoryCrashStateStore states;
 
     /** 每个测试使用独立应用凭据和空事件集合。 */
     @BeforeEach
@@ -56,23 +57,147 @@ class NativeCrashApiIntegrationTests extends AppIngestApiTestSupport {
         mvc.perform(get("/api/v1/apps/" + appId() + "/crashes/events/native-one").session(session))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.crashKind").value("native"))
-                .andExpect(jsonPath("$.stack.format").value("raw_native"))
+                .andExpect(jsonPath("$.stack.format").value("native_stack"))
                 .andExpect(jsonPath("$.symbolicationReason").value("native_symbolication_deferred"))
+                .andExpect(jsonPath("$.nativeFrameCounts.pending").value(1))
+                .andExpect(jsonPath("$.stack.content.backtrace.frames[0].resolution.status").value("pending"))
+                .andExpect(jsonPath("$.stack.content.backtrace.frames[0].resolution.reason").value("native_symbolication_deferred"))
                 .andExpect(jsonPath("$.stack.content.signal.faultAddress").value("0x0"))
                 .andExpect(jsonPath("$.stack.content.registers.values.pc").value("0xffffffffffffffff"))
                 .andExpect(jsonPath("$.stack.content.modules[0].elfBuildId").value("abcdef12"))
                 .andExpect(jsonPath("$.diagnostics.nativeThreads.threads[0].systemTid").value(8))
                 .andExpect(jsonPath("$.diagnostics.nativeThreads.threads[0].backtrace.frames[0].relativePc").value("0x11"))
+                .andExpect(jsonPath("$.diagnostics.nativeThreads.threads[0].backtrace.frames[0].resolution.status").value("pending"))
                 .andExpect(jsonPath("$.diagnostics.otherThreads.threads[0].relationToCrash").value("unknown"))
+                .andExpect(jsonPath("$.diagnostics.otherThreads.threads[0].symbolicationStatus").value("not_applicable"))
                 .andExpect(jsonPath("$.diagnostics.otherThreads.threads[0].stack.content").isArray())
                 .andExpect(jsonPath("$.diagnostics.memory.javaHeapUsedBytes").value(0))
                 .andExpect(content().string(not(containsString("secret-value"))));
         // 原始 Native 辅助栈只存在于状态载荷，事实中的诊断元数据不重复保存帧。
         var stored = (CrashEvent) repository.findByEventId(appId(), "native-one").orElseThrow();
+        org.junit.jupiter.api.Assertions.assertEquals("raw_native", stored.state().stackFormat());
+        org.junit.jupiter.api.Assertions.assertEquals(0, stored.state().stateVersion());
         org.junit.jupiter.api.Assertions.assertFalse(stored.diagnosticsPayload().contains("relativePc"));
         org.junit.jupiter.api.Assertions.assertTrue(stored.state().threadStacksPayload().contains("0x11"));
         mvc.perform(get("/api/v1/apps/" + UUID.randomUUID() + "/crashes/events/native-one").session(session))
                 .andExpect(status().isNotFound());
+    }
+
+    /** 结构化主栈和辅助线程必须从同一版本返回，且成功主栈可与辅助等待共存。 */
+    @Test
+    void returnsStructuredNativeAndIndependentAuxiliaryState() throws Exception {
+        String event = nativeEvent("structured", System.currentTimeMillis(), "0x10", "0x0", "first");
+        mvc.perform(postBatch(event)).andExpect(status().isOk()).andExpect(jsonPath("$.accepted").value(1));
+        var base = states.current(appId(), "structured").orElseThrow();
+        var prepared = new com.shanshui.apmserver.crash.internal.application.NativeSnapshotPreparation(mapper).prepare(base);
+        var original = prepared.main();
+        var old = original.backtrace().frames().getFirst();
+        var source = new com.shanshui.apmserver.crash.api.NativeStack.Source("NATIVE_SO", UUID.randomUUID(), 1, "a".repeat(64));
+        var resolved = new com.shanshui.apmserver.crash.api.NativeStack.Resolution("symbolicated", null,
+                java.util.List.of(new com.shanshui.apmserver.crash.api.NativeStack.Inline("function", "source.cc", 7, null)),
+                source, source, java.time.Instant.now(), null);
+        var frame = new com.shanshui.apmserver.crash.api.NativeStack.Frame(old.index(), old.moduleId(), old.relativePc(), old.functionName(), old.functionOffset(), resolved);
+        var oldTrace = original.backtrace();
+        var trace = new com.shanshui.apmserver.crash.api.NativeStack.Backtrace(oldTrace.status(), oldTrace.reason(), oldTrace.truncated(), oldTrace.capturedAt(), java.util.List.of(frame));
+        var main = new com.shanshui.apmserver.crash.api.NativeStack(original.abi(), original.systemTid(), original.threadName(), original.mainThread(),
+                original.signal(), original.registers(), original.modules(), trace, original.javaStack());
+        var candidate = new com.shanshui.apmserver.crash.internal.application.NativeSnapshotSummary(mapper).summarize(base, main, prepared.auxiliary()).state();
+        states.publish(com.shanshui.apmserver.crash.internal.persistence.CrashSymbolicationPublications.versioned(candidate, 1));
+        // 同内容重试必须基于原始采集身份判断，不能覆盖已经还原的主栈。
+        mvc.perform(postBatch(event)).andExpect(status().isOk()).andExpect(jsonPath("$.duplicate").value(1));
+        mvc.perform(postBatch(event.replace("abcdef12", "abcdef13")))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.rejected").value(1))
+                .andExpect(jsonPath("$.errors[0].code").value("CRASH_CONTENT_CONFLICT"));
+        mvc.perform(postBatch(event.replace("0x10", "0x11")))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.rejected").value(1))
+                .andExpect(jsonPath("$.errors[0].code").value("CRASH_CONTENT_CONFLICT"));
+        mvc.perform(postBatch(event.replace("first", "different")))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.rejected").value(1))
+                .andExpect(jsonPath("$.errors[0].code").value("CRASH_CONTENT_CONFLICT"));
+        MockHttpSession session = login();
+        mvc.perform(get("/api/v1/apps/" + appId() + "/crashes/events/structured").session(session))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.stack.format").value("native_stack"))
+                .andExpect(jsonPath("$.symbolicationStatus").value("symbolicated"))
+                .andExpect(jsonPath("$.groupingKind").value("temporary"))
+                .andExpect(jsonPath("$.nativeFrameCounts.symbolicated").value(1))
+                .andExpect(jsonPath("$.nativeFrameCounts.pending").value(0))
+                .andExpect(jsonPath("$.symbolFileId").isEmpty())
+                .andExpect(jsonPath("$.stack.content.backtrace.frames[0].resolution.source.symbolFileId").value(source.symbolFileId().toString()))
+                .andExpect(jsonPath("$.stack.content.backtrace.frames[0].resolution.inline[0].line").value(7))
+                .andExpect(jsonPath("$.diagnostics.nativeThreads.threads[0].backtrace.frames[0].resolution.status").value("pending"))
+                .andExpect(jsonPath("$.diagnostics.otherThreads.threads[0].symbolicationStatus").value("not_applicable"));
+        mvc.perform(get("/api/v1/apps/" + appId() + "/crashes/issues/" + base.fingerprint() + "/events").session(session))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.events[0].symbolicationStatus").value("symbolicated"))
+                .andExpect(jsonPath("$.events[0].groupingKind").value("temporary"));
+        // 第二轮补齐辅助 Native 帧后仍以第一次采集的摘要判断重试。
+        var other = prepared.auxiliary().nativeThreads().getFirst();
+        var otherTrace = other.backtrace();
+        var otherOld = otherTrace.frames().getFirst();
+        var otherFrame = new com.shanshui.apmserver.crash.api.NativeStack.Frame(otherOld.index(), otherOld.moduleId(),
+                otherOld.relativePc(), otherOld.functionName(), otherOld.functionOffset(), resolved);
+        var otherUpdated = new com.shanshui.apmserver.crash.api.NativeStack.Backtrace(otherTrace.status(), otherTrace.reason(),
+                otherTrace.truncated(), otherTrace.capturedAt(), java.util.List.of(otherFrame));
+        var auxiliary = new com.shanshui.apmserver.crash.api.NativeCurrentAuxiliaryStacks(prepared.auxiliary().javaThreads(),
+                java.util.List.of(new com.shanshui.apmserver.crash.api.NativeCurrentAuxiliaryStacks.NativeThread(other.systemTid(), otherUpdated)));
+        var firstVersion = states.current(appId(), "structured").orElseThrow();
+        var second = new com.shanshui.apmserver.crash.internal.application.NativeSnapshotSummary(mapper)
+                .summarize(firstVersion, main, auxiliary).state();
+        states.publish(com.shanshui.apmserver.crash.internal.persistence.CrashSymbolicationPublications.versioned(second, 2));
+        mvc.perform(postBatch(event)).andExpect(status().isOk()).andExpect(jsonPath("$.duplicate").value(1));
+        for (String changed : java.util.List.of(event.replace("0x10", "0x11"), event.replace("abcdef12", "abcdef13"),
+                event.replace("first", "different"))) {
+            mvc.perform(postBatch(changed)).andExpect(status().isOk()).andExpect(jsonPath("$.rejected").value(1))
+                    .andExpect(jsonPath("$.errors[0].code").value("CRASH_CONTENT_CONFLICT"));
+        }
+        mvc.perform(get("/api/v1/apps/" + appId() + "/crashes/events/structured").session(session))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.fingerprint").value(base.fingerprint()))
+                .andExpect(jsonPath("$.diagnostics.nativeThreads.threads[0].backtrace.frames[0].resolution.status").value("symbolicated"));
+    }
+
+    /** 部分成功不能改变采集截断和合法零值，也不能虚构单份顶层来源。 */
+    @Test
+    void returnsPartiallyResolvedFramesWithIndependentCaptureState() throws Exception {
+        var event = (ObjectNode) mapper.readTree(nativeEvent("partial-native", System.currentTimeMillis(), "0x0", "0x0", "first"));
+        var capture = (ObjectNode) event.path("crash").path("nativeCrash").path("backtrace");
+        capture.put("truncated", true);
+        capture.put("status", "partial").put("reason", "count_limit");
+        ((tools.jackson.databind.node.ArrayNode) capture.path("frames")).add(mapper.createObjectNode()
+                .put("index", 1).put("moduleId", "module").put("relativePc", "0x0"));
+        mvc.perform(postBatch(mapper.writeValueAsString(event))).andExpect(status().isOk())
+                .andExpect(jsonPath("$.accepted").value(1));
+        var base = states.current(appId(), "partial-native").orElseThrow();
+        var prepared = new com.shanshui.apmserver.crash.internal.application.NativeSnapshotPreparation(mapper).prepare(base);
+        var original = prepared.main();
+        var old = original.backtrace().frames().getFirst();
+        var source = new com.shanshui.apmserver.crash.api.NativeStack.Source("NATIVE_SO", UUID.randomUUID(), 1, "b".repeat(64));
+        var resolved = new com.shanshui.apmserver.crash.api.NativeStack.Resolution("symbolicated", null,
+                java.util.List.of(new com.shanshui.apmserver.crash.api.NativeStack.Inline("function", null, null, null)),
+                source, source, java.time.Instant.now(), null);
+        var first = new com.shanshui.apmserver.crash.api.NativeStack.Frame(old.index(), old.moduleId(), old.relativePc(),
+                old.functionName(), old.functionOffset(), resolved);
+        var trace = original.backtrace();
+        var updated = new com.shanshui.apmserver.crash.api.NativeStack.Backtrace(trace.status(), trace.reason(), trace.truncated(),
+                trace.capturedAt(), java.util.List.of(first, trace.frames().get(1)));
+        var main = new com.shanshui.apmserver.crash.api.NativeStack(original.abi(), original.systemTid(), original.threadName(),
+                original.mainThread(), original.signal(), original.registers(), original.modules(), updated, original.javaStack());
+        var candidate = new com.shanshui.apmserver.crash.internal.application.NativeSnapshotSummary(mapper)
+                .summarize(base, main, prepared.auxiliary()).state();
+        states.publish(com.shanshui.apmserver.crash.internal.persistence.CrashSymbolicationPublications.versioned(candidate, 1));
+        mvc.perform(get("/api/v1/apps/" + appId() + "/crashes/events/partial-native").session(login()))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.stack.format").value("native_stack"))
+                .andExpect(jsonPath("$.symbolicationStatus").value("pending"))
+                .andExpect(jsonPath("$.groupingKind").value("temporary"))
+                .andExpect(jsonPath("$.nativeFrameCounts.symbolicated").value(1))
+                .andExpect(jsonPath("$.nativeFrameCounts.pending").value(1))
+                .andExpect(jsonPath("$.stack.content.backtrace.truncated").value(true))
+                .andExpect(jsonPath("$.stack.content.backtrace.status").value("partial"))
+                .andExpect(jsonPath("$.stack.content.backtrace.frames[0].resolution.inline[0].function").value("function"))
+                .andExpect(jsonPath("$.stack.content.backtrace.frames[0].resolution.inline[0].line").isEmpty())
+                .andExpect(jsonPath("$.stack.content.backtrace.frames[1].relativePc").value("0x0"))
+                .andExpect(jsonPath("$.stack.content.backtrace.frames[1].resolution.status").value("pending"))
+                .andExpect(jsonPath("$.stack.content.signal.faultAddress").value("0x0"))
+                .andExpect(jsonPath("$.diagnostics.memory.javaHeapUsedBytes").value(0))
+                .andExpect(jsonPath("$.symbolFileId").isEmpty());
     }
 
     /** 相同身份和内容可重试，已确认内容改变时不得覆盖。 */
@@ -98,6 +223,14 @@ class NativeCrashApiIntegrationTests extends AppIngestApiTestSupport {
     void rejectsForbiddenDumpFieldsBeforeBinding() throws Exception {
         String event = nativeEvent("dump", System.currentTimeMillis(), "0x0", "0x0", "first")
                 .replace("\"abi\":\"arm64-v8a\"", "\"stack\":\"raw-memory\",\"abi\":\"arm64-v8a\"");
+        mvc.perform(postBatch(event)).andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("INVALID_BATCH"));
+    }
+
+    /** 服务端还原状态不能由客户端作为采集字段提交。 */
+    @Test
+    void rejectsClientSubmittedNativeResolution() throws Exception {
+        String event = nativeEvent("injected-resolution", System.currentTimeMillis(), "0x0", "0x0", "first")
+                .replace("\"relativePc\":\"0xb884\"", "\"relativePc\":\"0xb884\",\"resolution\":{\"status\":\"symbolicated\"}");
         mvc.perform(postBatch(event)).andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("INVALID_BATCH"));
     }
 
@@ -182,6 +315,11 @@ class NativeCrashApiIntegrationTests extends AppIngestApiTestSupport {
         nativeCrash.set("modules", mapper.createArrayNode());
         nativeCrash.set("backtrace", mapper.readTree("{\"status\":\"unavailable\",\"reason\":\"io_error\",\"truncated\":false,\"frames\":[]}"));
         mvc.perform(postBatch(mapper.writeValueAsString(minimal))).andExpect(status().isOk()).andExpect(jsonPath("$.accepted").value(1));
+        mvc.perform(get("/api/v1/apps/" + appId() + "/crashes/events/minimal").session(login()))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.stack.format").value("native_stack"))
+                .andExpect(jsonPath("$.symbolicationStatus").value("pending"))
+                .andExpect(jsonPath("$.symbolicationReason").value("capture_stack_unavailable"))
+                .andExpect(jsonPath("$.nativeFrameCounts.pending").value(0));
         crash.set("throwableChain", mapper.readTree("[{\"type\":\"E\",\"frames\":[{\"className\":\"A\",\"methodName\":\"run\"}]}]"));
         mvc.perform(postBatch(mapper.writeValueAsString(minimal))).andExpect(status().isOk()).andExpect(jsonPath("$.rejected").value(1));
         String dangling = nativeEvent("dangling", System.currentTimeMillis(), "0x1", "0x0", "first")

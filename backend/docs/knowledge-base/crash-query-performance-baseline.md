@@ -16,6 +16,10 @@ Crash/app_start 只查 `apm_crash_fact FINAL`，按应用、发生时间 `[from,
 
 实际 SQL、计划及 query_log 输出至被忽略的 `backend/build/query-evidence/background-crash.txt`，运行 clean 后需重建。较早的按构建候选数字不适用于新版版本调度，不复用为容量结论。常规自动化默认跳过此性能用例；本次已显式运行。无匹配前页、重建执行器和常规唤醒不重置位置，由真实 PostgreSQL 的 105 条跨页用例覆盖；迟到事件与固定 publication 的故障恢复另有管理库测试。
 
+## Native 混合候选基线
+
+2026-11-13，隔离 ClickHouse 26.7.3.19 使用十万条混合 JVM/Native、四版本合成事件，每万条附加 128 KiB 诊断，执行 `RUN_NATIVE_BENCHMARK=true bash backend/gradlew -p backend test --tests '*NativeCrashQueryPerformanceTests'`。Native 最新状态先按版本、类型、时间和剩余工作筛选，轻量查询返回 100 条，实测读取 200010 行、11076622 字节，内存 13018538 字节，响应 13399 字节，单次 22 ms；读取列不含堆栈、辅助栈和诊断。前台概览与 Native 候选并行三轮通过；将响应预算降至 128 字节明确返回资源限制。完整 SQL、EXPLAIN 和 query_log 写入忽略的 `backend/build/query-evidence/native-crash.txt`，清理构建后需重建。该结果只描述本机有限规模和热缓存，不外推生产容量。
+
 ## 十万符号登记分页
 
 `VersionedSymbolMigrationTests` 在 PostgreSQL 16 写入 100000 条混合 mapping/SO，分布于 100 个版本。EXPLAIN ANALYZE 验证版本分页使用 `app_symbol_file_version_page_idx` 的 Index Scan，返回 51 项，样本执行约 0.153 ms、共享命中 54 块、无共享磁盘读取。完整原始计划在 `backend/build/query-evidence/versioned-symbol-list.json`；该结果不证明跨租户、冷缓存或生产并发能力。

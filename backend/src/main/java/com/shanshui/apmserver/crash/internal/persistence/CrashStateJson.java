@@ -22,8 +22,17 @@ public class CrashStateJson {
     /** 注入固定编解码器。 */
     public CrashStateJson(ObjectMapper mapper) { this.mapper = mapper; }
 
+    /** 校验 Native 快照沿同一采集身份单调演进。 */
+    void validateNativeTransition(CrashState base, CrashState candidate) {
+        new NativeStateTransition(mapper).validate(base, candidate);
+        encode(candidate);
+    }
+
     /** 为跨库发布登记提供确定的同字节载荷。 */
     public String encode(CrashState state) {
+        if ("native_stack".equals(state.stackFormat())) {
+            validateNativePayload(state.stackPayload(), state.threadStacksPayload(), state.status(), state.reason());
+        }
         // 插入顺序固定，发布器重试直接使用登记的原始 JSON 字节。
         Map<String, Object> row = new LinkedHashMap<>();
         row.put("app_id", state.appId());
@@ -46,11 +55,22 @@ public class CrashStateJson {
         row.put("retry_at", state.retryAt() == null ? null : time(state.retryAt()));
         row.put("capture_sha256", state.captureSha256());
         row.put("thread_stacks_payload", state.threadStacksPayload());
+        row.put("native_work_remaining", state.nativeWorkRemaining() ? 1 : 0);
         return mapper.writeValueAsString(row);
     }
 
     /** 强制使用当前模型构造校验，不吞掉非法状态。 */
     public CrashState decode(JsonNode row) {
+        if (row.has("native_work_remaining") && (!row.path("native_work_remaining").isIntegralNumber()
+                || row.path("native_work_remaining").asInt() < 0 || row.path("native_work_remaining").asInt() > 1)) {
+            throw new IllegalArgumentException("Native 剩余工作标记不合法");
+        }
+        // Native 结构化材料必须通过严格 DTO 校验，未知字段不能伪装成有效状态。
+        if ("native_stack".equals(row.path("stack_format").asText())) {
+            if (!row.has("native_work_remaining")) throw new IllegalArgumentException("Native 剩余工作标记缺失");
+            validateNativePayload(row.path("stack_payload").asText(), row.path("thread_stacks_payload").asText(""),
+                    row.path("symbolication_status").asText(), row.path("symbolication_reason").asText());
+        }
         return new CrashState(UUID.fromString(row.path("app_id").asText()), row.path("event_id").asText(),
                 row.path("build_id").asText(), parseTime(row.path("event_time").asText()), row.path("state_version").asLong(),
                 row.path("symbolication_status").asText(), nullableText(row, "symbolication_reason"),
@@ -59,7 +79,40 @@ public class CrashStateJson {
                 row.path("symbol_id").isNull() ? null : UUID.fromString(row.path("symbol_id").asText()),
                 row.path("symbol_revision").isNull() ? null : row.path("symbol_revision").asInt(),
                 nullableText(row, "symbol_sha256"), nullableTime(row, "processed_at"), nullableTime(row, "retry_at"),
-                row.path("capture_sha256").asText(""), row.path("thread_stacks_payload").asText(""));
+                row.path("capture_sha256").asText(""), row.path("thread_stacks_payload").asText(""),
+                row.has("native_work_remaining") ? row.path("native_work_remaining").asInt() == 1
+                        : "raw_native".equals(row.path("stack_format").asText()));
+    }
+
+    /** 写入和读取均校验同一完整 Native 状态，避免内存适配器放行损坏数据。 */
+    private void validateNativePayload(String payload, String auxiliary, String status, String reason) {
+        com.shanshui.apmserver.crash.api.NativeStack nativeStack = mapper.readerFor(com.shanshui.apmserver.crash.api.NativeStack.class)
+                .with(tools.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES).readValue(payload);
+        validateNativeSummary(nativeStack, status, reason);
+        if (auxiliary != null && !auxiliary.isEmpty()) {
+            com.shanshui.apmserver.crash.api.NativeCurrentAuxiliaryStacks stacks = mapper
+                    .readerFor(com.shanshui.apmserver.crash.api.NativeCurrentAuxiliaryStacks.class)
+                    .with(tools.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES).readValue(auxiliary);
+            for (var thread : stacks.nativeThreads()) {
+                com.shanshui.apmserver.crash.api.NativeStack.validateFrames(nativeStack.modules(), thread.backtrace());
+            }
+        }
+    }
+
+    /** 摘要只反映主物理帧；空栈和临时失败不能伪装成成功。 */
+    private static void validateNativeSummary(com.shanshui.apmserver.crash.api.NativeStack stack, String status, String reason) {
+        var frames = stack.backtrace().frames();
+        if (frames.isEmpty()) {
+            if (!"pending".equals(status) || !"capture_stack_unavailable".equals(reason)) {
+                throw new IllegalArgumentException("空 Native 主栈摘要无效");
+            }
+            return;
+        }
+        boolean allSuccess = frames.stream().allMatch(frame -> "symbolicated".equals(frame.resolution().status()));
+        boolean waiting = frames.stream().anyMatch(frame -> "pending".equals(frame.resolution().status())
+                || frame.resolution().retryAt() != null && !"symbolicated".equals(frame.resolution().status()));
+        String expected = allSuccess ? "symbolicated" : waiting ? "pending" : "failed";
+        if (!expected.equals(status)) throw new IllegalArgumentException("Native 主栈摘要与逐帧状态不一致");
     }
 
     /** 旧在途登记缺少新列时，按数据库默认空值比较全部状态，保留原始登记字节。 */

@@ -105,6 +105,8 @@ public class InMemoryCrashStateStore implements CrashStatePort {
     @Override
     public synchronized void publish(CrashState state) {
         available();
+        // 与数据库写入共用结构化 Native 状态校验，不能让内存适配器接受损坏结果。
+        if ("native_stack".equals(state.stackFormat())) codec.encode(state);
         String key = key(state.appId(), state.eventId());
         CrashState previous = states.get(key);
         if (previous == null || previous.stateVersion() < state.stateVersion()) states.put(key, state);
@@ -144,6 +146,39 @@ public class InMemoryCrashStateStore implements CrashStatePort {
         return candidates.stream().map(item -> current(appId, item.eventId()).orElse(null)).filter(java.util.Objects::nonNull)
                 .filter(state -> appVersion.equals(facts.get(key(appId, state.eventId())).metadata().appVersion()))
                 .filter(state -> !"symbolicated".equals(state.status()))
+                .map(state -> new CrashWorkItem(state, facts.get(key(appId, state.eventId())).metadata().packageName())).toList();
+    }
+
+    /** 仅选取保留期内有事实且仍有工作的 Native 最新状态。 */
+    @Override
+    public synchronized List<Candidate> nativeCandidatePage(UUID appId, String appVersion, Instant from, Instant now,
+                                                           Instant afterTime, String afterId, int limit) {
+        available();
+        if (limit < 1 || limit > 100 || from.isBefore(now.minusSeconds(30L * 86400)) || !from.isBefore(now)) {
+            throw new IllegalArgumentException("Native 候选范围超限");
+        }
+        return states.values().stream().filter(state -> state.appId().equals(appId) && state.nativeWorkRemaining())
+                .filter(state -> current(appId, state.eventId()).isPresent())
+                .filter(state -> "native".equals(facts.get(key(appId, state.eventId())).crashKind()))
+                .filter(state -> appVersion.equals(facts.get(key(appId, state.eventId())).metadata().appVersion()))
+                .filter(state -> !state.eventTime().isBefore(from) && state.eventTime().isBefore(now.plusSeconds(901)))
+                .filter(state -> afterTime == null || state.eventTime().isAfter(afterTime)
+                        || state.eventTime().equals(afterTime) && state.eventId().compareTo(afterId) > 0)
+                .sorted(Comparator.comparing(CrashState::eventTime).thenComparing(CrashState::eventId)).limit(limit)
+                .map(state -> new Candidate(state.eventId(), state.buildId(), state.eventTime(), state.status(), null, null, state.retryAt())).toList();
+    }
+
+    /** 加载指定身份时再次核对版本、原构建、发生时间和剩余工作。 */
+    @Override
+    public synchronized List<CrashWorkItem> nativePayloads(UUID appId, String appVersion, List<Candidate> candidates) {
+        available();
+        if (candidates.size() > 100) throw new IllegalArgumentException("Native 载荷数量超限");
+        return candidates.stream().map(item -> current(appId, item.eventId())
+                        .filter(state -> state.buildId().equals(item.buildId()) && state.eventTime().equals(item.eventTime())).orElse(null))
+                .filter(java.util.Objects::nonNull)
+                .filter(state -> state.nativeWorkRemaining() && !state.eventTime().isBefore(Instant.now().minusSeconds(30L * 86400)))
+                .filter(state -> "native".equals(facts.get(key(appId, state.eventId())).crashKind()))
+                .filter(state -> appVersion.equals(facts.get(key(appId, state.eventId())).metadata().appVersion()))
                 .map(state -> new CrashWorkItem(state, facts.get(key(appId, state.eventId())).metadata().packageName())).toList();
     }
 

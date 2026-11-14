@@ -21,6 +21,8 @@ public class SymbolProperties {
     private int maxConcurrentOperations = DEFAULT_MAX_CONCURRENT_OPERATIONS;
     /** 符号文件受控根目录。 */
     private String directory = "build/symbols";
+    /** Linux 资源限制启动器的绝对路径；未配置时不执行 Native 地址还原。 */
+    private String nativeLauncherPath = "";
 
     /** 返回单份 mapping 的最大字节数。 */
     public long getMaxFileBytes() {
@@ -60,5 +62,15 @@ public class SymbolProperties {
     /** 设置符号文件受控根目录。 */
     public void setDirectory(String directory) {
         this.directory = directory;
+    }
+
+    /** 返回 Native 工具资源限制启动器路径。 */
+    public String getNativeLauncherPath() {
+        return nativeLauncherPath;
+    }
+
+    /** 设置 Native 工具资源限制启动器路径。 */
+    public void setNativeLauncherPath(String nativeLauncherPath) {
+        this.nativeLauncherPath = nativeLauncherPath;
     }
 }

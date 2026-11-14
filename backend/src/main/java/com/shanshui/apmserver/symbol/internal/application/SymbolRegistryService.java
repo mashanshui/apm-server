@@ -3,9 +3,11 @@ package com.shanshui.apmserver.symbol.internal.application;
 import com.shanshui.apmserver.symbol.api.SymbolFileLease;
 import com.shanshui.apmserver.symbol.api.SymbolRegistry;
 import com.shanshui.apmserver.symbol.api.SymbolicationResult;
+import com.shanshui.apmserver.symbol.api.NativeSymbolicationResult;
 import com.shanshui.apmserver.symbol.internal.config.SymbolProperties;
 import com.shanshui.apmserver.symbol.internal.domain.SymbolFileEntity;
 import com.shanshui.apmserver.symbol.internal.retrace.R8RetraceEngine;
+import com.shanshui.apmserver.symbol.internal.retrace.NativeSymbolizer;
 import com.shanshui.apmserver.symbol.internal.storage.SymbolFileStore;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
@@ -33,17 +35,21 @@ public class SymbolRegistryService implements SymbolRegistry {
     private final long maxOutputBytes;
     /** 辅助线程专用单工作者，不增加共享解析许可。 */
     private final AuxiliaryRetraceExecutor auxiliary;
+    /** Native 解析进程及其资源门禁。 */
+    private final NativeSymbolizer nativeSymbolizer;
 
     /** 初始化共享资源许可。 */
     public SymbolRegistryService(SymbolManagementService managementService,
                                  SymbolFileStore fileStore,
                                  R8RetraceEngine retraceEngine,
                                  SymbolProperties properties,
-                                 SymbolOperationLimiter operationLimiter) {
+                                 SymbolOperationLimiter operationLimiter,
+                                 NativeSymbolizer nativeSymbolizer) {
         this.managementService = managementService;
         this.fileStore = fileStore;
         this.retraceEngine = retraceEngine;
         this.operationLimiter = operationLimiter;
+        this.nativeSymbolizer = nativeSymbolizer;
         this.maxOutputBytes = properties.getMaxOutputBytes();
         this.auxiliary = new AuxiliaryRetraceExecutor(operationLimiter, retraceEngine::retrace);
     }
@@ -68,6 +74,22 @@ public class SymbolRegistryService implements SymbolRegistry {
     @Override
     public Optional<SymbolFileLease> acquireVersioned(UUID appId, String appVersion, String buildId) {
         return managementService.acquireVersioned(appId, appVersion, buildId);
+    }
+
+    /** 固定精确匹配的 SO 修订，不按其他身份回退。 */
+    @Override
+    public Optional<SymbolFileLease> acquireNative(UUID appId, String appVersion, String abi, String elfBuildId) {
+        return managementService.acquireNative(appId, appVersion, abi, elfBuildId);
+    }
+
+    /** 将内部工具结果转换为符号域公共值，不暴露内部执行器。 */
+    @Override
+    public NativeSymbolicationResult symbolizeNative(SymbolFileLease lease, List<String> addresses, Duration budget) {
+        var result = nativeSymbolizer.symbolize(lease, addresses, budget);
+        var frames = new java.util.LinkedHashMap<String, NativeSymbolicationResult.Frame>();
+        result.frames().forEach((address, frame) -> frames.put(address, new NativeSymbolicationResult.Frame(
+                frame.inline().stream().map(item -> new NativeSymbolicationResult.Inline(item.function(), item.file(), item.line(), item.column())).toList(), frame.reason())));
+        return new NativeSymbolicationResult(java.util.Collections.unmodifiableMap(frames), result.reason());
     }
 
     /** 在共享许可内执行一次完整异常链还原。 */

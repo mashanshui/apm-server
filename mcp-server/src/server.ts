@@ -1,7 +1,7 @@
 import { createMcpHandler, McpServer } from '@modelcontextprotocol/server';
 import { z } from 'zod';
 import { ApmClient, ApmError, digest, isRecord } from './apm.js';
-import { validDiagnostics, validNativeCrash } from './crashDiagnostics.js';
+import { validDiagnostics, validNativeCurrent } from './crashDiagnostics.js';
 
 /** 输入参数全集；工具只领取实际支持的字段。 */
 const fields = {
@@ -201,10 +201,19 @@ function requireCurrentCrash(body: unknown): void {
       || typeof body.crashKind !== 'string' || typeof body.fatal !== 'boolean') return invalid();
   const stack = body.stack;
   if (body.crashKind === 'native') {
-    if (!body.fatal || body.symbolicationStatus !== 'pending' || body.groupingKind !== 'temporary'
-        || body.symbolicationReason !== 'native_symbolication_deferred' || stack.format !== 'raw_native'
-        || !validNativeCrash(stack.content) || body.symbolFileId != null || body.symbolFileRevision != null
-        || body.symbolFileSha256 != null || body.processedAt != null || !validDiagnostics(body.diagnostics, stack.content)) return invalid();
+    if (!body.fatal || body.groupingKind !== 'temporary' || body.symbolFileId != null || body.symbolFileRevision != null
+        || body.symbolFileSha256 != null) return invalid();
+    if (stack.format === 'native_stack') {
+      if (!validNativeCurrent(stack.content) || !validDiagnostics(body.diagnostics, stack.content)
+          || !isRecord(stack.content) || !isRecord(stack.content.backtrace) || !Array.isArray(stack.content.backtrace.frames)) return invalid();
+      const frames = stack.content.backtrace.frames;
+      const allSuccess = frames.length > 0 && frames.every(frame => isRecord(frame) && isRecord(frame.resolution) && frame.resolution.status === 'symbolicated');
+      const waiting = frames.some(frame => isRecord(frame) && isRecord(frame.resolution)
+        && (frame.resolution.status === 'pending' || frame.resolution.retryAt != null));
+      const expected = !frames.length || waiting ? 'pending' : allSuccess ? 'symbolicated' : 'failed';
+      if (body.symbolicationStatus !== expected || !frames.length && body.symbolicationReason !== 'capture_stack_unavailable'
+          || expected === 'symbolicated' && (typeof body.processedAt !== 'string' || !Number.isFinite(Date.parse(body.processedAt)))) return invalid();
+    } else return invalid();
     return;
   }
   if (body.crashKind !== 'jvm' || !body.fatal || !validDiagnostics(body.diagnostics)) return invalid();

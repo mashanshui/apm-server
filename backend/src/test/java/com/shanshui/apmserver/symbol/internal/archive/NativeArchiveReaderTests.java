@@ -23,10 +23,12 @@ class NativeArchiveReaderTests {
     /** 合法候选使用随机暂存路径，并在释放后清除。 */
     @Test
     void acceptsCandidatesAndCleansUp(@TempDir Path directory) throws IOException {
-        Path input = zip(directory, List.of("arm64/libsample.so", "__MACOSX/._libsample.so"));
+        Path input = zip(directory, List.of("arm64/libsample.so", "x86/libsample.so.sym", "x86_64/libsample.so.dbg", "__MACOSX/._libsample.so"));
         try (NativeArchive archive = reader().read(input, directory, deadline())) {
-            assertEquals(1, archive.entries().size());
+            assertEquals(List.of("arm64/libsample.so", "x86/libsample.so.sym", "x86_64/libsample.so.dbg"),
+                    archive.entries().stream().map(NativeArchive.Entry::name).toList());
             assertArrayEquals(new byte[]{1, 2, 3}, Files.readAllBytes(archive.entries().getFirst().path()));
+            assertArrayEquals(new byte[]{1, 2, 3}, Files.readAllBytes(archive.entries().getLast().path()));
         }
         assertClean(directory);
     }
@@ -57,12 +59,35 @@ class NativeArchiveReaderTests {
         assertClean(directory);
     }
 
+    /** 原始 AGP ZIP 不改名即可通过归档与 ELF 元数据校验。 */
+    @Test
+    void readsActualAgpSymbolArchive(@TempDir Path directory) throws IOException {
+        /** 由调用者显式提供实际构建产物，未提供时不得伪报通过。 */
+        String artifact = System.getenv("APM_AGP_NATIVE_ZIP");
+        org.junit.jupiter.api.Assumptions.assumeTrue(artifact != null && !artifact.isBlank(), "未提供 AGP Native 符号包");
+        /** 仅检查实际归档中存在的符号，不假定构建固定包含某个库。 */
+        var inspector = new com.shanshui.apmserver.symbol.internal.elf.ElfInspector();
+        try (NativeArchive archive = reader().read(Path.of(artifact), directory, deadline())) {
+            org.junit.jupiter.api.Assertions.assertFalse(archive.entries().isEmpty());
+            for (NativeArchive.Entry entry : archive.entries()) {
+                var metadata = inspector.inspect(entry.path());
+                org.junit.jupiter.api.Assertions.assertTrue(metadata.elfBuildId().matches("[0-9a-f]+"));
+                org.junit.jupiter.api.Assertions.assertTrue(metadata.functionSymbols() || metadata.debugInfo() || metadata.debugLine());
+            }
+        }
+        try (var files = Files.list(directory)) {
+            assertEquals(0, files.count());
+        }
+    }
+
     /** 路径穿越、链接、重复规范路径、嵌套归档及空候选全批失败。 */
     @Test
     void rejectsUnsafePathsAndLinks(@TempDir Path directory) throws IOException {
         for (List<String> names : List.of(List.of("../evil.so"), List.of("/absolute.so"), List.of("C:/evil.so"),
                 List.of("a\\\\b.so"), List.of("dir/", "dir"), List.of("nested.zip"), List.of(".DS_Store"),
-                List.of("first.so", "../invalid.so"))) {
+                List.of("first.so.sym", "../invalid.so.sym"), List.of("first.so.sym", "not-so.sym"),
+                List.of("first.so.sym", "forged.so.sym.txt"), List.of("first.so.dbg", "not-so.dbg"),
+                List.of("first.so.dbg", "forged.so.dbg.txt"))) {
             Path input = zip(directory, names);
             assertThrows(IOException.class, () -> reader().read(input, directory, deadline()));
             assertClean(directory);
@@ -82,7 +107,7 @@ class NativeArchiveReaderTests {
     /** 本地头、CRC、截止时间和中断导致失败时不能保留暂存。 */
     @Test
     void rejectsCorruptionAndInterrupt(@TempDir Path directory) throws IOException {
-        Path input = zip(directory, List.of("lib.so"));
+        Path input = zip(directory, List.of("lib.so.sym"));
         byte[] original = Files.readAllBytes(input);
         byte[] badName = original.clone();
         badName[30] = 'x';
@@ -113,7 +138,7 @@ class NativeArchiveReaderTests {
     void rejectsNestedArchiveEncryptionAndFakeSizes(@TempDir Path directory) throws IOException {
         Path input = directory.resolve("input.zip");
         try (ZipOutputStream zip = new ZipOutputStream(Files.newOutputStream(input))) {
-            zip.putNextEntry(new ZipEntry("disguised.so"));
+            zip.putNextEntry(new ZipEntry("disguised.so.sym"));
             zip.write(new byte[]{'P', 'K', 3, 4, 1, 2});
             zip.closeEntry();
         }
@@ -139,7 +164,7 @@ class NativeArchiveReaderTests {
     void rejectsCompressedBomb(@TempDir Path directory) throws IOException {
         Path input = directory.resolve("input.zip");
         try (ZipOutputStream zip = new ZipOutputStream(Files.newOutputStream(input))) {
-            zip.putNextEntry(new ZipEntry("bomb.so"));
+            zip.putNextEntry(new ZipEntry("bomb.so.sym"));
             byte[] buffer = new byte[8192];
             for (int index = 0; index < 16385; index++) zip.write(buffer);
             zip.closeEntry();

@@ -1,11 +1,24 @@
 import type { SymbolFileMetadata, SymbolFilePage, SymbolicationProgress, NativeExpected, NativeBatchResult } from '../types/symbol'
-import { pathSegment, requestJson } from './http'
+import { ApiError, pathSegment, requestJson } from './http'
+
+/** 校验 JVM 或 Native 版本进度，禁止把发布次数解释为事件数。 */
+function validProgress(value: unknown): value is SymbolicationProgress {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
+  const record = value as Record<string, unknown>
+  const count = (item: unknown) => typeof item === 'number' && Number.isSafeInteger(item) && item >= 0
+  if (record.crashKind === 'native') return ['queued', 'running', 'waiting_symbols', 'retry_wait', 'idle'].includes(String(record.state))
+    && count(record.publishedCount) && count(record.failedUnitCount)
+  return record.crashKind == null && ['queued', 'running', 'waiting_mapping', 'retry_wait', 'idle'].includes(String(record.state))
+    && count(record.succeededCount) && count(record.failedCount)
+}
 
 /** 符号表网页管理 API。 */
 export const symbolApi = {
   /** 仅查询本构建的管理记录，不扫描 Crash。 */
-  progress(appId: string, symbolId: string, signal?: AbortSignal) {
-    return requestJson<SymbolicationProgress>(`/api/v1/apps/${pathSegment(appId)}/symbols/${pathSegment(symbolId)}/crash-symbolication`, { signal })
+  async progress(appId: string, symbolId: string, signal?: AbortSignal) {
+    const result = await requestJson<unknown>(`/api/v1/apps/${pathSegment(appId)}/symbols/${pathSegment(symbolId)}/crash-symbolication`, { signal })
+    if (!validProgress(result)) throw new ApiError({ status: 502, code: 'PROTOCOL_INVALID', message: '符号进度响应格式不受支持。' })
+    return result
   },
   /** 删除时锁定用户确认的 revision。 */
   remove(appId: string, symbolId: string, expectedRevision: number, signal?: AbortSignal) {

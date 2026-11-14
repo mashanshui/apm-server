@@ -30,6 +30,23 @@ class ElfInspectorTests {
         }
     }
 
+    /** AGP FULL 的 only-keep-debug 文件仍需保留实际 ABI、完整身份及行号材料。 */
+    @Test
+    void readsAgpFullDebugFilesForFourAbis() throws IOException {
+        /** 夹具由 NDK 在独立临时目录生成。 */
+        Path root = fixtureDirectory();
+        for (String abi : List.of("armeabi-v7a", "arm64-v8a", "x86", "x86_64")) {
+            /** 只读解析真实调试文件，并与同构建完整 SO 的 Build ID 对照。 */
+            Path directory = root.resolve(abi);
+            ElfMetadata result = new ElfInspector().inspect(directory.resolve("libapm_fixture.so.dbg"));
+            assertEquals(abi, result.abi());
+            assertEquals(Files.readString(directory.resolve("build-id.txt")).strip(), result.elfBuildId());
+            assertTrue(result.functionSymbols());
+            assertTrue(result.debugInfo());
+            assertTrue(result.debugLine());
+        }
+    }
+
     /** 非 ELF、截断文件和溢出的段表偏移必须被拒绝。 */
     @Test
     void rejectsDamagedHeaders(@TempDir Path directory) throws IOException {

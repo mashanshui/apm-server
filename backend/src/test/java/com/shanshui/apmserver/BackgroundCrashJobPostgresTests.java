@@ -41,6 +41,175 @@ class BackgroundCrashJobPostgresTests {
     @Container
     private static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine");
 
+    /** 对账从已有 SO 创建 Native 工作，mapping 同时创建两种工作。 */
+    @Test
+    void reconcilesExistingNativeAndMappingSources() {
+        String schema = "native_reconcile_" + UUID.randomUUID().toString().replace("-", "");
+        Flyway.configure().dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
+                .schemas(schema).defaultSchema(schema).load().migrate();
+        var source = new DriverManagerDataSource(POSTGRES.getJdbcUrl() + (POSTGRES.getJdbcUrl().contains("?") ? "&" : "?") + "currentSchema=" + schema,
+                POSTGRES.getUsername(), POSTGRES.getPassword());
+        var jdbc = new JdbcTemplate(source);
+        var manager = new DataSourceTransactionManager(source);
+        var jobs = new CrashSymbolicationJobs(jdbc, manager);
+        UUID user = UUID.randomUUID(), app = UUID.randomUUID();
+        jdbc.update("INSERT INTO apm_user VALUES (?,'native-reconcile@example.invalid','对账测试','unused','ACTIVE',clock_timestamp(),clock_timestamp())", user);
+        jdbc.update("INSERT INTO apm_app VALUES (?,'com.example.reconcile','对账测试',NULL,?,clock_timestamp(),clock_timestamp())", app, user);
+        jdbc.update("INSERT INTO app_symbol_file(symbol_id,app_id,app_version,build_id,revision,storage_key,original_filename,size_bytes,sha256,uploaded_by,uploaded_at,updated_at) VALUES (?,?,'mapping-only',NULL,1,'mapping-key','mapping.txt',10,?,?,clock_timestamp(),clock_timestamp())", UUID.randomUUID(), app, "a".repeat(64), user);
+        jdbc.update("INSERT INTO app_symbol_file(symbol_id,app_id,app_version,build_id,revision,storage_key,original_filename,size_bytes,sha256,uploaded_by,uploaded_at,updated_at,symbol_type,native_abi,elf_build_id,has_function_symbols,has_debug_info,has_debug_line) VALUES (?,?,'so-only',NULL,1,'so-key','lib.so',10,?,?,clock_timestamp(),clock_timestamp(),'NATIVE_SO','arm64-v8a','abcd',true,false,false)", UUID.randomUUID(), app, "b".repeat(64), user);
+        new CrashSymbolicationReconciler(new SymbolBuildIndexRepository(jdbc), jobs, jdbc, manager).reconcilePage();
+        assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM crash_symbolication_job WHERE app_version='so-only' AND crash_kind='native'", Integer.class));
+        assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM crash_symbolication_job WHERE app_version='so-only' AND crash_kind='jvm'", Integer.class));
+        assertEquals(2, jdbc.queryForObject("SELECT count(*) FROM crash_symbolication_job WHERE app_version='mapping-only'", Integer.class));
+    }
+
+    /** Native 多轮登记必须重放未确认字节、拒绝旧版本并固定首次成功。 */
+    @Test
+    void publishesNativeSnapshotsMonotonicallyAndCountsConfirmationOnce() {
+        String schema = "native_publication_" + UUID.randomUUID().toString().replace("-", "");
+        Flyway.configure().dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
+                .schemas(schema).defaultSchema(schema).load().migrate();
+        var source = new DriverManagerDataSource(POSTGRES.getJdbcUrl() + (POSTGRES.getJdbcUrl().contains("?") ? "&" : "?") + "currentSchema=" + schema,
+                POSTGRES.getUsername(), POSTGRES.getPassword());
+        var jdbc = new JdbcTemplate(source);
+        var manager = new DataSourceTransactionManager(source);
+        var jobs = new CrashSymbolicationJobs(jdbc, manager);
+        var mapper = new ObjectMapper();
+        var codec = new CrashStateJson(mapper);
+        var states = mock(CrashStatePort.class);
+        var current = new java.util.concurrent.atomic.AtomicReference<CrashState>();
+        when(states.current(any(), anyString())).thenAnswer(call -> Optional.ofNullable(current.get()));
+        doAnswer(call -> { current.set(codec.decode(mapper.readTree((String) call.getArgument(0)))); return null; }).when(states).replay(anyString());
+        var publications = new CrashSymbolicationPublications(jdbc, jobs, states, codec, manager, 1, 16777216);
+        UUID user = UUID.randomUUID(), app = UUID.randomUUID();
+        jdbc.update("INSERT INTO apm_user VALUES (?,'native-pub@example.invalid','发布测试','unused','ACTIVE',clock_timestamp(),clock_timestamp())", user);
+        jdbc.update("INSERT INTO apm_app VALUES (?,'com.example.nativepub','发布测试',NULL,?,clock_timestamp(),clock_timestamp())", app, user);
+        jobs.wakeNative(app, "1");
+        var lease = jobs.claimNative(UUID.randomUUID(), Duration.ofMinutes(1)).orElseThrow();
+        Instant now = Instant.now().truncatedTo(ChronoUnit.MILLIS);
+        var module = new com.shanshui.apmserver.crash.api.NativeCrash.Module("m", "lib.so", null, "arm64-v8a", "abcd");
+        var rawFrame = new com.shanshui.apmserver.crash.api.NativeCrash.Frame(0, "m", "0x1", null, null);
+        var secondRawFrame = new com.shanshui.apmserver.crash.api.NativeCrash.Frame(1, "m", "0x2", null, null);
+        var raw = new com.shanshui.apmserver.crash.api.NativeCrash("arm64-v8a", 1, null, true, null, null, java.util.List.of(module),
+                new com.shanshui.apmserver.crash.api.NativeCrash.Backtrace("ok", null, false, 1L, java.util.List.of(rawFrame, secondRawFrame)), null);
+        var base = new CrashState(app, "event", "build", now, 0, "pending", "native_symbolication_deferred", "raw_native",
+                mapper.writeValueAsString(raw), "SIGSEGV", "fp", "native-tmp-v1", "temporary", null, null, null, null, null, "a".repeat(64), "");
+        var pending = new com.shanshui.apmserver.crash.api.NativeStack.Resolution("pending", "missing_so", null, null, null, null, null);
+        var candidate = nativeSnapshot(mapper, base, module, pending, "pending", "missing_so", null);
+        current.set(base);
+        var first = publications.registerNative(lease, base, candidate, 0).orElseThrow();
+        assertEquals(first.payload(), publications.registerNative(lease, base, candidate, 4).orElseThrow().payload());
+        assertEquals(first.payload(), publications.pendingNative(lease, 10).getFirst().payload());
+        // 另一事件达到在途上限时不能挤掉已登记的完整快照。
+        var other = new CrashState(app, "other", "build", now, 0, "pending", "native_symbolication_deferred", "raw_native",
+                base.stackPayload(), base.exceptionType(), base.fingerprint(), base.fingerprintVersion(), base.groupingKind(),
+                null, null, null, null, null, base.captureSha256(), "");
+        current.set(other);
+        var otherCandidate = nativeSnapshot(mapper, other, module, pending, "pending", "missing_so", null);
+        assertThrows(EventStoreUnavailableException.class, () -> publications.registerNative(lease, other, otherCandidate, 0));
+        current.set(base);
+        assertTrue(publications.publish(lease, first));
+        assertFalse(publications.publish(lease, first));
+        assertEquals(1, jobs.nativeProgress(app, "1").publishedCount());
+        var fixed = current.get();
+        assertTrue(publications.registerNative(lease, base, candidate, 0).isEmpty());
+        assertTrue(publications.registerNative(lease, fixed, fixed, 0).isEmpty());
+        var sourceInfo = new com.shanshui.apmserver.crash.api.NativeStack.Source("NATIVE_SO", UUID.randomUUID(), 1, "b".repeat(64));
+        var resolved = new com.shanshui.apmserver.crash.api.NativeStack.Resolution("symbolicated", null,
+                java.util.List.of(new com.shanshui.apmserver.crash.api.NativeStack.Inline("f", "a.cc", 1, null)), sourceInfo, sourceInfo, now, null);
+        var success = nativeSnapshot(mapper, fixed, module, resolved, "pending", "missing_so", now);
+        var second = publications.registerNative(lease, fixed, success, 2).orElseThrow();
+        assertTrue(publications.publish(lease, second));
+        assertEquals(2, jobs.nativeProgress(app, "1").publishedCount());
+        assertEquals(2, jobs.nativeProgress(app, "1").failedUnitCount());
+        var partial = current.get();
+        var complete = nativeSnapshot(mapper, partial, module, resolved, resolved, "symbolicated", null, now);
+        var third = publications.registerNative(lease, partial, complete, 0).orElseThrow();
+        assertTrue(publications.publish(lease, third));
+        assertEquals(3, jobs.nativeProgress(app, "1").publishedCount());
+        var finalState = current.get();
+        var lateFailure = nativeSnapshot(mapper, finalState, module, pending, "pending", "missing_so", null);
+        assertThrows(IllegalArgumentException.class, () -> publications.registerNative(lease, finalState, lateFailure, 1));
+        jdbc.update("UPDATE crash_symbolication_job SET lease_expires_at=clock_timestamp()-interval '1 second' WHERE job_id=?", lease.jobId());
+        assertTrue(publications.registerNative(lease, finalState, finalState, 0).isEmpty());
+    }
+
+    /** 使用固定原物理帧构造一份 Native 当前快照。 */
+    private static CrashState nativeSnapshot(ObjectMapper mapper, CrashState base,
+            com.shanshui.apmserver.crash.api.NativeCrash.Module module,
+            com.shanshui.apmserver.crash.api.NativeStack.Resolution resolution, String status, String reason, Instant processedAt) {
+        var pending = new com.shanshui.apmserver.crash.api.NativeStack.Resolution("pending", "missing_so", null, null, null, null, null);
+        return nativeSnapshot(mapper, base, module, resolution, pending, status, reason, processedAt);
+    }
+
+    /** 两个物理帧可在不同轮次分别固定成功。 */
+    private static CrashState nativeSnapshot(ObjectMapper mapper, CrashState base,
+            com.shanshui.apmserver.crash.api.NativeCrash.Module module,
+            com.shanshui.apmserver.crash.api.NativeStack.Resolution first,
+            com.shanshui.apmserver.crash.api.NativeStack.Resolution second, String status, String reason, Instant processedAt) {
+        var frame = new com.shanshui.apmserver.crash.api.NativeStack.Frame(0, "m", "0x1", null, null, first);
+        var secondFrame = new com.shanshui.apmserver.crash.api.NativeStack.Frame(1, "m", "0x2", null, null, second);
+        var stack = new com.shanshui.apmserver.crash.api.NativeStack("arm64-v8a", 1, null, true, null, null, java.util.List.of(module),
+                new com.shanshui.apmserver.crash.api.NativeStack.Backtrace("ok", null, false, 1L, java.util.List.of(frame, secondFrame)), null);
+        return new CrashState(base.appId(), base.eventId(), base.buildId(), base.eventTime(), base.stateVersion(), status, reason,
+                "native_stack", mapper.writeValueAsString(stack), base.exceptionType(), base.fingerprint(), base.fingerprintVersion(),
+                base.groupingKind(), null, null, null, processedAt, null, base.captureSha256(), "", true);
+    }
+
+    /** 两种 Crash 类型共享全局领取门禁，但通知、进度和租约各自隔离。 */
+    @Test
+    void isolatesNativeWorkAndRejectsStaleLeases() {
+        String schema = "kind_" + UUID.randomUUID().toString().replace("-", "");
+        Flyway.configure().dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
+                .schemas(schema).defaultSchema(schema).load().migrate();
+        var source = new DriverManagerDataSource(POSTGRES.getJdbcUrl() + (POSTGRES.getJdbcUrl().contains("?") ? "&" : "?") + "currentSchema=" + schema,
+                POSTGRES.getUsername(), POSTGRES.getPassword());
+        var jdbc = new JdbcTemplate(source);
+        var jobs = new CrashSymbolicationJobs(jdbc, new DataSourceTransactionManager(source));
+        UUID user = UUID.randomUUID(), app = UUID.randomUUID(), owner = UUID.randomUUID();
+        jdbc.update("INSERT INTO apm_user VALUES (?,'kind@example.invalid','类型测试','unused','ACTIVE',clock_timestamp(),clock_timestamp())", user);
+        jdbc.update("INSERT INTO apm_app VALUES (?,'com.example.kind','类型测试',NULL,?,clock_timestamp(),clock_timestamp())", app, user);
+        jobs.wake(app, "1");
+        jobs.wakeNative(app, "1");
+        // 两类型同时竞争时，全局门禁只允许一个有效在途租约。
+        var barrier = new java.util.concurrent.CyclicBarrier(2);
+        try (var workers = java.util.concurrent.Executors.newFixedThreadPool(2)) {
+            var jvmClaim = workers.submit(() -> { barrier.await(); return jobs.claim(owner, Duration.ofMinutes(1)); });
+            var nativeClaim = workers.submit(() -> { barrier.await(); return jobs.claimNative(owner, Duration.ofMinutes(1)); });
+            var first = jvmClaim.get(5, java.util.concurrent.TimeUnit.SECONDS);
+            var second = nativeClaim.get(5, java.util.concurrent.TimeUnit.SECONDS);
+            assertNotEquals(first.isPresent(), second.isPresent());
+            assertTrue(jobs.release(first.orElseGet(second::orElseThrow), "queued", null, Duration.ZERO));
+        } catch (Exception failure) {
+            throw new AssertionError("并发领取测试失败", failure);
+        }
+        var jvm = jobs.claim(owner, Duration.ofMinutes(1)).orElseThrow();
+        assertTrue(jobs.claimNative(owner, Duration.ofMinutes(1)).isEmpty());
+        assertTrue(jobs.count(jvm, true));
+        assertTrue(jobs.release(jvm, "idle", null, Duration.ZERO));
+        var nativeLease = jobs.claimNative(owner, Duration.ofMinutes(1)).orElseThrow();
+        assertEquals("native", nativeLease.crashKind());
+        assertTrue(jobs.claim(owner, Duration.ofMinutes(1)).isEmpty());
+        assertTrue(jobs.countNative(nativeLease, 2, 3));
+        jobs.wakeNative(app, "1");
+        assertTrue(jobs.release(nativeLease, "idle", null, Duration.ZERO));
+        assertEquals("queued", jobs.nativeProgress(app, "1").state());
+        assertEquals(2, jobs.nativeProgress(app, "1").publishedCount());
+        assertEquals(3, jobs.nativeProgress(app, "1").failedUnitCount());
+        assertEquals(1, jobs.progress(app, "1").succeededCount());
+        var next = jobs.claimNative(owner, Duration.ofMinutes(1)).orElseThrow();
+        jdbc.update("UPDATE crash_symbolication_job SET lease_expires_at=clock_timestamp()-interval '1 second' WHERE job_id=?", next.jobId());
+        var recovered = jobs.claimNative(owner, Duration.ofMinutes(1)).orElseThrow();
+        assertFalse(jobs.countNative(next, 1, 0));
+        assertTrue(jobs.release(recovered, "waiting_symbols", "missing", Duration.ZERO));
+        jdbc.update("UPDATE crash_symbolication_job SET updated_at=clock_timestamp()-interval '36 days' WHERE job_id=?", recovered.jobId());
+        assertEquals(1, jobs.cleanupExpired());
+        jobs.wakeNative(app, "1");
+        var rebuilt = jobs.claimNative(owner, Duration.ofMinutes(1)).orElseThrow();
+        assertNotEquals(recovered.jobId(), rebuilt.jobId());
+        assertFalse(jobs.renew(recovered, Duration.ofMinutes(1)));
+    }
+
     /** 任务不因重复通知无限增长，等待无 mapping 的构建不空转。 */
     @Test
     void coalescesWakeupsAndRecoversExpiredLeasesWithoutLosingNotifications() {
@@ -109,16 +278,19 @@ class BackgroundCrashJobPostgresTests {
         }
         CrashSymbolicationReconciler reconciler = new CrashSymbolicationReconciler(new SymbolBuildIndexRepository(jdbc), jobs, jdbc, manager);
         reconciler.reconcilePage();
-        assertEquals(101, jdbc.queryForObject("SELECT count(*) FROM crash_symbolication_job", Integer.class));
+        assertEquals(101, jdbc.queryForObject("SELECT count(*) FROM crash_symbolication_job WHERE crash_kind='jvm'", Integer.class));
+        assertEquals(100, jdbc.queryForObject("SELECT count(*) FROM crash_symbolication_job WHERE crash_kind='native'", Integer.class));
         assertEquals(new UUID(0, 100), jdbc.queryForObject("SELECT after_symbol_id FROM crash_symbolication_reconcile", UUID.class));
         new CrashSymbolicationReconciler(new SymbolBuildIndexRepository(jdbc), jobs, jdbc, manager).reconcilePage();
-        assertEquals(106, jdbc.queryForObject("SELECT count(*) FROM crash_symbolication_job", Integer.class));
+        assertEquals(106, jdbc.queryForObject("SELECT count(*) FROM crash_symbolication_job WHERE crash_kind='jvm'", Integer.class));
+        assertEquals(105, jdbc.queryForObject("SELECT count(*) FROM crash_symbolication_job WHERE crash_kind='native'", Integer.class));
         assertNull(jdbc.queryForObject("SELECT after_symbol_id FROM crash_symbolication_reconcile", UUID.class));
         // 映射删除后的任务可到期；未确认发布、有效租约和保留期内工作均不提前清理。
-        jdbc.update("UPDATE crash_symbolication_job SET updated_at=clock_timestamp()-interval '36 days' WHERE app_version='mapped-105'");
+        jdbc.update("UPDATE crash_symbolication_job SET updated_at=clock_timestamp()-interval '36 days' WHERE app_version='mapped-105' AND crash_kind='jvm'");
         assertEquals(1, jobs.cleanupExpired());
         // 任务被清理重建后，即使 owner 和代次再次相同，旧 jobId 也不能命中新租约。
-        jdbc.update("UPDATE crash_symbolication_job SET state='waiting_mapping' WHERE lease_owner IS NULL");
+        jdbc.update("UPDATE crash_symbolication_job SET state='waiting_mapping' WHERE lease_owner IS NULL AND crash_kind='jvm'");
+        jdbc.update("UPDATE crash_symbolication_job SET state='waiting_symbols' WHERE lease_owner IS NULL AND crash_kind='native'");
         jdbc.update("DELETE FROM crash_symbolication_job WHERE app_id=? AND app_version='build'", app);
         jobs.wake(app, "build");
         var rebuilt = jobs.claim(owner, Duration.ofMinutes(1)).orElseThrow();

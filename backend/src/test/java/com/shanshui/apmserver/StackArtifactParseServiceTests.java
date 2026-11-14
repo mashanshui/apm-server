@@ -203,6 +203,14 @@ class StackArtifactParseServiceTests {
     @Test
     void distinguishesMissingMappingFromRegistryFailure() throws Exception {
         SymbolRegistry missing = new SymbolRegistry() {
+            /** 当前测试不使用 Native SO。 */
+            @Override public Optional<SymbolFileLease> acquireNative(UUID appId, String appVersion, String abi, String elfBuildId) {
+                throw new UnsupportedOperationException();
+            }
+            /** 当前测试不执行 Native 地址还原。 */
+            @Override public com.shanshui.apmserver.symbol.api.NativeSymbolicationResult symbolizeNative(SymbolFileLease lease, java.util.List<String> addresses, java.time.Duration budget) {
+                throw new UnsupportedOperationException();
+            }
             /** 测试仅声明存在版本来源。 */
             public boolean hasVersion(UUID appId, String version) { return true; }
             /** 测试替身复用固定来源行为，真实选优由数据库测试覆盖。 */
@@ -235,6 +243,14 @@ class StackArtifactParseServiceTests {
                 .orElseThrow().symbolicationStatus());
 
         SymbolRegistry unavailable = new SymbolRegistry() {
+            /** 当前测试不使用 Native SO。 */
+            @Override public Optional<SymbolFileLease> acquireNative(UUID appId, String appVersion, String abi, String elfBuildId) {
+                throw new UnsupportedOperationException();
+            }
+            /** 当前测试不执行 Native 地址还原。 */
+            @Override public com.shanshui.apmserver.symbol.api.NativeSymbolicationResult symbolizeNative(SymbolFileLease lease, java.util.List<String> addresses, java.time.Duration budget) {
+                throw new UnsupportedOperationException();
+            }
             /** 测试仅声明存在版本来源。 */
             public boolean hasVersion(UUID appId, String version) { return true; }
             /** 测试替身复用固定来源行为，真实选优由数据库测试覆盖。 */
@@ -449,6 +465,14 @@ class StackArtifactParseServiceTests {
     /** 创建固定版本租约的统一注册表测试替身。 */
     private SymbolRegistry registry(Path mapping, AtomicInteger closed, boolean available) {
         return new SymbolRegistry() {
+            /** 当前测试不使用 Native SO。 */
+            @Override public Optional<SymbolFileLease> acquireNative(UUID appId, String appVersion, String abi, String elfBuildId) {
+                throw new UnsupportedOperationException();
+            }
+            /** 当前测试不执行 Native 地址还原。 */
+            @Override public com.shanshui.apmserver.symbol.api.NativeSymbolicationResult symbolizeNative(SymbolFileLease lease, java.util.List<String> addresses, java.time.Duration budget) {
+                throw new UnsupportedOperationException();
+            }
             /** 测试仅声明存在版本来源。 */
             public boolean hasVersion(UUID appId, String version) { return true; }
             /** 测试替身复用固定来源行为，真实选优由数据库测试覆盖。 */

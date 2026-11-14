@@ -19,8 +19,8 @@ public class SymbolBuildIndexRepository implements SymbolBuildIndex {
     @Override
     public List<Build> activeAfter(UUID afterSymbolId, int limit) {
         if (limit < 1 || limit > 100) throw new IllegalArgumentException("版本对账批次超限");
-        return jdbc.query("SELECT symbol_id,app_id,app_version FROM app_symbol_file WHERE deleted_at IS NULL AND symbol_type='MAPPING' AND app_version IS NOT NULL AND (?::uuid IS NULL OR symbol_id>?::uuid) ORDER BY symbol_id LIMIT ?",
-                (row, number) -> new Build(row.getObject("symbol_id", UUID.class), row.getObject("app_id", UUID.class), row.getString("app_version")),
+        return jdbc.query("SELECT symbol_id,app_id,app_version,symbol_type FROM app_symbol_file WHERE deleted_at IS NULL AND symbol_type IN ('MAPPING','NATIVE_SO') AND app_version IS NOT NULL AND (?::uuid IS NULL OR symbol_id>?::uuid) ORDER BY symbol_id LIMIT ?",
+                (row, number) -> new Build(row.getObject("symbol_id", UUID.class), row.getObject("app_id", UUID.class), row.getString("app_version"), row.getString("symbol_type")),
                 afterSymbolId, afterSymbolId, limit);
     }
 }

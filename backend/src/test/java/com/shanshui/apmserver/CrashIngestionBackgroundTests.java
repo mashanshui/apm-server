@@ -19,7 +19,7 @@ import static org.mockito.Mockito.*;
 
 /** 接收确认与后台通知分开：没有确认不能假成功，通知失败不能推翻已确认数据。 */
 class CrashIngestionBackgroundTests {
-    /** Native 接收和重试都不查询 mapping，也不会唤醒 JVM 后台任务。 */
+    /** Native 接收和重试通知 Native 工作，不查询 mapping 或唤醒 JVM 工作。 */
     @Test
     void nativeIngestionDoesNotConsultJvmSymbolRegistry() {
         var properties = CrashTestSupport.ingestProperties();
@@ -40,7 +40,9 @@ class CrashIngestionBackgroundTests {
         UUID app = UUID.randomUUID();
         assertEquals(1, processor.ingest(app, event, Instant.now()).appendResult().accepted());
         assertEquals(1, processor.ingest(app, event, Instant.now()).appendResult().duplicate());
-        verifyNoInteractions(work, symbols);
+        verify(work, times(2)).wakeNative(app, event.appVersion());
+        verifyNoMoreInteractions(work);
+        verifyNoInteractions(symbols);
         assertTrue(store.candidates(app, event.buildId(), UUID.randomUUID(), 1,
                 Instant.now().minusSeconds(86400), Instant.now(), 100).isEmpty());
         assertEquals("raw_native", store.current(app, event.eventId()).orElseThrow().stackFormat());
@@ -50,7 +52,8 @@ class CrashIngestionBackgroundTests {
         var rejected = new CrashEventProcessor(new CrashEventValidator(properties, CrashTestSupport.objectMapper()),
                 new CrashSanitizer(properties), new CrashFingerprintService(), unavailable, CrashTestSupport.objectMapper(), work, symbols);
         assertThrows(EventStoreUnavailableException.class, () -> rejected.ingest(app, event, Instant.now()));
-        verifyNoInteractions(work, symbols);
+        verifyNoMoreInteractions(work);
+        verifyNoInteractions(symbols);
     }
 
     /** 已有 mapping 也只保存 pending；重复原事件与失败通知均不执行 R8。 */

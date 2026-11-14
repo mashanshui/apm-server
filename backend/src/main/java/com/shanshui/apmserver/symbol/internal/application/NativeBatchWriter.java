@@ -20,9 +20,12 @@ public class NativeBatchWriter {
     private final SymbolFileRepository files;
     /** 追加式审计。 */
     private final SymbolAuditRepository audits;
+    /** SO 元数据和 Native 唤醒共用同一事务。 */
+    private final com.shanshui.apmserver.crash.api.CrashSymbolicationWork work;
     /** 注入共享管理库事务资源。 */
-    public NativeBatchWriter(JdbcTemplate jdbc, SymbolFileRepository files, SymbolAuditRepository audits) {
-        this.jdbc = jdbc; this.files = files; this.audits = audits;
+    public NativeBatchWriter(JdbcTemplate jdbc, SymbolFileRepository files, SymbolAuditRepository audits,
+                             com.shanshui.apmserver.crash.api.CrashSymbolicationWork work) {
+        this.jdbc = jdbc; this.files = files; this.audits = audits; this.work = work;
     }
     /** 所有预期条件校验完成后才写入，任一冲突整体回滚。 */
     @Transactional
@@ -102,6 +105,7 @@ public class NativeBatchWriter {
                     entity.getRevision(), entity.getSha256(), user, now, "UPSERT");
             audit.identify(entity); audits.saveAndFlush(audit); items.add(entity.metadata());
         }
+        work.wakeNative(app, version);
         return new Commit(new NativeBatch.Result(List.copyOf(items), created, replaced, unchanged), List.copyOf(retired));
     }
     /** 短事务各阶段复核统一期限，超时使整批回滚。 */

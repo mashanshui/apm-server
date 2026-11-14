@@ -45,6 +45,7 @@ function symbolicationReason(reason: string | null): string {
     parser_busy: '符号解析资源繁忙，请稍后刷新',
     retrace_failed: 'R8 Retrace 未能完成本次还原',
     output_limit: '还原结果超过响应大小上限',
+    native_symbolication_deferred: '等待后台 Native 符号还原',
   }
   return reason ? (labels[reason] ?? reason) : '无失败原因'
 }
@@ -158,9 +159,10 @@ onBeforeUnmount(() => {
     <StatusMessage v-else-if="loading" kind="loading" message="正在加载事件详情…" />
 
     <template v-else-if="event">
-      <div v-if="event.crashKind === 'native'" class="notice">原始 Native 堆栈；本期未提供符号还原。</div>
+      <div v-if="event.crashKind === 'native'" class="notice">Native 帧按实际符号来源独立处理；归组仍按构建隔离。</div>
+      <div v-if="event.nativeFrameCounts" class="notice">主栈：已还原 {{ event.nativeFrameCounts.symbolicated }} · 等待 {{ event.nativeFrameCounts.pending }} · 失败 {{ event.nativeFrameCounts.failed }} · 无法处理 {{ event.nativeFrameCounts.notApplicable }}</div>
       <div v-else-if="event.symbolicationStatus === 'pending'" class="notice">
-        {{ symbolicationReason(event.symbolicationReason) }}。以下为待处理的脱敏原始异常链。
+        {{ symbolicationReason(event.symbolicationReason) }}。{{ event.crashKind === 'native' ? '以下为待处理的原始 Native 现场。' : '以下为待处理的脱敏原始异常链。' }}
       </div>
       <div v-else-if="event.symbolicationStatus === 'failed'" class="notice notice-warning">
         {{ symbolicationReason(event.symbolicationReason) }}，已保留脱敏原始异常链；上传新的 mapping 可触发重试。
@@ -173,7 +175,7 @@ onBeforeUnmount(() => {
             <p>App {{ event.appId }} · 包名 {{ event.packageName }}</p>
           </div>
           <span class="badge" :class="event.symbolicationStatus === 'symbolicated' ? 'badge-success' : 'badge-warning'">
-            {{ event.crashKind === 'native' ? '原始 Native' : { pending: '待处理', failed: '还原失败', symbolicated: '已还原' }[event.symbolicationStatus] }}
+            {{ { pending: '待处理', failed: '还原失败', symbolicated: '已还原' }[event.symbolicationStatus] }}
           </span>
         </div>
         <dl class="meta-grid">
@@ -209,9 +211,9 @@ onBeforeUnmount(() => {
         <div class="panel-header" style="padding: 0 0 16px"><div><h2>还原堆栈</h2><p>首次成功结果已固定。完整保留内联与候选；成功不保证每一帧都准确。</p></div></div>
         <pre class="symbolicated-stack">{{ event.stack.content }}</pre>
       </section>
-      <NativeCrashPanel :app-id="appId" :app-version="event.appVersion" :can-manage="canManageAnalysis" v-else-if="event.stack.format === 'raw_native'" :crash="event.stack.content" />
+      <NativeCrashPanel :app-id="appId" :app-version="event.appVersion" :build-id="event.buildId" :can-manage="canManageAnalysis" v-else-if="event.stack.format === 'native_stack'" :crash="event.stack.content" />
       <StackTrace v-else :crash="event.stack.content" />
-      <CrashDiagnosticsPanel :key="`${appId}:${eventId}`" :diagnostics="event.diagnostics" :native-crash="event.stack.format === 'raw_native' ? event.stack.content : null" />
+      <CrashDiagnosticsPanel :key="`${appId}:${eventId}`" :diagnostics="event.diagnostics" :app-id="appId" :app-version="event.appVersion" :build-id="event.buildId" :can-manage="canManageAnalysis" :native-crash="event.stack.format === 'native_stack' ? event.stack.content : null" />
       <CrashAnalysisPanel v-if="event.crashKind === 'jvm' && event.fatal" :app-id="appId" :event-id="eventId" :can-create="canAnalyze" :can-manage="canManageAnalysis" :user-id="session.user?.id ?? null" />
       <div v-if="event.crashKind === 'jvm' && canManageAnalysis && event.symbolicationStatus !== 'symbolicated'" class="detail-actions"><RouterLink class="button" :to="{ name: 'app-symbols', params: { appId }, query: { type: 'MAPPING', appVersion: event.appVersion, buildId: event.buildId } }">上传此版本的 mapping</RouterLink></div>
     </template>

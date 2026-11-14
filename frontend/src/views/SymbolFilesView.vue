@@ -6,14 +6,19 @@ import StatusMessage from '../components/StatusMessage.vue'
 import { ApiError, errorMessage } from '../api/http'
 import { symbolApi } from '../api/symbolApi'
 import { useAppStore } from '../stores/apps'
+import { useSessionStore } from '../stores/session'
 import type { SymbolFileMetadata, SymbolicationProgress, NativeSnapshot, NativeExpected } from '../types/symbol'
 
 const route = useRoute()
 const router = useRouter()
 const apps = useAppStore()
+/** 会话变化可能早于路由跳转完成。 */
+const session = useSessionStore()
+/** 失效后拒绝重新请求，直到新会话建立。 */
+const authInvalidated = ref(false)
 const appId = computed(() => String(route.params.appId))
 const app = computed(() => apps.apps.find(item => item.appId === appId.value))
-const canEdit = computed(() => app.value?.role === 'OWNER' || app.value?.role === 'ADMIN')
+const canEdit = computed(() => !authInvalidated.value && (app.value?.role === 'OWNER' || app.value?.role === 'ADMIN'))
 const items = ref<SymbolFileMetadata[]>([])
 const loading = ref(false)
 const uploading = ref(false)
@@ -54,62 +59,86 @@ let requestToken = 0
 let controller: AbortController | null = null
 /** 正在执行的上传或替换请求控制器。 */
 let uploadController: AbortController | null = null
-/** 同时只跟踪一份活动 mapping，最多轮询五分钟。 */
+/** 同时只跟踪一份活动符号文件，最多轮询五分钟。 */
 const progressSymbol = ref<SymbolFileMetadata | null>(null)
 /** 本轮累计计数与状态，不冒充全量事件统计。 */
 const progress = ref<SymbolicationProgress | null>(null)
 /** 进度请求的安全错误。 */
 const progressError = ref<string | null>(null)
+/** 截止后保留已有结果，并提示可以手动刷新。 */
+const progressTimedOut = ref(false)
 /** 切换、删除、替换和离页均使旧进度失效。 */
 let progressGeneration = 0
 /** 进度请求可主动取消。 */
 let progressController: AbortController | null = null
 /** 无重叠的五秒间隔轮询。 */
 let progressTimer: ReturnType<typeof setTimeout> | null = null
-/** 当前页面轮询次数上限。 */
-let progressAttempts = 0
+/** 五分钟截止定时器也负责取消一直没有响应的请求。 */
+let progressDeadlineTimer: ReturnType<typeof setTimeout> | null = null
+/** 基于单调时钟的本轮截止时间。 */
+let progressDeadline = 0
+/** 进度轮询间隔及整个周期的时间上限。 */
+const progressIntervalMs = 5_000
+const progressLimitMs = 300_000
 /** 后端五态中文说明。 */
-const progressLabels = { queued: '已排队', running: '处理中', waiting_mapping: '等待 mapping', retry_wait: '退避等待', idle: '本轮空闲' }
+const progressLabels = { queued: '已排队', running: '处理中', waiting_mapping: '等待 mapping', waiting_symbols: '等待符号文件', retry_wait: '退避等待', idle: '本轮空闲' }
 
-/** 取消在途进度并使不服从 Abort 的迟到响应无效。 */
-function stopProgress() {
+/** 结束本轮请求并保留已展示的进度，迟到响应不得更新页面。 */
+function finishProgress(timedOut = false) {
   progressGeneration += 1
+  progressTimedOut.value = timedOut
   progressController?.abort()
+  progressController = null
   if (progressTimer) clearTimeout(progressTimer)
+  if (progressDeadlineTimer) clearTimeout(progressDeadlineTimer)
   progressTimer = null
+  progressDeadlineTimer = null
+  progressDeadline = 0
+}
+
+/** 取消在途进度并清除切换前的展示内容。 */
+function stopProgress() {
+  finishProgress()
   progress.value = null
   progressSymbol.value = null
   progressError.value = null
+  progressTimedOut.value = false
 }
 
 /** 查询单个构建，只有当前请求能续约下一次轮询。 */
 async function pollProgress(generation: number) {
   const symbol = progressSymbol.value
   if (!symbol || generation !== progressGeneration) return
+  if (performance.now() >= progressDeadline) { finishProgress(true); return }
   const requestedAppId = appId.value
   const operation = new AbortController()
   progressController = operation
-  progressAttempts += 1
   try {
     const result = await symbolApi.progress(requestedAppId, symbol.symbolId, operation.signal)
     if (generation !== progressGeneration || operation.signal.aborted || requestedAppId !== appId.value) return
+    if (performance.now() >= progressDeadline) { finishProgress(true); return }
     progress.value = result
-    if (['queued', 'running', 'retry_wait'].includes(result.state) && progressAttempts < 60) {
-      progressTimer = setTimeout(() => { void pollProgress(generation) }, 5000)
-    }
+    if (['queued', 'running', 'retry_wait'].includes(result.state)) {
+      progressTimer = setTimeout(() => { void pollProgress(generation) }, Math.min(progressIntervalMs, progressDeadline - performance.now()))
+    } else finishProgress()
   } catch (failure) {
-    if (generation === progressGeneration && !operation.signal.aborted) progressError.value = errorMessage(failure)
+    if (generation === progressGeneration && !operation.signal.aborted) {
+      progressError.value = errorMessage(failure)
+      finishProgress()
+    }
   } finally {
     if (progressController === operation) progressController = null
   }
 }
 
-/** 用户选择或刚上传的活动 mapping 开启一个有界轮询周期。 */
+/** 用户选择的有版本符号文件开启一个有界轮询周期。 */
 function trackProgress(symbol: SymbolFileMetadata) {
   stopProgress()
-  if (symbol.type !== 'MAPPING' || !symbol.appVersion) return
+  if (!symbol.appVersion) return
   progressSymbol.value = symbol
-  progressAttempts = 0
+  progressDeadline = performance.now() + progressLimitMs
+  const generation = progressGeneration
+  progressDeadlineTimer = setTimeout(() => { if (generation === progressGeneration) finishProgress(true) }, progressLimitMs)
   void pollProgress(progressGeneration)
 }
 
@@ -140,6 +169,7 @@ async function remove(symbol: SymbolFileMetadata) {
 
 /** 加载当前应用的符号表列表并隔离旧应用响应。 */
 async function load(cursor?: string) {
+  if (authInvalidated.value) return
   stopProgress()
   const token = ++requestToken
   const requestedAppId = appId.value
@@ -277,7 +307,7 @@ async function uploadNative(expected?: NativeExpected[]) {
     if (operation.signal.aborted || requestedAppId !== appId.value) return
     nativeConflict.value = null
     nativeConflictFile.value = null
-    success.value = `SO 文件已保存：新建 ${result.createdCount}，替换 ${result.replacedCount}，相同 ${result.unchangedCount}。本期未提供 Native 还原。`
+    success.value = `SO 文件已保存：新建 ${result.createdCount}，替换 ${result.replacedCount}，相同 ${result.unchangedCount}。后台工作已登记。`
     resetUpload()
     uploadOpen.value = false
     await load()
@@ -326,6 +356,29 @@ function clearContext() {
   const input = document.getElementById('symbol-file') as HTMLInputElement | null
   if (input) input.value = ''
 }
+
+/** 认证失效时立即终止旧请求并清空敏感列表和进度。 */
+function invalidateForAuth() {
+  if (authInvalidated.value) return
+  authInvalidated.value = true
+  clearContext()
+  items.value = []
+  nextCursor.value = null
+  loading.value = false
+  loadingMore.value = false
+  console.info('[SymbolFilesView] 会话失效，已清除符号列表和进度')
+}
+
+// 401 和主动退出可能早于页面卸载；新会话建立后才重新加载。
+window.addEventListener('apm:auth-expired', invalidateForAuth)
+watch(() => session.isAuthenticated, (authenticated, previouslyAuthenticated) => {
+  if (!authenticated && previouslyAuthenticated) invalidateForAuth()
+  else if (authenticated && !previouslyAuthenticated && authInvalidated.value) {
+    authInvalidated.value = false
+    console.info('[SymbolFilesView] 新会话已建立，重新加载符号列表')
+    void load()
+  }
+}, { flush: 'sync' })
 
 /** 标签页切换保留版本输入，并清空前一类型的文件、目标和冲突。 */
 function changeType(type: 'MAPPING' | 'NATIVE_SO') {
@@ -462,6 +515,7 @@ watch(() => [appId.value, route.query.type, route.query.appVersion, route.query.
   void load()
 }, { immediate: true })
 onBeforeUnmount(() => {
+  window.removeEventListener('apm:auth-expired', invalidateForAuth)
   stopProgress()
   requestToken += 1
   controller?.abort()
@@ -502,7 +556,7 @@ onBeforeUnmount(() => {
         </form>
         <div class="symbol-list-panel">
           <div class="symbol-list-heading"><div class="symbol-list-title"><h2>符号表列表</h2><span class="symbol-count">已加载 {{ items.length }} 份</span></div><button v-if="canEdit" class="button button-primary symbol-upload-trigger" type="button" @click="openUpload"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M12 16V4m-4 4 4-4 4 4M4 15v5h16v-5" /></svg>上传符号表</button><span v-else class="symbol-readonly">只读权限</span></div>
-          <p class="symbol-capability-note">{{ symbolType === 'MAPPING' ? '构建专用优先，缺失时使用同版本默认 mapping。上传成功后，可查看版本还原进度。' : 'SO 仅用于文件管理，本期未提供 Native 地址还原；保存文件不会改变事件状态。' }}</p>
+          <p class="symbol-capability-note">{{ symbolType === 'MAPPING' ? '构建专用优先，缺失时使用同版本默认 mapping。上传成功后，可查看版本还原进度。' : 'SO 按版本、ABI 和完整 ELF Build ID 匹配；上传只登记工作，可查看版本进度。' }}</p>
           <div v-if="loading" class="loading-state"><p>正在加载符号表…</p></div>
           <div v-else-if="items.length === 0" class="empty-state symbol-empty"><svg width="40" height="40" viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M11 5h13l7 7v23H11zM24 5v8h7M16 20h10m-10 6h7" /></svg><h3>暂无符合条件的符号表</h3><p>当前筛选没有符号文件。</p><p class="symbol-empty-help">{{ canEdit ? '调整筛选条件，或点击右上角上传符号表。' : '请调整筛选条件，或联系应用管理员上传。' }}</p></div>
           <div v-else class="table-wrap"><table class="data-table symbol-files-table"><thead><tr><th class="symbol-version-col">应用版本</th><th class="symbol-scope-col">{{ symbolType === 'MAPPING' ? '适用范围 / 构建标识' : 'CPU 架构' }}</th><th class="symbol-file-col">{{ symbolType === 'MAPPING' ? '符号文件' : '模块 / 符号文件' }}</th><th v-if="symbolType === 'NATIVE_SO'" class="symbol-elf-col">ELF Build ID</th><th class="symbol-time-col">更新时间</th><th class="symbol-actions-col">操作</th></tr></thead><tbody>
@@ -512,7 +566,7 @@ onBeforeUnmount(() => {
               <td><strong class="symbol-filename">{{ item.originalFilename }}</strong><span class="symbol-secondary">{{ formatBytes(item.sizeBytes) }}<span class="symbol-dot">·</span>文件修订号 {{ item.revision }}</span><small v-if="item.type === 'NATIVE_SO'" class="symbol-secondary">函数符号 {{ item.hasFunctionSymbols ? '有' : '无' }} · 调试信息 {{ item.hasDebugInfo ? '有' : '无' }} · 行信息 {{ item.hasDebugLine ? '有' : '无' }}</small><details class="symbol-file-details"><summary>文件详情</summary><dl><dt>SHA-256</dt><dd><code>{{ item.sha256 }}</code></dd><dt>上传人</dt><dd>{{ item.uploadedBy }}</dd></dl></details></td>
               <td v-if="symbolType === 'NATIVE_SO'"><code class="symbol-elf">{{ item.elfBuildId }}</code></td>
               <td><span class="symbol-date">{{ formatTime(item.updatedAt, 'date') }}</span><small class="symbol-secondary">{{ formatTime(item.updatedAt, 'time') }}</small></td>
-              <td><div class="symbol-row-actions"><button v-if="item.type === 'MAPPING' && item.appVersion" class="link-button" type="button" @click="trackProgress(item)">查看进度</button><button v-if="canEdit" class="link-button symbol-delete" type="button" :disabled="uploading" @click="remove(item)">删除</button><span v-if="!canEdit && (item.type !== 'MAPPING' || !item.appVersion)" class="symbol-secondary">—</span></div></td>
+              <td><div class="symbol-row-actions"><button v-if="item.appVersion" class="link-button" type="button" @click="trackProgress(item)">查看进度</button><button v-if="canEdit" class="link-button symbol-delete" type="button" :disabled="uploading" @click="remove(item)">删除</button><span v-if="!canEdit && !item.appVersion" class="symbol-secondary">—</span></div></td>
             </tr>
           </tbody></table></div>
           <div v-if="!loading" class="symbol-list-footer"><span>{{ nextCursor ? '还有更多文件，可继续加载' : `已显示全部 ${items.length} 份文件` }}</span><button v-if="nextCursor" class="button symbol-pagination" type="button" :disabled="loading || loadingMore" @click="loadNextPage">{{ loadingMore ? '正在加载…' : '加载更多' }}</button></div>
@@ -521,9 +575,10 @@ onBeforeUnmount(() => {
     </section>
         <section v-if="progressSymbol" class="panel detail-card" aria-label="构建还原进度">
       <div class="panel-header"><div><h2>版本本轮还原 · {{ progressSymbol.appVersion }}</h2><p>计数涵盖本版本所有构建，并非当前文件独有。最多每五秒查询一次，五分钟后停止。空闲表示本轮没有可处理工作，不能证明所有事件都已成功。</p></div><button class="button" @click="trackProgress(progressSymbol)">刷新进度</button></div>
+      <p v-if="progressTimedOut" role="status">自动查询已停止，可刷新进度。</p>
       <p v-if="progressError" class="field-error" role="alert">{{ progressError }}</p>
-      <p v-else-if="!progress">正在查询进度…</p>
-      <template v-if="progress"><p>{{ progressLabels[progress.state] }} · 本轮成功确认 {{ progress.succeededCount }} · 失败尝试 {{ progress.failedCount }}</p><p v-if="progress.errorCategory">原因：{{ progress.errorCategory }}</p></template>
+      <p v-else-if="!progress && !progressTimedOut">正在查询进度…</p>
+      <template v-if="progress"><p v-if="'crashKind' in progress">{{ progressLabels[progress.state] }} · 状态更新 {{ progress.publishedCount }} 次 · 新增失败单元 {{ progress.failedUnitCount }} 次（不是完成事件数）</p><p v-else>{{ progressLabels[progress.state] }} · 本轮成功确认 {{ progress.succeededCount }} · 失败尝试 {{ progress.failedCount }}</p><p v-if="progress.errorCategory">原因：{{ progress.errorCategory }}</p></template>
     </section>
 
 
@@ -533,13 +588,13 @@ onBeforeUnmount(() => {
       <div class="symbol-dialog-body">
         <StatusMessage v-if="error" kind="error" :message="error" />
         <section class="symbol-upload-panel">
-          <p class="symbol-dialog-description">{{ symbolType === 'MAPPING' ? '填写应用版本并上传文本 mapping。构建标识留空时，登记为此版本默认文件。' : '上传包含 SO 的 ZIP 压缩包，服务端将从文件内容识别 CPU 架构和完整 ELF Build ID。' }}</p>
+          <p class="symbol-dialog-description">{{ symbolType === 'MAPPING' ? '填写应用版本并上传文本 mapping。构建标识留空时，登记为此版本默认文件。' : '可直接上传 native-debug-symbols.zip，或包含 .so、.so.sym、.so.dbg 的 ZIP；服务端按文件内容识别架构和完整 ELF Build ID。' }}</p>
           <form class="symbol-upload-form" @submit.prevent="upload">
             <div class="symbol-upload-fields"><div class="field"><label for="symbol-app-version">应用版本 <span class="symbol-required">*</span></label><input id="symbol-app-version" v-model="appVersion" maxlength="128" required autofocus :disabled="uploading || !!conflict || !!nativeConflict" placeholder="与事件 appVersion 完全一致"></div><div v-if="symbolType === 'MAPPING'" class="field"><label for="symbol-build-id">buildId <span class="symbol-optional">选填</span></label><input id="symbol-build-id" v-model="buildId" maxlength="256" :disabled="uploading || !!conflict" placeholder="留空使用版本默认"><small>{{ buildId ? '构建专用 mapping，仅用于此构建。' : '此版本默认 mapping；专用登记不存在时使用。' }}</small></div></div>
             <p v-if="symbolType === 'NATIVE_SO' && targetAbi && targetElfBuildId" class="symbol-target">目标模块：<strong>{{ targetAbi }}</strong><code>{{ targetElfBuildId }}</code></p>
             <div class="field symbol-file-field"><label for="symbol-file">{{ symbolType === 'MAPPING' ? 'mapping 文件' : 'SO ZIP' }} <span class="symbol-required">*</span></label><div class="symbol-file-picker"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M12 15V3m-4 4 4-4 4 4M4 14v6h16v-6" /></svg><strong>{{ selectedFile ? selectedFile.name : '点击选择符号文件' }}</strong><span>{{ selectedFile ? formatBytes(selectedFile.size) : symbolType === 'MAPPING' ? '支持 .txt，最大 32 MiB' : '支持 .zip，最大 256 MiB' }}</span><input id="symbol-file" :key="symbolType" type="file" :accept="symbolType === 'MAPPING' ? '.txt,text/plain' : '.zip,application/zip'" required :disabled="uploading || !!conflict || !!nativeConflict" @change="selectFile"></div></div>
             <div v-if="uploading" class="symbol-upload-progress" role="progressbar" aria-label="符号文件校验与上传进度" aria-valuetext="正在校验并上传"><span>正在校验并上传，请稍候。校验完成前无法报告准确百分比。</span></div>
-            <p class="symbol-upload-hint">{{ symbolType === 'MAPPING' ? '已有不同内容时，会展示新旧摘要并请你确认。保存成功后，后台处理尚未成功的 JVM 事件。' : 'ZIP 可包含多个模块与架构。发现冲突时需确认整批文件；本期未提供 Native 地址还原。' }}</p>
+            <p class="symbol-upload-hint">{{ symbolType === 'MAPPING' ? '已有不同内容时，会展示新旧摘要并请你确认。保存成功后会登记版本工作。' : '请上传与崩溃版本对应的符号文件。仅有函数符号时无法显示源码行号，建议优先上传包含调试信息的文件。首次还原成功后，替换符号文件不会补充该帧行号。冲突时需确认整批；上传成功仅表示文件和工作已登记。' }}</p>
             <div v-if="!conflict && !nativeConflict" class="symbol-dialog-actions"><button class="button" type="button" :disabled="uploading" @click="closeUpload">取消</button><button class="button button-primary" type="submit" :disabled="uploading || !appVersion || !selectedFile">{{ uploading ? '校验并上传中…' : symbolType === 'MAPPING' ? '上传 mapping' : '上传 SO ZIP' }}</button></div>
           </form>
         </section>

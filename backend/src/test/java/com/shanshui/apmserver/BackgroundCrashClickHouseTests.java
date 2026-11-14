@@ -16,6 +16,7 @@ import tools.jackson.databind.ObjectMapper;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -59,6 +60,24 @@ class BackgroundCrashClickHouseTests {
                 .readAllBytes(), StandardCharsets.UTF_8);
         for (String statement : nativeDdl.split(";")) if (!statement.isBlank()) client.execute(statement);
         for (String statement : nativeDdl.split(";")) if (!statement.isBlank()) client.execute(statement);
+        // 历史原始 Native 无需重传即可进入初次候选，迁移不能改变指纹或捕获摘要。
+        client.execute("INSERT INTO apm.apm_crash_state(app_id,event_id,build_id,event_time,state_version,symbolication_status,symbolication_reason,stack_format,stack_payload,fingerprint,fingerprint_version,grouping_kind,capture_sha256) VALUES ('11111111-1111-4111-8111-111111111111','native-before-012','build',now64(3),0,'pending','native_symbolication_deferred','raw_native','{}','native-original','native-tmp-v1','temporary',repeat('a',64))");
+        String stateBefore = client.execute("SELECT count() AS n,any(fingerprint) AS fp,any(capture_sha256) AS sha FROM apm.apm_crash_state WHERE event_id='native-before-012' FORMAT JSONEachRow");
+        String symbolicationDdl = new String(getClass().getResourceAsStream("/db/clickhouse/012_native_symbolication_state.sql")
+                .readAllBytes(), StandardCharsets.UTF_8);
+        for (String statement : symbolicationDdl.split(";")) if (!statement.isBlank()) client.execute(statement);
+        for (String statement : symbolicationDdl.split(";")) if (!statement.isBlank()) client.execute(statement);
+        assertEquals(stateBefore, client.execute("SELECT count() AS n,any(fingerprint) AS fp,any(capture_sha256) AS sha FROM apm.apm_crash_state WHERE event_id='native-before-012' FORMAT JSONEachRow"));
+        assertEquals(1, new ObjectMapper().readTree(client.execute("SELECT native_work_remaining AS value FROM apm.apm_crash_state WHERE event_id='native-before-012' FORMAT JSONEachRow")).path("value").asInt());
+        assertEquals(0, new ObjectMapper().readTree(client.execute("SELECT native_work_remaining AS value FROM apm.apm_crash_state WHERE event_id='migration-old' FORMAT JSONEachRow")).path("value").asInt());
+        // 三态 Native 均保持 temporary，成功不允许顶层单份 SO 来源。
+        for (String status : java.util.List.of("pending", "failed", "symbolicated")) {
+            client.execute("INSERT INTO apm.apm_crash_state(app_id,event_id,build_id,event_time,state_version,symbolication_status,symbolication_reason,stack_format,stack_payload,fingerprint,fingerprint_version,grouping_kind,processed_at,native_work_remaining) VALUES ('11111111-1111-4111-8111-111111111111','native-012-" + status + "','build',now64(3),1,'" + status + "','test','native_stack','{}','native-original','native-tmp-v1','temporary',now64(3),1)");
+        }
+        assertThrows(RuntimeException.class, () -> client.execute("INSERT INTO apm.apm_crash_state(app_id,event_id,build_id,event_time,state_version,symbolication_status,stack_format,stack_payload,fingerprint,fingerprint_version,grouping_kind) VALUES ('11111111-1111-4111-8111-111111111111','bad-jvm-012','build',now64(3),1,'symbolicated','retrace_text','{}','fp','v1','resolved')"));
+        assertThrows(RuntimeException.class, () -> client.execute("INSERT INTO apm.apm_crash_state(app_id,event_id,build_id,event_time,state_version,symbolication_status,stack_format,stack_payload,fingerprint,fingerprint_version,grouping_kind,processed_at,symbol_id) VALUES ('11111111-1111-4111-8111-111111111111','bad-native-012','build',now64(3),1,'symbolicated','native_stack','{}','fp','native-tmp-v1','temporary',now64(3),'22222222-2222-4222-8222-222222222222')"));
+        assertThrows(RuntimeException.class, () -> client.execute("INSERT INTO apm.apm_crash_state(app_id,event_id,build_id,event_time,state_version,symbolication_status,stack_format,stack_payload,fingerprint,fingerprint_version,grouping_kind,native_work_remaining) VALUES ('11111111-1111-4111-8111-111111111111','bad-work-012','build',now64(3),1,'pending','raw_chain','{}','fp','tmp-v1','temporary',1)"));
+        client.execute("ALTER TABLE apm.apm_crash_state DELETE WHERE event_id='native-before-012' OR startsWith(event_id,'native-012-') SETTINGS mutations_sync=2");
         var historical = new ObjectMapper().readTree(client.execute("SELECT diagnostics_payload,capture_sha256 FROM apm.apm_crash_fact WHERE event_id='migration-old' FORMAT JSONEachRow"));
         assertEquals("", historical.path("diagnostics_payload").asText());
         assertEquals("", historical.path("capture_sha256").asText());
@@ -141,6 +160,58 @@ class BackgroundCrashClickHouseTests {
         var nativeConflict = assertThrows(com.shanshui.apmserver.telemetry.api.EventValidationException.class,
                 () -> store.accept(new CrashFact(nativeMetadata, "native", true, "{}", "b".repeat(64)), changedNative));
         assertEquals("CRASH_CONTENT_CONFLICT", nativeConflict.getIssues().getFirst().code());
+        // 同一原始身份发布结构化 Native 状态后，重传不能重置结果或捕获摘要。
+        var nativeMapper = new ObjectMapper();
+        var nativeSource = new com.shanshui.apmserver.crash.api.NativeStack.Source("NATIVE_SO", UUID.randomUUID(), 1, "d".repeat(64));
+        var nativeResolution = new com.shanshui.apmserver.crash.api.NativeStack.Resolution("symbolicated", null,
+                List.of(new com.shanshui.apmserver.crash.api.NativeStack.Inline("function", "source.cc", 1, null)),
+                nativeSource, nativeSource, now, null);
+        var nativeFrame = new com.shanshui.apmserver.crash.api.NativeStack.Frame(0, "module", "0x11", null, null, nativeResolution);
+        var structuredStack = new com.shanshui.apmserver.crash.api.NativeStack("arm64-v8a", 1, null, false, null, null,
+                List.of(new com.shanshui.apmserver.crash.api.NativeCrash.Module("module", "lib.so", null, "arm64-v8a", "abcd")),
+                new com.shanshui.apmserver.crash.api.NativeStack.Backtrace("ok", null, false, 1L, List.of(nativeFrame)), null);
+        var structured = new CrashState(app, "native-event", "build", occurred, 1, "symbolicated", null,
+                "native_stack", nativeMapper.writeValueAsString(structuredStack), "SIGSEGV", "native-fp", "native-tmp-v1",
+                "temporary", null, null, null, now, null, "a".repeat(64), "", true);
+        store.publish(structured);
+        assertEquals(structured, store.current(app, "native-event").orElseThrow());
+        // 主栈成功仍有辅助工作时，轻量候选不能按主栈成功状态排除。
+        var nativePage = store.nativeCandidatePage(app, "1", now.minusSeconds(86400), now, null, null, 100);
+        assertTrue(nativePage.stream().anyMatch(item -> item.eventId().equals("native-event") && item.status().equals("symbolicated")));
+        var selectedNative = nativePage.stream().filter(item -> item.eventId().equals("native-event")).toList();
+        assertEquals(structured, store.nativePayloads(app, "1", selectedNative).getFirst().state());
+        assertTrue(store.nativePayloads(app, "other-version", selectedNative).isEmpty());
+        assertTrue(store.nativeCandidatePage(app, "other-version", now.minusSeconds(86400), now, null, null, 100).isEmpty());
+        assertThrows(IllegalArgumentException.class, () -> store.nativeCandidatePage(app, "1", now.minusSeconds(86400), now, null, null, 101));
+        // 独立应用的 101 条事件跨页，较早迟到事件在下一次轮转时重新可见。
+        UUID pageApp = UUID.randomUUID();
+        for (int index = 0; index < 101; index++) {
+            Instant eventTime = now.minusSeconds(1800 - index);
+            String eventId = "page-" + index;
+            var pageMetadata = new EventMetadata(pageApp, "com.example.page", eventId, "crash", eventTime, now, 2,
+                    "session", metadata.processId(), "device", "page-version", 1, "build", "production", "official", "16", "test", null, Map.of(), Map.of());
+            var pageState = new CrashState(pageApp, eventId, "build", eventTime, 0, "pending", "native_symbolication_deferred",
+                    "raw_native", "{}", "SIGSEGV", "fp", "native-tmp-v1", "temporary", null, null, null, null, null, "a".repeat(64), "");
+            assertTrue(store.accept(new CrashFact(pageMetadata, "native", true, "", pageState.captureSha256()), pageState));
+        }
+        var firstNativePage = store.nativeCandidatePage(pageApp, "page-version", now.minusSeconds(86400), now, null, null, 100);
+        assertEquals(100, firstNativePage.size());
+        var lastFirst = firstNativePage.getLast();
+        var secondNativePage = store.nativeCandidatePage(pageApp, "page-version", now.minusSeconds(86400), now,
+                lastFirst.eventTime(), lastFirst.eventId(), 100);
+        assertEquals(1, secondNativePage.size());
+        Instant lateTime = now.minusSeconds(2000);
+        var lateMetadata = new EventMetadata(pageApp, "com.example.page", "late", "crash", lateTime, now, 2,
+                "session", metadata.processId(), "device", "page-version", 1, "build", "production", "official", "16", "test", null, Map.of(), Map.of());
+        var lateState = new CrashState(pageApp, "late", "build", lateTime, 0, "pending", "native_symbolication_deferred",
+                "raw_native", "{}", "SIGSEGV", "fp", "native-tmp-v1", "temporary", null, null, null, null, null, "b".repeat(64), "");
+        assertTrue(store.accept(new CrashFact(lateMetadata, "native", true, "", lateState.captureSha256()), lateState));
+        var lastSecond = secondNativePage.getLast();
+        assertTrue(store.nativeCandidatePage(pageApp, "page-version", now.minusSeconds(86400), now,
+                lastSecond.eventTime(), lastSecond.eventId(), 100).isEmpty());
+        assertEquals("late", store.nativeCandidatePage(pageApp, "page-version", now.minusSeconds(86400), now, null, null, 100).getFirst().eventId());
+        assertFalse(store.accept(nativeFact, nativeState));
+        assertEquals(structured, store.current(app, "native-event").orElseThrow());
         client.execute("ALTER TABLE apm_crash_state DELETE WHERE event_id='native-event' SETTINGS mutations_sync=2");
         assertTrue(store.current(app, "native-event").isEmpty());
         assertFalse(store.accept(nativeFact, nativeState));

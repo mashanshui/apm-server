@@ -36,7 +36,10 @@ public class CrashSymbolicationReconciler {
             // 检查点锁把多个调用串行化，唤醒失败时检查点一并回滚。
             UUID after = jdbc.queryForObject("SELECT after_symbol_id FROM crash_symbolication_reconcile WHERE singleton=true FOR UPDATE", UUID.class);
             var builds = symbols.activeAfter(after, 100);
-            for (var build : builds) jobs.wake(build.appId(), build.appVersion());
+            for (var build : builds) {
+                if ("MAPPING".equals(build.symbolType())) jobs.wake(build.appId(), build.appVersion());
+                jobs.wakeNative(build.appId(), build.appVersion());
+            }
             jdbc.update("UPDATE crash_symbolication_reconcile SET after_symbol_id=? WHERE singleton=true",
                     builds.size() < 100 ? null : builds.getLast().symbolId());
         });

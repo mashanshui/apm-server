@@ -30,6 +30,13 @@ public interface CrashStatePort {
     /** 仅为已经选定来源的有限事件读取当前载荷。 */
     List<CrashWorkItem> payloads(UUID appId, String appVersion, List<Candidate> candidates);
 
+    /** Native 最新状态先过滤剩余工作，再有界读取轻量身份。 */
+    List<Candidate> nativeCandidatePage(UUID appId, String appVersion, Instant from, Instant now,
+                                        Instant afterTime, String afterId, int limit);
+
+    /** 仅加载已选 Native 身份的完整状态。 */
+    List<CrashWorkItem> nativePayloads(UUID appId, String appVersion, List<Candidate> candidates);
+
     /** 扫描位置及来源判断只使用轻量元数据。 */
     record Candidate(/** 事件身份。 */ String eventId, /** 原构建。 */ String buildId,
                      /** 排序时间。 */ Instant eventTime, /** 当前状态。 */ String status,

@@ -16,7 +16,25 @@ public record CrashDiagnosticsResponse(
         /** 设备信息。 */ CrashDiagnostics.Device device,
         /** Native 线程及同版本原始回溯。 */
         @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
-        CrashDiagnostics.NativeThreads nativeThreads) {
+        NativeThreads nativeThreads) {
+
+    /** Native 线程采集元数据与各自当前回溯。 */
+    public record NativeThreads(
+            /** 采集状态。 */ String status,
+            /** 采集原因。 */ String reason,
+            /** 是否截断。 */ Boolean truncated,
+            /** 原采集时间。 */ Long capturedAt,
+            /** 可知线程总数。 */ Integer observedCount,
+            /** 可知遗漏数量。 */ Integer omittedCount,
+            /** 按系统 TID 保留顺序的线程。 */ List<NativeThread> threads) { }
+
+    /** 原始或结构化 Native 回溯及其线程元数据。 */
+    @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
+    public record NativeThread(
+            /** 系统线程编号。 */ Integer systemTid,
+            /** 脱敏线程名。 */ String name,
+            /** 主线程标记。 */ Boolean mainThread,
+            /** 原始或结构化回溯。 */ Object backtrace) { }
 
     /** 保留采集状态与顺序的其他线程集合。 */
     public record OtherThreads(
@@ -47,5 +65,9 @@ public record CrashDiagnosticsResponse(
             /** 可可靠取得的系统 TID。 */
             @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL) Integer systemTid,
             /** Native 事件中与崩溃线程的关系。 */
-            @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL) String relationToCrash) { }
+            @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL) String relationToCrash,
+            /** 最近实际尝试的 mapping 来源。 */
+            @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL) NativeStack.Source attemptedSource,
+            /** 临时失败的下次重试时间。 */
+            @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL) Instant retryAt) { }
 }

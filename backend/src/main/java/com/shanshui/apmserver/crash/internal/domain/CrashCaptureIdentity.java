@@ -24,6 +24,6 @@ public final class CrashCaptureIdentity {
         return new CrashState(state.appId(), state.eventId(), state.buildId(), state.eventTime(), state.stateVersion(),
                 state.status(), state.reason(), state.stackFormat(), state.stackPayload(), state.exceptionType(),
                 state.fingerprint(), state.fingerprintVersion(), state.groupingKind(), state.symbolId(), state.symbolRevision(),
-                state.symbolSha256(), state.processedAt(), state.retryAt(), "", state.threadStacksPayload());
+                state.symbolSha256(), state.processedAt(), state.retryAt(), "", state.threadStacksPayload(), state.nativeWorkRemaining());
     }
 }

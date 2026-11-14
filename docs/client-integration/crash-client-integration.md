@@ -35,7 +35,7 @@ flowchart TD
 
 Native 事件尽力上传原始信号/code、故障地址、寄存器、ABI、崩溃 TID、主回溯、模块名称与 ELF Build ID；SIGABRT 可附安全取得的有限 abort 消息。共享诊断包括其他 Native 回溯、Java 线程快照及可可靠关联的主 Java 栈、logcat main/system/events、Java/Native 堆与进程内存用量、受限 meminfo/status/limits、FD 类别、进程和设备信息。未知的 Java/Native 对应关系标记 `unknown`，各分区携带实际采集状态和时间。
 
-SDK 不生成或上传原始 `stack` 内存、`memory near` 和完整 `memory map` 转储，也不先保存完整 tombstone 再过滤。日志与 abort 消息在首次落盘前过滤已识别的凭据和转储样式；abort 消息仅保留完整、最多 255 字节的可打印 ASCII，其余情况省略。Native 事件在下次启动冻结并复用既有批量响应和重试；暂存读取等瞬时失败会在后续后台上传前再次恢复，正常退出或被系统结束后遗留的空预留会在确认原进程退出后回收。重试不重新采集，不因 mapping 变化重写。Native SO 符号文件上传和符号还原留待后续实现。
+SDK 不生成或上传原始 `stack` 内存、`memory near` 和完整 `memory map` 转储，也不先保存完整 tombstone 再过滤。日志与 abort 消息在首次落盘前过滤已识别的凭据和转储样式；abort 消息仅保留完整、最多 255 字节的可打印 ASCII，其余情况省略。Native 事件在下次启动冻结并复用既有批量响应和重试；暂存读取等瞬时失败会在后续后台上传前再次恢复，正常退出或被系统结束后遗留的空预留会在确认原进程退出后回收。重试不重新采集，不因 mapping 变化重写。SO 上传按[符号表接入](symbol-mapping.md)处理；查询方需要支持 [Crash API](../api/crash-api.md#查询接口) 的 `native_stack` 和逐帧状态。客户端上报格式不变；后台使用 SO 还原 Native 帧，关联 Java 栈按同版本 mapping 独立还原。消费查询结果的客户端须升级以识别新格式；设备端闭环尚未完成验收。
 
 事件身份、App Key 和隐私规则统一见[接入公共规则](README.md#事件身份生命周期)。不要把原始硬件标识、账号、令牌、业务请求正文或完整 URL 放入设备标识、异常消息和属性中。
 

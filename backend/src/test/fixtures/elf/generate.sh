@@ -8,6 +8,7 @@ set -euo pipefail
 : "${1:?请传入空的临时输出目录}"
 fixture_output=$1
 fixture_source=$(cd "$(dirname "$0")" && pwd)/minimal.c
+fixture_inline_source=$(cd "$(dirname "$0")" && pwd)/inline.c
 
 # NDK 的预编译工具链按宿主平台命名。
 case "$(uname -s)-$(uname -m)" in
@@ -32,6 +33,17 @@ for fixture_pair in \
   mkdir -p "$fixture_output/$fixture_abi"
   "$fixture_tools/${fixture_target}-clang" -shared -fPIC -g -Wl,--build-id=sha1 \
     "$fixture_source" -o "$fixture_output/$fixture_abi/libapm_fixture.so"
+  # 优化构建保留完整 DWARF 内联记录，单独提供仅函数符号的同 Build ID 对照。
+  "$fixture_tools/${fixture_target}-clang" -shared -fPIC -O2 -g -Wl,--build-id=sha1 \
+    "$fixture_inline_source" -o "$fixture_output/$fixture_abi/libapm_inline.so"
+  "$fixture_tools/llvm-strip" --strip-debug -o "$fixture_output/$fixture_abi/libapm_function_only.so" \
+    "$fixture_output/$fixture_abi/libapm_fixture.so"
+  # 用相同内容的 .so.sym 验证后缀不影响 ELF 与 LLVM；仅函数版本用于生成模拟归档。
+  cp "$fixture_output/$fixture_abi/libapm_function_only.so" "$fixture_output/$fixture_abi/libapm_fixture.so.sym"
+  cp "$fixture_output/$fixture_abi/libapm_fixture.so" "$fixture_output/$fixture_abi/libapm_full.so.sym"
+  # 与 AGP FULL 一致，只提取调试信息并保留原 ELF Build ID。
+  "$fixture_tools/llvm-objcopy" --only-keep-debug "$fixture_output/$fixture_abi/libapm_fixture.so" \
+    "$fixture_output/$fixture_abi/libapm_fixture.so.dbg"
   # 保留只有动态导出表的剥离版本，用于验证不能冒充完整符号。
   "$fixture_tools/llvm-strip" --strip-all -o "$fixture_output/$fixture_abi/libapm_stripped.so" \
     "$fixture_output/$fixture_abi/libapm_fixture.so"
@@ -41,6 +53,21 @@ for fixture_pair in \
   [[ -s "$fixture_output/$fixture_abi/build-id.txt" ]] || { printf '夹具缺少 Build ID\n' >&2; exit 1; }
   printf '已生成 %s ELF 夹具\n' "$fixture_abi"
 done
+
+# 将四 ABI 的测试 ELF 打包成与 AGP 目录结构一致的 ZIP；这不是 AGP 构建产物。
+python3 - "$fixture_output" <<'PY'
+from pathlib import Path
+import sys
+import zipfile
+
+root = Path(sys.argv[1])
+with zipfile.ZipFile(root / 'fixture-native-debug-symbols.zip', 'w', zipfile.ZIP_DEFLATED) as archive:
+    for abi in ('armeabi-v7a', 'arm64-v8a', 'x86', 'x86_64'):
+        archive.write(root / abi / 'libapm_fixture.so.sym', f'{abi}/libapm_fixture.so.sym')
+with zipfile.ZipFile(root / 'fixture-native-debug-symbols-full.zip', 'w', zipfile.ZIP_DEFLATED) as archive:
+    for abi in ('armeabi-v7a', 'arm64-v8a', 'x86', 'x86_64'):
+        archive.write(root / abi / 'libapm_fixture.so.dbg', f'{abi}/libapm_fixture.so.dbg')
+PY
 
 # 额外生成 64 字节 Build ID，验证模块身份不截断。
 fixture_long_id=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef

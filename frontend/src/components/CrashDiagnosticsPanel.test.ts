@@ -27,6 +27,50 @@ function diagnostics(): CrashDiagnostics {
 }
 
 describe('CrashDiagnosticsPanel', () => {
+  /** Native 的 Java 快照按角色显示 mapping 入口，未知关系和构建范围独立保留。 */
+  it('prefills mapping for unresolved native Java threads and hides writes from viewers', async () => {
+    const value = diagnostics()
+    value.otherThreads!.threads[1].relationToCrash = 'unknown'
+    value.otherThreads!.threads[1].symbolicationStatus = 'pending'
+    value.otherThreads!.threads[1].symbolicationReason = 'missing_mapping'
+    const nativeCrash = { abi: 'arm64-v8a', systemTid: 47, signal: { number: 11, name: 'SIGSEGV', code: 1 },
+      registers: { status: 'ok' as const, truncated: false, values: {} }, modules: [],
+      backtrace: { status: 'ok' as const, truncated: false, frames: [] } }
+    const link = { name: 'SymbolLink', props: ['to'], template: '<a><slot /></a>' }
+    const wrapper = mount(CrashDiagnosticsPanel, { props: { diagnostics: value, nativeCrash, appId: 'app', appVersion: '2.0',
+      buildId: 'build-1', canManage: true }, global: { stubs: { RouterLink: link } } })
+    await wrapper.findAll('.thread-list button')[1].trigger('click')
+    expect(wrapper.text()).toContain('与崩溃线程的关系未知')
+    expect(wrapper.text()).toContain('等待 mapping')
+    expect(wrapper.text()).not.toContain('处理失败')
+    expect(wrapper.getComponent({ name: 'SymbolLink' }).props('to')).toEqual({ name: 'app-symbols', params: { appId: 'app' },
+      query: { type: 'MAPPING', appVersion: '2.0', buildId: 'build-1' } })
+    await wrapper.setProps({ buildId: undefined })
+    expect(wrapper.getComponent({ name: 'SymbolLink' }).props('to')).toEqual({ name: 'app-symbols', params: { appId: 'app' },
+      query: { type: 'MAPPING', appVersion: '2.0' } })
+    await wrapper.setProps({ canManage: false })
+    expect(wrapper.findComponent({ name: 'SymbolLink' }).exists()).toBe(false)
+  })
+
+  /** 辅助 Native 帧展示各自来源，与 Java 线程身份及结果分离。 */
+  it('renders structured native auxiliary frame sources', () => {
+    const value = diagnostics()
+    value.nativeThreads = { status: 'ok', truncated: false, threads: [{ systemTid: 50, name: 'same',
+      backtrace: { status: 'ok', truncated: false, frames: [{ index: 0, moduleId: 'm1', relativePc: '0xffffffffffffffff',
+        resolution: { status: 'symbolicated', inline: [{ function: 'worker', file: null, line: null, column: null }],
+          source: { type: 'NATIVE_SO', symbolFileId: 'so-deleted', revision: 1, sha256: 'a'.repeat(64) }, processedAt: '2026-11-12T00:00:00Z' } } as import('../types/crash').NativeCurrentFrame] } }] }
+    const nativeCrash = { abi: 'arm64-v8a', systemTid: 47, signal: { number: 11, name: 'SIGSEGV', code: 1 },
+      registers: { status: 'ok' as const, truncated: false, values: { pc: '0x0' } },
+      modules: [{ id: 'm1', name: 'liba.so', abi: 'arm64-v8a' }], backtrace: { status: 'ok' as const, truncated: false,
+        frames: [{ index: 0, resolution: { status: 'not_applicable' as const, reason: 'missing_module_identity' } }] } }
+    const wrapper = mount(CrashDiagnosticsPanel, { props: { diagnostics: value, nativeCrash } })
+    expect(wrapper.text()).toContain('0xffffffffffffffff')
+    expect(wrapper.get('.frame-function').text()).toBe('worker')
+    expect(wrapper.get('.frame-file').text()).toContain('源码未知')
+    expect(wrapper.text()).toContain('so-deleted')
+    expect(wrapper.text()).toContain('Java ID 2')
+  })
+
   /** 同名线程按 Java ID 单独选择；文本以普通文本而非 HTML 展示。 */
   it('renders separate thread outcomes and escapes untrusted text', async () => {
     const wrapper = mount(CrashDiagnosticsPanel, { props: { diagnostics: diagnostics() } })
@@ -83,21 +127,22 @@ describe('CrashDiagnosticsPanel', () => {
     value.otherThreads!.threads[0] = { ...value.otherThreads!.threads[0], relationToCrash: 'unknown', symbolicationStatus: 'not_applicable',
       stack: { format: 'raw_frames', content: [] } }
     value.nativeThreads = { status: 'partial', reason: 'count_limit', truncated: true, observedCount: 3, omittedCount: 1, threads: [
-      { systemTid: 50, name: 'same', mainThread: true, backtrace: { status: 'ok', truncated: false, frames: [{ index: 0, moduleId: 'm1', relativePc: '0x0' }] } },
+      { systemTid: 50, name: 'same', mainThread: true, backtrace: { status: 'ok', truncated: false, frames: [{ index: 0, moduleId: 'm1', relativePc: '0x0', resolution: { status: 'pending', reason: 'missing_so' } }] } },
       { systemTid: 51, name: 'same', backtrace: { status: 'unavailable', reason: 'timeout', truncated: false, frames: [] } },
     ] }
     const nativeCrash = { abi: 'arm64-v8a', systemTid: 47, signal: { number: 11, name: 'SIGSEGV', code: 1 },
       registers: { status: 'ok' as const, truncated: false, values: { pc: '0x0' } },
-      modules: [{ id: 'm1', name: 'liba.so', abi: 'arm64-v8a' }], backtrace: { status: 'ok' as const, truncated: false, frames: [{ index: 0 }] } }
+      modules: [{ id: 'm1', name: 'liba.so', abi: 'arm64-v8a' }], backtrace: { status: 'ok' as const, truncated: false,
+        frames: [{ index: 0, resolution: { status: 'not_applicable' as const, reason: 'missing_module_identity' } }] } }
     const wrapper = mount(CrashDiagnosticsPanel, { props: { diagnostics: value, nativeCrash } })
     expect(wrapper.text()).toContain('与崩溃线程的关系未知')
-    expect(wrapper.text()).toContain('liba.so · 0x0')
+    expect(wrapper.get('.frame-raw').text()).toContain('#00 pc 0x0 liba.so')
     const tabs = wrapper.findAll('[aria-label="其他 Native 线程"] button')
     expect(tabs).toHaveLength(2)
     await tabs[1].trigger('click')
     expect(wrapper.text()).toContain('系统 TID 51')
     expect(wrapper.text()).toContain('采集超时')
-    expect(wrapper.text()).not.toContain('liba.so · 0x0')
+    expect(wrapper.find('.frame-raw').exists()).toBe(false)
     expect(wrapper.text()).toContain('Java ID 2')
     wrapper.unmount()
   })
