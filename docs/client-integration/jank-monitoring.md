@@ -9,6 +9,8 @@
 | 一个主线程卡顿个例 | `POST /ingest/v1/stack-artifacts:parse` | 原始 `.rheajank.zip` |
 | 场景 FPS、前台挂起汇总 | `POST /ingest/v1/batches` | JSON v2 指标批次 |
 
+Android SDK 当前已有场景 FPS 上传，前台挂起汇总仅有服务端协议支持；本次 gzip 的挂起样本是合成验证，不新增客户端采集。批次编码规则见[接入公共规则](README.md#批量响应与队列确认)。
+
 批量入口不接受结构化 `eventType=jank`，会返回永久的 `JANK_ARTIFACT_REQUIRED`；同一卡顿不再同时构造 JSON 个例。现有采集、异步来源和导出入口见 [Android Jank 专题](../../android/docs/knowledge-base/04-Jank监控与堆栈产物.md)，默认配置见 [SDK 配置指南](../../android/docs/knowledge-base/16-SDK配置指南.md)。
 
 ## 卡顿 ZIP 的构造与持久化

@@ -76,6 +76,26 @@ class FpsUploaderTest {
         }
     }
 
+    /** 压缩准备错误沿用网络保留路径，413/415 仍按领域永久错误处理。 */
+    @Test fun gzipFailuresKeepExistingQueuePolicy() = runBlocking {
+        for (status in listOf(0, 503, 413, 415)) {
+            /** 本次可观察到的网络或协议错误。 */
+            val failure = if (status == 0) NetworkResult.NetworkError(java.io.IOException("gzip_prepare"))
+                else NetworkResult.HttpError(status, null, status == 503)
+            val root = java.nio.file.Files.createTempDirectory("gzip-retry")
+            try {
+            val store = createStore(root)
+                store.startSession(testIdentity)
+                store.merge(summary())
+                store.sealCurrent()
+                val runner = FpsUploader(store = store, sender = FpsBatchSender { failure },
+                    config = com.shanshui.performance.metrics.FpsConfig(), clock = { 1_000L })
+            runner.flush()
+            assertEquals(if (status == 0 || status == 503) 1 else 0, store.count())
+            } finally { deleteRecursively(root) }
+        }
+    }
+
     /** 创建测试用 FPS 存储和最小协议载荷。 */
     private fun createStore(root: Path): FpsEventStore {
         return FpsEventStore(

@@ -42,7 +42,9 @@
 
 ## 批量响应与队列确认
 
-本节适用于 Crash、启动、场景 FPS、前台挂起和内存峰值的 `POST /ingest/v1/batches`。JSON 使用 v2 信封；服务端支持 JSON 与 JSON+gzip，当前 Android SDK 默认发送普通 JSON。ZIP 和 multipart 使用各自的确认规则。
+本节适用于 Crash、启动、场景 FPS、前台挂起和内存峰值的 `POST /ingest/v1/batches`。JSON 使用 v2 信封；Android SDK 自建网络会话的所有 JSON 批次统一使用 gzip，包括小批次和压缩后变大的批次，不设阈值、不回退普通 JSON。宿主完整提供的外部 OkHttp/Retrofit 会话由宿主管理传输策略。原始事件仍以 JSON 持久化并按未压缩大小分批，压缩仅发生于后台发送前；准备失败保留原事件，继续原有重试。服务端仍接受普通 JSON，精确编码与资源限制见[公共批次传输契约](../api/crash-api.md#内容编码与大小限制)。ZIP 和 multipart 使用各自的确认规则。
+
+前台挂起汇总是服务端支持的批次类型，当前 Android SDK 没有对应采集上传实现；该类型的 gzip 以合成协议验证，不代表已增加客户端采集能力。
 
 1. 先可靠落盘，再发送；设置单批数量、字节、队列配额、保留期和重试上限。`requestId` 用于关联本次发送，`eventId` 用于事件幂等，重试不能重新生成事件。
 2. HTTP 200 且正文可解析后，先核对响应的 `requestId`、非负的 `accepted`/`rejected`/`duplicate`、三者之和与批次事件数，以及拒绝计数与错误定位的对应关系。当前 Crash 和内存峰值要求 `requestId` 完全相同；FPS 在响应返回非空 `requestId` 时核对。

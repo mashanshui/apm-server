@@ -7,9 +7,9 @@
 | `INVALID_APP_KEY` | 401 | 批次 | 否 | `X-App-Key` 缺失、格式错误或不存在；鉴权先于正文读取 |
 | `PACKAGE_NAME_MISMATCH` | 403 | 批次 | 否 | 任一事件 `packageName` 与 appKey 绑定包名不同，整个批次零写入 |
 | `APP_AUTH_UNAVAILABLE` | 503 | 批次 | 是 | PostgreSQL 应用鉴权暂时不可用，返回 `Retry-After: 30` |
-| `INVALID_BATCH` | 400 | 批次 | 否 | JSON、gzip 或 `events` 结构非法 |
-| `UNSUPPORTED_MEDIA_TYPE` | 415 | 批次 | 否 | 首期只接受 JSON，可带 gzip |
-| `PAYLOAD_TOO_LARGE` | 413 | 批次 | 否 | 压缩前请求、解压后请求或单事件超过上限 |
+| `INVALID_BATCH` | 400 | 批次 | 否 | JSON 语法/尾随 token、gzip 完整性或 `events` 结构非法 |
+| `UNSUPPORTED_MEDIA_TYPE` | 415 | 批次 | 否 | 仅接受 JSON；内容编码仅普通 JSON 或单独 gzip，未知/重复/叠加编码拒绝 |
+| `PAYLOAD_TOO_LARGE` | 413 | 批次 | 否 | 线上请求、完整解压内容或单事件超过上限 |
 | `UNSUPPORTED_SCHEMA_VERSION` | 200/400 | 单条 | 否 | 服务端不支持该事件 Schema 版本 |
 | `MISSING_PROCESS_ID` / `INVALID_PROCESS_ID` | 200 | 单条 | 否 | `processId` 缺失、为空、不是标准连字符 UUID v4 或使用数值 PID |
 | `MISSING_*` | 200 | 单条 | 否 | 其他缺少统计必需字段 |

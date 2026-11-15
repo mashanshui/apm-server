@@ -47,7 +47,7 @@ SDK 不生成或上传原始 `stack` 内存、`memory near` 和完整 `memory ma
 
 ## 上传与队列确认
 
-请求发送到 `POST /ingest/v1/batches`，正文为 UTF-8 JSON v2 批次；诊断现场放在每条事件的 `crash.diagnostics` 中。完整字段和[合成请求样例](../examples/crash-diagnostics-batch.json)见 [Crash API](../api/crash-api.md#批量上报)。当前 SDK 默认发送普通 JSON；服务端支持 gzip，手动压缩时才设置 `Content-Encoding: gzip`。SDK 冻结前同时按事件 240 KiB 目标和实际批次大小校验，服务端另按 256 KiB 单事件及分区限制校验。
+请求发送到 `POST /ingest/v1/batches`，正文为 UTF-8 JSON v2 批次；诊断现场放在每条事件的 `crash.diagnostics` 中。完整字段和[合成请求样例](../examples/crash-diagnostics-batch.json)见 [Crash API](../api/crash-api.md#批量上报)。当前 SDK 自建会话统一 gzip 发送并设置 `Content-Encoding: gzip`；手动接入的编码与大小限制见[公共批次传输契约](../api/crash-api.md#内容编码与大小限制)。SDK 冻结前同时按事件 240 KiB 目标和实际批次大小校验，服务端另按 256 KiB 单事件及分区限制校验。
 
 发送后执行[批量响应与队列确认](README.md#批量响应与队列确认)，再更新本地事件状态。Crash 必须核对返回 `requestId`；一条事件可以有多个字段错误，拒绝数量按不同事件归并，不按错误数组长度计算。非预期成功响应、计数不一致或无法定位的错误保留整批进入有上限的重试，不凭 HTTP 200 删除数据。
 

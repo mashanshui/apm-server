@@ -234,6 +234,26 @@ class CrashUploaderTest {
         assertEquals(1, sends)
     }
 
+    /** 压缩准备错误沿用网络保留路径，413/415 仍按领域永久错误处理。 */
+    @Test fun gzipFailuresKeepExistingQueuePolicy() = runBlocking {
+        for (status in listOf(0, 503, 413, 415)) {
+            /** 本次可观察到的网络或协议错误。 */
+            val failure = if (status == 0) NetworkResult.NetworkError(java.io.IOException("gzip_prepare"))
+                else NetworkResult.HttpError(status, null, status == 503)
+
+            val store = FileCrashQueue(temporaryFolder.newFolder("gzip-$status"))
+            val original = sampleEvent("gzip-$status")
+            store.enqueue(original)
+            val runner = uploader(store) { request ->
+                assertEquals(original, request.events.single())
+                failure
+            }
+            runner.flush(maxBatches = 1)
+            assertEquals(if (status == 0 || status == 503) 1 else 0, store.count())
+
+        }
+    }
+
     private fun uploader(
         queue: FileCrashQueue,
         clock: () -> Long = { 1_726_000_000_000 },

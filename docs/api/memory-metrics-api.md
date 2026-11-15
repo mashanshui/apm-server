@@ -4,7 +4,7 @@
 
 ## 批量上传
 
-复用 `POST /ingest/v1/batches`，`X-App-Key` 和 `X-Schema-Version: 2`，Content-Type 为 application/json，支持原有 gzip。外层 `requestId/events` 不变，事件格式如下（固定时间用于测试，实际请求应使用原运行真实时间）：
+复用 `POST /ingest/v1/batches`，`X-App-Key` 和 `X-Schema-Version: 2`，Content-Type 为 application/json，SDK 自建会话统一使用 gzip；服务端普通 JSON、编码校验与大小限制见[公共批次传输契约](crash-api.md#内容编码与大小限制)。外层 `requestId/events` 不变，事件格式如下（固定时间用于测试，实际请求应使用原运行真实时间）：
 
 ```json
 {

@@ -4,7 +4,7 @@
 
 ## 批量上报
 
-请求正文是 UTF-8 JSON 批次，包含 `requestId` 和 `events` 数组；每个 Crash 的补充现场位于该事件的 `crash.diagnostics` 对象。当前 Android SDK 默认发送普通 JSON；服务端也接受 gzip 压缩的 JSON，只有实际压缩时才设置 `Content-Encoding: gzip`。Native 客户端采集、重启恢复和服务端接收已实现；API 29/35 模拟器已完成隔离服务直传与查询，范围见[验证记录](../validation/native-crash/README.md)。服务端通过永久 appKey 识别应用，完整 Key 不写入日志。
+请求正文是 UTF-8 JSON 批次，包含 `requestId` 和 `events` 数组；每个 Crash 的补充现场位于该事件的 `crash.diagnostics` 对象。当前 Android SDK 自建网络会话对所有 JSON 批次使用 gzip，不设大小阈值或压缩率回退；服务端仍接受普通 JSON。具体编码及大小限制见下文。Native 客户端采集、重启恢复和服务端接收已实现；API 29/35 模拟器已完成隔离服务直传与查询，范围见[验证记录](../validation/native-crash/README.md)。服务端通过永久 appKey 识别应用，完整 Key 不写入日志。
 
 ```http
 POST /ingest/v1/batches
@@ -12,6 +12,29 @@ Content-Type: application/json
 X-App-Key: <appKey>
 X-Schema-Version: 2
 ```
+
+### 内容编码与大小限制
+
+本节是 `/ingest/v1/batches` 的公共传输契约，适用于 Crash、启动、FPS、前台挂起和内存峰值；客户端实现步骤见[批量接入公共规则](../client-integration/README.md#批量响应与队列确认)。
+
+- 正文的逻辑格式仍为 UTF-8 JSON v2。gzip 请求保留 `Content-Type: application/json` 并添加唯一 `Content-Encoding: gzip`；声明 `Content-Length` 时使用压缩后实际字节数。下方 JSON 示例表示解压后的内容，不能将明文 JSON 配上 gzip 头直接发送。
+- 服务端接受无编码头、空白头、单独 `identity` 的普通 JSON，以及单独 `gzip`；token 忽略大小写和首尾空白。未知、重复或叠加编码（包括 `xgzip`、`gzip, br`、重复 gzip 头）返回不可重试的 `415 UNSUPPORTED_MEDIA_TYPE`。
+- 默认线上正文限制 1 MiB、完整解压内容限制 4 MiB；无声明长度的请求也按实际流量限制。超限返回不可重试的 `413 PAYLOAD_TOO_LARGE`。SDK 仍按未压缩 JSON 执行原始分批和单事件预算，不因 gzip 变小扩大批次；压缩膨胀超过线上限制也不改发普通 JSON。
+- 应用鉴权先于读取和解压。服务端完整验证 gzip CRC/长度尾部后再解析和分派；损坏、截断、解压后语法非法或多余 JSON token 返回不可重试的 `400 INVALID_BATCH`，不产生该批事件写入。
+- gzip 只改变内容编码，不改变事件字段、身份、幂等及部分接受语义。Jank ZIP、泄漏报告 multipart、查询响应与 Dashboard 不采用本请求压缩策略。
+
+手动接入示例（先按实际应用身份和时间准备 `batch.json`，App Key 通过环境变量注入）：
+
+```bash
+gzip -c batch.json | curl --request POST 'http://127.0.0.1:8080/ingest/v1/batches' \
+  --header 'Content-Type: application/json' \
+  --header 'Content-Encoding: gzip' \
+  --header 'X-Schema-Version: 2' \
+  --header "X-App-Key: ${APM_APP_KEY}" \
+  --data-binary @-
+```
+
+### JVM Crash 最小结构
 
 JVM Crash 事件最小结构如下：
 

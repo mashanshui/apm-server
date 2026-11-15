@@ -60,6 +60,10 @@ class TransportSession private constructor(
                 .writeTimeout(config.writeTimeoutMillis, TimeUnit.MILLISECONDS)
                 .retryOnConnectionFailure(false)
                 .addInterceptor(AppKeyInterceptor(config.appKey))
+                .addInterceptor(BatchGzipInterceptor(
+                    requireNotNull(config.normalizedBaseUrl.resolve("ingest/v1/batches")),
+                    config.enableLogging,
+                ))
                 .apply {
                     if (config.enableLogging) {
                         addInterceptor(

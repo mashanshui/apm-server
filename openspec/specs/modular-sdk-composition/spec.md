@@ -93,7 +93,7 @@ SDK MUST 在启动前校验配置和重复功能；相同初始化请求 MUST �
 
 ### Requirement: 拆分保持采集上传的可观察行为
 
-各功能 MUST 保持现有默认采集口径、事件字段、认证头、端点、请求格式、持久化恢复、响应分类与重试删除语义；内存泄漏 MUST 仅上传 report JSON。模块化 MUST 不引入功能之间的自动启停关系。
+各功能 MUST 保持现有默认采集口径、事件字段、认证头、端点、逻辑请求格式、持久化恢复、响应分类与重试删除语义；内存泄漏 MUST 仅上传 report JSON。全量与按需接入的 SDK 自建网络会话 MUST 按事件批次传输契约，对 JSON 批次统一使用 gzip 内容编码，该编码 MUST 不改变逻辑 JSON 或扩展至 Jank ZIP、内存泄漏 multipart。模块化 MUST 不引入功能之间的自动启停关系。
 
 #### Scenario: 恢复待上传数据
 
@@ -109,6 +109,11 @@ SDK MUST 在启动前校验配置和重复功能；相同初始化请求 MUST �
 
 - **WHEN** Activity 泄漏被确认，或消费者使用默认 Looper 配置
 - **THEN** dump 仍在生命周期/UI 线程之外触发且仅排队上传 report JSON；Looper 历史及密集记录仍默认关闭、显式开启
+
+#### Scenario: 全量与按需接入共享 gzip 行为
+
+- **WHEN** 消费者使用全量、仅 Crash 或仅 Metrics 接入，并通过 SDK 自建网络会话发送 JSON 批次
+- **THEN** 各组合均使用同一 gzip 传输契约，不要求引入未选择的业务模块，也不改变原始事件、认证、响应或持久化规则
 
 ### Requirement: Native 采集归 Crash 模块独立管理
 Crash 能力 MUST 提供 nativeEnabled 开关，默认 true，并受现有 enabled 总开关约束。nativeEnabled=false MUST 保留 JVM 采集及已存在 Native 记录恢复；enabled=false MUST 不注册本次 Crash handler。Native 不支持或初始化失败 MUST 明确记录安全原因并保持 JVM 功能和其他模块可用。

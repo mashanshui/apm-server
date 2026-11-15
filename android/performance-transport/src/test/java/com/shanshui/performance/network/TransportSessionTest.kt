@@ -27,6 +27,8 @@ class TransportSessionTest {
             externalClient = client,
             externalRetrofit = retrofit,
         )
+        assertFalse(session.okHttpClient !== client)
+        assertFalse(session.retrofit !== retrofit)
         session.close()
         assertFalse(client.dispatcher.executorService.isShutdown)
         client.dispatcher.executorService.shutdown()
