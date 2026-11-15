@@ -89,7 +89,7 @@ flowchart LR
 - [FileJankUploadQueue](../../performance-jank/src/main/java/com/shanshui/performance/jank/FileJankUploadQueue.kt)、[JankArtifactUploader](../../performance-jank/src/main/java/com/shanshui/performance/jank/JankArtifactUploader.kt)。
 - [队列测试](../../performance-jank/src/test/java/com/shanshui/performance/jank/FileJankUploadQueueTest.kt)、[上传器测试](../../performance-jank/src/test/java/com/shanshui/performance/jank/JankArtifactUploaderTest.kt)、[网络测试](../../performance-transport/src/test/java/com/shanshui/performance/network/TransportSessionTest.kt)：对账、恢复、确认/重试/永久失败、删除重试、原字节请求。
 
-以下为此前的身份契约验证记录，不替代本次异步页面验证（见 [2026-11-06 构建测试](11-构建测试与本地发布.md#2026-11-06-卡顿采样测试页)）：
+以下为此前的身份契约验证记录，不替代本次异步页面验证（见 [2026-11-06 构建测试](11-构建测试与本地发布.md#卡顿采样专项)）：
 
 上述客户端测试通过替身隔离 Rhea，另有外部 `rhea-inhouse-noop:test` 验证公开 `processId` API 和
 UUID v4 校验；本轮已在 EML-AL00/API 29 运行 Rhea 1.0.3 AndroidTest，生成并由 Processor 解析新 ZIP，

@@ -1,6 +1,8 @@
 # APM 查询 MCP 服务
 
-内存指标查询返回运行期观测峰值分布和runCount，按最后持久化采样时间归属，scene/foreground分别匹配各指标峰值上下文；下次启动补报后才可见，不兼容sampleCount别名。客户端联合验收仍待完成；服务端实际HTTP与官方客户端证据见[独立验收](../docs/validation/memory-runtime-peaks/README.md)。内存工具拒绝旧sampleCount及非法runCount结果，scene最长128、processName及版本/系统/机型最长256字符，趋势metric仅接受pss/vss/java_heap。
+平台能力、跨端验收和部署结论统一见[平台状态](../docs/knowledge-base/00-当前实现与验证边界.md)，本页维护 MCP 工程结构、运行方式和协议处理边界。
+
+内存指标查询返回运行期观测峰值分布和runCount，按最后持久化采样时间归属，scene/foreground分别匹配各指标峰值上下文；下次启动补报后才可见，不兼容sampleCount别名。内存工具拒绝旧sampleCount及非法runCount结果，scene最长128、processName及版本/系统/机型最长256字符，趋势metric仅接受pss/vss/java_heap。实际 HTTP 与官方客户端的验证方法及原执行范围见[内存峰值验收](../docs/validation/memory-runtime-peaks/README.md)。
 
 独立 TypeScript 工程，将官方 MCP Streamable HTTP 工具映射到 Java 后端固定的 /api/agent/v1 只读接口。MCP 不连接数据库，也不接受客户端指定的上游 URL。完整工具与错误契约见 [MCP API](../docs/api/mcp-api.md)；Token 管理见 [管理 API](../docs/api/query-token-api.md)。
 
@@ -29,7 +31,7 @@
 
 需要 Node.js 24 与 npm 11。按顺序执行 npm ci、npm run typecheck、npm test、npm run build，然后设置 APM_BACKEND_ORIGIN=http://127.0.0.1:8080、MCP_ENABLED=true、MCP_ALLOWED_HOSTS=127.0.0.1,localhost、MCP_ALLOWED_ORIGINS=127.0.0.1,localhost，再执行 npm start。默认监听 127.0.0.1:3010/mcp。后端也须设置 APM_AGENT_QUERY_ENABLED=true。完整 Token 只从网页创建结果复制到支持手工 Bearer 的受信 MCP 客户端，不写入代码、日志、命令历史或版本库。
 
-Inspector CLI 2.8.0 可用 --transport http --protocol-era modern --header "Authorization: Bearer <应用查询Token>" 手工配置凭据，并以 --method tools/list、--method tools/call 检查发现和调用。2026-09-29 已在本地真实 PostgreSQL/ClickHouse 双应用数据上完成 Inspector 查询、错误、分片及断连验证；范围见[端到端验收记录](../docs/validation/agent-query-e2e-validation.md)。
+Inspector CLI 2.8.0 可用 --transport http --protocol-era modern --header "Authorization: Bearer <应用查询Token>" 手工配置凭据，并以 --method tools/list、--method tools/call 检查发现和调用。双应用查询、错误、分片及断连的验证方法与原执行范围见[端到端验收记录](../docs/validation/agent-query-e2e-validation.md)。
 
 ## 部署与保护
 
@@ -45,7 +47,7 @@ Inspector CLI 2.8.0 可用 --transport http --protocol-era modern --header "Auth
 
 ## 当前 Crash 堆栈契约
 
-Crash 详情包含独立主 `stack:{format,content}` 和 `diagnostics`，未采集诊断为 null；JVM 使用 raw_chain 或 retrace_text，Native 统一使用 native_stack。Native 帧携带独立状态、内联链及 SO 来源，关联 Java 栈使用独立 mapping 来源；主栈成功可与辅助线程等待共存。地址不转为 JavaScript 数字，Native 线程按系统 TID、Java 线程按 Java ID 区分。首次成功来源固定；Native 不提供分析任务。工作树已接入 Native 后台自动调度；真实设备和生产环境端到端验收未完成。Issue 显示 temporary 与 buildId 或 resolved；分页不是快照。
+Crash 详情包含独立主 `stack:{format,content}` 和 `diagnostics`，未采集诊断为 null；JVM 使用 raw_chain 或 retrace_text，Native 统一使用 native_stack。Native 帧携带独立状态、内联链及 SO 来源，关联 Java 栈使用独立 mapping 来源；主栈成功可与辅助线程等待共存。地址不转为 JavaScript 数字，Native 线程按系统 TID、Java 线程按 Java ID 区分。首次成功来源固定；Native 不提供分析任务。Issue 显示 temporary 与 buildId 或 resolved；分页不是快照。Native 后台处理与跨端验证边界见[平台状态](../docs/knowledge-base/00-当前实现与验证边界.md#当前能力矩阵)。
 
 MCP 的 Crash 大片段名称为 `stack` 和 `diagnostics`，摘要不夹带两者正文。续读绑定对应 JSON 字节摘要，内容变化返回 EVIDENCE_CHANGED。未知状态或格式返回 QUERY_BACKEND_INVALID_RESPONSE。冻结分析证据版本 3 仍只包含主异常片段，报告版本 4 未扩展；授权查询现场与冻结证据不是同一份材料。
 
