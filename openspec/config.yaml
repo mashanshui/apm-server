@@ -8,34 +8,13 @@ context: |
   OpenSpec 与 .agents/skills/ 只维护根目录一套。平台架构与共同样例归根 docs/，
   Android 内部实现与测试说明归 android/docs/knowledge-base/；公开契约归 docs/api/，
   客户端接入步骤归 docs/client-integration/。遵守根与所涉工程 AGENTS.md，文档使用中文。
+  知识库及配套文档通过 knowledge-sync 手动更新，普通开发不自动同步文档；
+  必要实现测试仍随代码变更执行。归档时按 operations.archive 指导显式调用该 skill。
 
-# Project context (optional)
-# This is shown to AI when creating artifacts.
-# Add your tech stack, conventions, style guides, domain knowledge, etc.
-# Example:
-#   context: |
-#     Tech stack: TypeScript, React, Node.js
-#     We use conventional commits
-#     Domain: e-commerce platform
-
-# Per-artifact rules (optional)
-# Add custom rules for specific artifacts.
-# Example:
-#   rules:
-#     proposal:
-#       - Keep proposals under 500 words
-#       - Always include a "Non-goals" section
-#     tasks:
-#       - Break tasks into chunks of max 2 hours
-
-# Per-operation guidance (optional)
-# Add advisory guidance for how apply and archive work should be conducted.
-# This is separate from artifact rules above.
-# Example:
-#   operations:
-#     apply:
-#       guidance:
-#         - Keep test summaries concise
-#     archive:
-#       guidance:
-#         - Summarize the archive outcome before finishing
+# 由 Agent 归档流程读取的操作指导；直接运行 openspec archive 不会自动调用 skill。
+operations:
+  archive:
+    guidance:
+      - 完成归档原有检查及选定的主规格同步后、移动变更目录前，显式调用 $knowledge-sync（读取仓库根 .agents/skills/knowledge-sync/SKILL.md），传入选定变更名称和已解析的变更目录；在当前流程中执行并等待完成，不后台运行。
+      - 依据该变更的实际规划材料、任务、增量规格及对应实现和验证证据核对知识库、API、客户端、示例、测试说明与导航；实现已经提交或工作树干净不能作为跳过依据。各文档类别分别报告更新文件或不受影响的依据。
+      - 仅当 knowledge-sync 报告“更新完成”时继续归档；skill 不可用、执行中断、存在影响本次文档准确性的未解决差异或必要校验失败时，停止归档并保留原变更目录，报告未完成原因。已准确记录的既有验证边界不自动视为失败。

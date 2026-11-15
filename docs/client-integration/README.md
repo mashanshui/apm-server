@@ -2,6 +2,8 @@
 
 本目录维护客户端接入步骤、事件冻结、本地持久化、上传确认和联调方法。服务端完整字段、错误码和统计口径以 [API 文档](../api/README.md)为准；SDK 内部实现与测试由 [Android 知识库](../../android/docs/knowledge-base/README.md)维护。
 
+本目录及配套示例通过 [knowledge-sync skill](../../.agents/skills/knowledge-sync/SKILL.md) 手动核对与更新，普通开发不自动同步文档；调用方式及 OpenSpec 归档同步规则见[平台维护约定](../knowledge-base/README.md#内容归属与维护约定)。必要实现测试仍随代码变更执行。
+
 ## 使用现有 SDK
 
 1. 在网页创建应用，填写实际 Android application ID，由应用 `OWNER`/`ADMIN` 在设置页取得 App Key。

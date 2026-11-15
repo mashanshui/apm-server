@@ -40,6 +40,6 @@ Dashboard 可见变化应检查页面并附截图。分别说明自动化测试�
 
 ## 文档维护
 
-开发前阅读[平台知识库](../docs/knowledge-base/README.md)与[前端知识库](docs/knowledge-base/README.md)及相关主题页。页面、路由、状态、联调、测试和部署边界变化同步前端知识库。
+开发前阅读[平台知识库](../docs/knowledge-base/README.md)与[前端知识库](docs/knowledge-base/README.md)及相关主题页。知识库及配套文档遵循根规则，通过 [knowledge-sync skill](../.agents/skills/knowledge-sync/SKILL.md) 手动更新；普通开发不自动同步文档，必要实现测试仍按本工程规则执行。
 
-平台架构仍由根知识库维护，正式接口契约仍由根目录 API 文档维护；影响客户端接入时同步[客户端接入文档](../docs/client-integration/README.md)。按根规则检查其他受影响文档，避免复制完整契约。
+执行 skill 时，页面、路由、状态、联调、测试和部署边界归前端知识库；平台架构归根知识库，正式接口契约归根目录 API 文档，客户端接入归[客户端接入文档](../docs/client-integration/README.md)。按根规则核对其他受影响文档，避免复制完整契约。

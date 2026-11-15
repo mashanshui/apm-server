@@ -1,0 +1,6 @@
+interface:
+  display_name: "知识库更新"
+  short_description: "手动核对并更新平台与各端知识库、API、客户端接入和配套文档"
+
+policy:
+  allow_implicit_invocation: false

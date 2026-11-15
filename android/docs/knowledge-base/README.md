@@ -43,6 +43,7 @@
 
 ## 文档分工与维护
 
+- 本知识库及配套文档通过仓库级 [knowledge-sync skill](../../../.agents/skills/knowledge-sync/SKILL.md) 手动更新，普通开发不自动同步；调用方式及归档同步规则见[平台维护约定](../../../docs/knowledge-base/README.md#内容归属与维护约定)。
 - 本目录负责机制、调用链、设计取舍和验证范围；不为每个类单独生成一篇说明。
 - [平台知识库](../../../docs/knowledge-base/README.md)维护跨端架构与约定，[API 文档](../../../docs/api/README.md)维护服务端正式契约，[客户端接入文档](../../../docs/client-integration/README.md)维护事件构造、上传、持久化和重试步骤；本目录通过链接引用这些内容。
 - [15 SDK 模块化拆分说明](15-SDK模块化拆分说明.md) 维护全量和精简接入、发布及 JNI 迁移边界。

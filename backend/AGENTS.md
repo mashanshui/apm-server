@@ -31,6 +31,6 @@ Java 代码使用 4 空格缩进、UTF-8 编码，并保持现有 `com.shanshui.
 
 ## 文档维护
 
-开发前阅读[平台知识库](../docs/knowledge-base/README.md)与[后端知识库](docs/knowledge-base/README.md)及相关主题页。后端内部实现、构建、存储、安全和测试变更同步后端知识库；平台架构与跨端约定仍由根知识库维护。
+开发前阅读[平台知识库](../docs/knowledge-base/README.md)与[后端知识库](docs/knowledge-base/README.md)及相关主题页。知识库及配套文档遵循根规则，通过 [knowledge-sync skill](../.agents/skills/knowledge-sync/SKILL.md) 手动更新；普通开发不自动同步文档，必要实现测试仍按本工程规则执行。
 
-HTTP 契约变化同步[API 文档](../docs/api/README.md)，客户端字段或接入流程变化同步[客户端接入文档](../docs/client-integration/README.md)，并按根规则检查其他受影响文档。
+执行 skill 时，后端内部实现、构建、存储、安全和测试归后端知识库；平台架构与跨端约定归根知识库，HTTP 契约归 [API 文档](../docs/api/README.md)，客户端字段和接入流程归[客户端接入文档](../docs/client-integration/README.md)。
