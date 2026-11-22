@@ -296,6 +296,10 @@ PerformanceSdk.current()?.setFpsScene(this, "checkout")
 PerformanceSdk.current()?.setFpsScene(this, null)
 ```
 
+### 3.7 `AnrConfig`
+
+`PerformanceConfig.anr` 默认关闭。显式传入 `AnrConfig(enabled = true)` 后按平台条件尝试启动，状态由 `PerformanceSdk.anrInitResult` 提供。默认保留至多 20 份已完成报告，正文总计 20 MiB，有效期 7 天，分别可用 `maxReportCount`、`maxStorageBytes`、`maxReportAgeMillis` 调整。数量须为 1–200，字节数与保留时间须大于零。独立接入示例见 [ANR 接入](../../../docs/client-integration/anr-local-collection.md)。
+
 ## 4. 元数据和跨模块共享规则
 
 SDK 初始化时会自动解析并复用以下信息：

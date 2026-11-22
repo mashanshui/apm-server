@@ -1,0 +1,5 @@
+ANR 信号采集方案参考 Tencent wechat-matrix 项目中 matrix-trace-canary 的
+SignalAnrTracer、SignalHandler、AnrDumper 和 MatrixTracer。
+参考检出版本：3b8293bd65d47eeea7caf1f32a3a5d4d5eab60e7。
+Matrix 源码及相关第三方组件的许可全文见同目录 matrix-LICENSE.txt。
+本模块独立实现和后续迁移的具体范围以源码中的版权与来源注释为准。

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <!-- 仅在测试 APK 中创建独立进程，用于验证 ANR 平台判断。 -->
+        <service
+            android:name="com.shanshui.performance.anr.AnrSecondaryProcessService"
+            android:exported="false"
+            android:process=":anr_test_secondary" />
+    </application>
+</manifest>

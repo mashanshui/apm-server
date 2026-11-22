@@ -35,5 +35,9 @@ class MainActivity : AppCompatActivity() {
         findViewById<Button>(R.id.crashCasesPageButton).setOnClickListener {
             startActivity(Intent(this, TestCrashActivity::class.java))
         }
+        // ANR 的手动 trace 和受控故障入口放在独立页面。
+        findViewById<Button>(R.id.anrTestButton).setOnClickListener {
+            startActivity(Intent(this, TestAnrActivity::class.java))
+        }
     }
 }

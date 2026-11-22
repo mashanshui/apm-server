@@ -16,6 +16,7 @@ dependencies {
     api(project(":performance-core"))
     api(project(":performance-transport"))
     api(project(":performance-crash"))
+    api(project(":performance-anr"))
     api(project(":performance-jank"))
     api(project(":performance-metrics"))
     api(project(":performance-leak"))

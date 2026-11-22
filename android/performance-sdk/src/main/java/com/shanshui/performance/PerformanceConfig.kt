@@ -1,6 +1,7 @@
 package com.shanshui.performance
 
 import com.shanshui.performance.crash.CrashConfig as ModuleCrashConfig
+import com.shanshui.performance.anr.AnrConfig as ModuleAnrConfig
 import com.shanshui.performance.jank.JankConfig as ModuleJankConfig
 import com.shanshui.performance.memory.leak.MemoryLeakConfig as ModuleMemoryLeakConfig
 import com.shanshui.performance.metrics.FpsConfig as ModuleFpsConfig
@@ -10,6 +11,9 @@ import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 
 /** 聚合入口使用的 Crash 配置别名；具体实现归属 Crash 模块。 */
 typealias CrashConfig = ModuleCrashConfig
+
+/** 聚合入口使用的 ANR 配置别名。 */
+typealias AnrConfig = ModuleAnrConfig
 
 /** 聚合入口使用的 Jank 配置别名；具体实现归属 Jank 模块。 */
 typealias JankConfig = ModuleJankConfig
@@ -109,6 +113,8 @@ data class PerformanceConfig(
     val service: ServiceConfig = ServiceConfig(),
     /** Crash 配置。 */
     val crash: CrashConfig = CrashConfig(),
+    /** Matrix ANR 采集配置，默认关闭。 */
+    val anr: AnrConfig = AnrConfig(),
     /** Jank 配置。 */
     val jank: JankConfig = JankConfig(),
     /** FPS 配置。 */

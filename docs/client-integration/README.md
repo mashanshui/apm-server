@@ -4,6 +4,8 @@
 
 本目录及配套示例通过 [knowledge-sync skill](../../.agents/skills/knowledge-sync/SKILL.md) 手动核对与更新，普通开发不自动同步文档；调用方式及 OpenSpec 归档同步规则见[平台维护约定](../knowledge-base/README.md#内容归属与维护约定)。必要实现测试仍随代码变更执行。
 
+仅需要 ANR 本地采集时，直接按 [ANR 本地接入](anr-local-collection.md) 操作。以下初始化和 App Key 步骤适用于上报能力。
+
 ## 使用现有 SDK
 
 1. 在网页创建应用，填写实际 Android application ID，由应用 `OWNER`/`ADMIN` 在设置页取得 App Key。
@@ -15,6 +17,7 @@
 
 | 需要接入什么 | 客户端流程 | 正式契约 |
 |---|---|---|
+| ANR 客户端本地采集 | [ANR 本地接入](anr-local-collection.md) | [Android ANR 规格](../../openspec/specs/android-anr-collection/spec.md) |
 | JVM/Native 致命 Crash 与启动事件 | [Crash 接入](crash-client-integration.md) | [Crash API](../api/crash-api.md)、[上报错误码](../api/crash-error-codes.md) |
 | 卡顿个例、场景 FPS 与前台挂起 | [卡顿接入](jank-monitoring.md)、[ZIP manifest 构造](jank-artifact-manifest.md) | [卡顿压缩包 API](../api/stack-artifact-api.md)、[卡顿指标 API](../api/jank-server-api.md) |
 | PSS、VSS 与 Java 堆运行峰值 | [内存峰值接入](memory-metrics.md) | [内存指标 API](../api/memory-metrics-api.md) |

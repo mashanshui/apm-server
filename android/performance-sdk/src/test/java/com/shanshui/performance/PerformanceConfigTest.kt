@@ -20,6 +20,7 @@ class PerformanceConfigTest {
         assertEquals(FpsLogLevel.OFF, config.fps.logLevel)
         assertTrue(config.fps.enabled)
         assertTrue(config.memory.enabled)
+        assertEquals(false, config.anr.enabled)
     }
 
     /** 验证服务地址和超时等共享字段的边界校验。 */

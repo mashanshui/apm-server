@@ -25,6 +25,7 @@
             android:name=".TestMemoryLeakActivity"
             android:exported="false" />
         <activity android:name=".TestCrashActivity" android:exported="false" />
+        <activity android:name=".TestAnrActivity" android:exported="false" />
         <activity
             android:name=".MainActivity"
             android:exported="true">

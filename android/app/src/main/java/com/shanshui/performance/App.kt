@@ -31,6 +31,8 @@ class App : Application() {
                 config = PerformanceConfig(
                     service = if (BuildConfig.PERFORMANCE_BASE_URL.isBlank()) service else service.copy(baseUrl = BuildConfig.PERFORMANCE_BASE_URL),
                     crash = CrashConfig(enabled = !joint),
+                    // 示例显式开启 Matrix ANR；SDK 配置默认仍为关闭。
+                    anr = AnrConfig(enabled = !joint),
                     // 使用 app 模块在本次 Gradle 命令中生成的 buildId。
                     jank = if (joint) JankConfig(enabled = false) else JANK_TEST_CONFIG,
                     fps = FpsConfig(enabled = !joint, logLevel = FpsLogLevel.SUMMARY),

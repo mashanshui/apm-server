@@ -1,6 +1,6 @@
 # SDK 模块化拆分说明
 
-2026-09-22 起，`nativelib` 不再是 Gradle 生产模块。原单体实现按职责拆为八个 Android Library。旧目录已删除，配置指南和 FPS 算法说明迁入本知识库。
+2026-09-22 起，`nativelib` 不再是 Gradle 生产模块。原单体实现按职责拆分，加入 ANR 后当前共有九个 Android Library。旧目录已删除，配置指南和 FPS 算法说明迁入本知识库。
 
 ## 模块边界
 
@@ -9,13 +9,14 @@
 | `performance-core` | 应用元数据、运行身份、匿名设备 ID、共享事件上下文、原子文件和组件生命周期 | Android、Kotlin |
 | `performance-transport` | OkHttp/Retrofit 会话、App-Key 认证、超时和通用网络结果 | `performance-core` |
 | `performance-crash` | JVM/Native Crash 配置、原生捕获、事件映射、文件队列和上传 | Core、Transport；自带原生回溯实现 |
+| `performance-anr` | Matrix 系统信号采集、私有目录报告、恢复与清理 | Core、ByteHook、ShadowHook |
 | `performance-jank` | Rhea 适配、卡顿事件、ZIP 队列和导出 | Core、Transport、Rhea |
 | `performance-metrics` | FPS、PSS/VSS/Java heap、Looper 监控及指标队列 | Core、Transport |
 | `performance-leak` | Activity 泄漏检测、KOOM 准备/dump、report 队列和上传 | Core、Transport、KOOM |
 | `performance-native-tools` | NativeLib、线程/CPU/GC/Hook 工具、CMake 和 `arm64-v8a` JNI | Core、ShadowHook |
 | `performance-sdk` | 全量配置、默认初始化、组件编排、共享会话和公开句柄 | 上述业务模块 |
 
-依赖方向保持单向：Core 不依赖业务模块，Transport 不包含业务 DTO/API，Crash、Jank、Metrics、Leak 和 Native Tools 之间不互相依赖，SDK 只负责组合。SDK 初始化时先创建共享身份和 Transport 会话，再按组件顺序执行准备与启动；关闭时按逆序释放功能并最后关闭 Transport。外部传入的 OkHttp/Retrofit 资源由调用方拥有，SDK 不会误关。
+依赖方向保持单向：Core 不依赖业务模块，Transport 不包含业务 DTO/API，Crash、ANR、Jank、Metrics、Leak 和 Native Tools 之间不互相依赖，SDK 只负责组合。SDK 初始化时先创建共享身份和 Transport 会话，再按组件顺序执行准备与启动；关闭时按逆序释放功能并最后关闭 Transport。外部传入的 OkHttp/Retrofit 资源由调用方拥有，SDK 不会误关。
 
 ## 接入方式
 
@@ -25,7 +26,9 @@
 
 发布 group 已统一为 `com.shanshui.nativelib`，主工程和独立消费者需使用同一组新坐标；本次迁移验证见[前缀统一记录](11-构建测试与本地发布.md#命名与发布迁移)。
 
-全量接入使用 `com.shanshui.nativelib:performance-sdk:1.0.0`，示例配置和初始化入口见 [SDK 配置指南](16-SDK配置指南.md) 与 [PerformanceSdk](../../performance-sdk/src/main/java/com/shanshui/performance/PerformanceSdk.kt)。需要精简依赖时可直接使用 `performance-crash`、`performance-metrics`、`performance-jank` 或 `performance-leak`；网络能力通过 `performance-transport` 传入。Native Crash 自带四 ABI 原生库，不要求 `performance-native-tools`；后者只用于独立线程和 Hook 工具。八个模块统一发布 Release AAR、sources JAR、POM 和 Gradle module metadata，版本由 `performance.version` 统一控制，默认 group 为 `com.shanshui.nativelib`。旧 `nativelib.*` 发布属性和单体坐标已移除。
+全量接入使用 `com.shanshui.nativelib:performance-sdk:1.0.0`，示例配置和初始化入口见 [SDK 配置指南](16-SDK配置指南.md) 与 [PerformanceSdk](../../performance-sdk/src/main/java/com/shanshui/performance/PerformanceSdk.kt)。需要精简依赖时可直接使用 `performance-crash`、`performance-metrics`、`performance-jank` 或 `performance-leak`；网络能力通过 `performance-transport` 传入。Native Crash 自带四 ABI 原生库，不要求 `performance-native-tools`；后者只用于独立线程和 Hook 工具。九个模块统一发布 Release AAR、sources JAR、POM 和 Gradle module metadata，版本由 `performance.version` 统一控制，默认 group 为 `com.shanshui.nativelib`。旧 `nativelib.*` 发布属性和单体坐标已移除。
+
+仅做 ANR 本地采集可独立接入 `performance-anr`，无需网络配置，见 [ANR 接入](../../../docs/client-integration/anr-local-collection.md)。
 
 宿主接入 Native Crash 时需解压原生库，保证 `libapm_crash_dumper.so` 可从安装目录执行；未满足解压和执行条件时 Native 初始化失败。来源与许可证随 Crash AAR 分发，见 [Crash 专题](03-Crash采集与上报.md#native-信号与原始现场)。
 

@@ -154,7 +154,12 @@ android {
         versionCode = performanceVersionCode
         versionName = performanceVersionName
 
-        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        // 独立 ANR 组合测试需要自行控制 Application 和 SDK 初始化顺序。
+        testInstrumentationRunner = if (providers.gradleProperty("performance.anrIsolatedTestRunner").orNull == "true") {
+            "com.shanshui.performance.AnrIsolatedTestRunner"
+        } else {
+            "androidx.test.runner.AndroidJUnitRunner"
+        }
         buildConfigField("String", "PERFORMANCE_APP_KEY", buildConfigString(performanceAppKey))
         buildConfigField("String", "PERFORMANCE_BUILD_ID", buildConfigString(performanceBuildId))
         buildConfigField("String", "PERFORMANCE_BASE_URL", buildConfigString(performanceBaseUrl))
@@ -234,6 +239,10 @@ dependencies {
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
+    // 在设备测试中捕获本机请求，核验 ANR 不进入现有上传链路。
+    androidTestImplementation(libs.okhttp.mockwebserver)
+    // 设备测试直接检查 ByteHook 与既有 Rhea 的共存状态。
+    androidTestImplementation(libs.bytehook)
     // Release 仪器测试直接调用 Kotlin 标准库扩展，确保测试 APK 携带其运行时实现。
     androidTestImplementation(kotlin("stdlib"))
     // 4.3.2 使用 Kotlin 2.2 元数据；示例依赖同步到可被 Kotlin 1.9 编译的版本。

@@ -6,6 +6,24 @@ import org.junit.Test
 
 /** 显式组件装配、失败回滚和逆序关闭测试。 */
 class PerformanceRuntimeTest {
+    /** 全量 SDK 中最后启动的 ANR 应在 Crash 和共享传输资源之前关闭。 */
+    @Test
+    fun closesAnrBeforeEarlierSdkComponents() {
+        /** 记录组件生命周期的共同列表。 */
+        val events = mutableListOf<String>()
+        /** 按全量 SDK 的相对启动顺序创建测试组件。 */
+        val runtime = PerformanceRuntime.create(
+            listOf(
+                RecordingComponent("transport", events),
+                RecordingComponent("crash", events),
+                RecordingComponent("anr", events),
+            ),
+        )
+        runtime.start()
+        runtime.close()
+        assertEquals(listOf("close:anr", "close:crash", "close:transport"), events.takeLast(3))
+    }
+
     /** 验证重复组件在任何启动前被拒绝。 */
     @Test
     fun rejectsDuplicateComponentIdsBeforeStart() {

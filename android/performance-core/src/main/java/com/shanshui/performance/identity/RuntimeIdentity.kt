@@ -1,8 +1,9 @@
 package com.shanshui.performance.identity
 
-import android.app.ActivityManager
 import android.app.Application
 import android.os.Build
+import android.util.Log
+import java.io.File
 import java.util.UUID
 
 /** 当前 Android 进程在本次进程生命周期内共享的运行身份。 */
@@ -30,6 +31,9 @@ internal object UuidV4 {
 
 /** 为同一 Android 进程缓存 sessionId/processId，避免各 Reporter 各自生成身份。 */
 object RuntimeIdentityProvider {
+    /** 运行身份判断的日志标签。 */
+    private const val TAG = "PerformanceIdentity"
+
     /** 保证首次初始化的身份创建与进程内读取安全。 */
     private val lock = Any()
 
@@ -71,14 +75,22 @@ object RuntimeIdentityProvider {
 
     /** 判断当前 Android 进程是否为应用主进程。 */
     private fun isMainProcess(application: Application): Boolean {
+        /** Android P 以下读取本进程命令行，避免依赖不保证填写的 processName。 */
         val processName = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             Application.getProcessName()
         } else {
-            @Suppress("DEPRECATION")
-            val processInfo = ActivityManager.RunningAppProcessInfo()
-            ActivityManager.getMyMemoryState(processInfo)
-            processInfo.processName
+            runCatching {
+                File("/proc/self/cmdline").inputStream().bufferedReader().use { reader ->
+                    reader.readText().substringBefore('\u0000').trim()
+                }
+            }.getOrElse { exception ->
+                Log.w(TAG, "读取当前进程名失败：${exception.javaClass.simpleName}")
+                return false
+            }
         }
-        return application.packageName == processName
+        /** 未识别的进程名不应被当成主进程。 */
+        val isMain = application.packageName == processName
+        Log.i(TAG, "运行身份进程类型判断完成：${if (isMain) "主进程" else "子进程"}")
+        return isMain
     }
 }

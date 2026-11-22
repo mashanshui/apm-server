@@ -2,10 +2,12 @@ package com.shanshui.modularconsumer.full
 
 import android.app.Application
 import com.shanshui.performance.NativeLib
+import com.shanshui.performance.AnrConfig
 import com.shanshui.performance.JankConfig
 import com.shanshui.performance.MemoryLeakConfig
 import com.shanshui.performance.PerformanceConfig
 import com.shanshui.performance.PerformanceSdk
+import com.shanshui.performance.ServiceConfig
 import java.io.File
 import org.json.JSONObject
 
@@ -16,8 +18,15 @@ class FullConsumerApplication : Application() {
 
     /** 关闭 Rhea/KOOM 的精简设备烟测配置；两项独立能力在 6.3 单独验收。 */
     private val smokeConfig = PerformanceConfig(
+        service = ServiceConfig(baseUrl = "http://127.0.0.1:1"),
         jank = JankConfig(enabled = false),
         memoryLeak = MemoryLeakConfig(enabled = false),
+    )
+
+    /** 同时启用 ANR、Rhea 和 Native Crash 的本地组合烟测配置。 */
+    private val jointConfig = smokeConfig.copy(
+        anr = AnrConfig(enabled = true),
+        jank = JankConfig(enabled = true, foregroundOnly = false, enableSyncSampling = false, enableAsyncSampling = true),
     )
 
     /** 使用公开聚合入口初始化 SDK，并解析 Native Tools 的公开 JNI 类。 */
@@ -50,6 +59,12 @@ class FullConsumerApplication : Application() {
         sdk = null
         File(noBackupFilesDir, "modular-consumer-smoke.json").writeText(serialized)
         return serialized
+    }
+
+    /** 关闭默认烟测实例后，启动本次需要联合验证的三个能力。 */
+    fun startJointSmoke(): PerformanceSdk {
+        sdk?.close()
+        return PerformanceSdk.initialize(this, "consumer-key", jointConfig).also { sdk = it }
     }
 
     /** 通过公开 SDK 聚合入口创建全量实例并解析 Native Tools。 */

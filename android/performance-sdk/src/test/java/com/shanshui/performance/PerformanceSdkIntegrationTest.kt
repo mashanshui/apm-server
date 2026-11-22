@@ -9,6 +9,7 @@ import com.shanshui.performance.metrics.MetricsHandle
 import com.shanshui.performance.network.NetworkConfig
 import com.shanshui.performance.network.TransportSession
 import com.shanshui.performance.crash.CrashHandle
+import com.shanshui.performance.anr.AnrHandle
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotSame
@@ -52,6 +53,7 @@ class PerformanceSdkIntegrationTest {
         assertSame(first, reused)
         assertEquals(1, dependencies.sessionCount)
         assertEquals(config.crash, dependencies.crashConfig)
+        assertEquals(config.anr, dependencies.anrConfig)
         assertEquals(config.jank, dependencies.jankConfig)
         assertEquals(config.fps, dependencies.fpsConfig)
         assertEquals(config.memory, dependencies.memoryConfig)
@@ -119,6 +121,23 @@ class PerformanceSdkIntegrationTest {
         second.close()
     }
 
+    /** ANR 初始化失败时其他功能和共享会话仍可继续工作。 */
+    @Test
+    fun isolatesAnrInitializationFailure() {
+        /** 注入 ANR 启动失败。 */
+        val dependencies = RecordingDependencies().apply { failAnr = true }
+        /** 启用 ANR 但不改变其他功能配置。 */
+        val config = testConfig().copy(anr = AnrConfig(enabled = true))
+        /** 使用隔离的依赖装配全量 SDK。 */
+        val sdk = PerformanceSdk.initializeForTesting(Application(), "test-key", config, dependencies)
+        assertEquals(com.shanshui.performance.anr.AnrInitStatus.FAILED, sdk.anrInitResult.status)
+        assertEquals(config.crash, dependencies.crashConfig)
+        assertEquals(config.fps, dependencies.fpsConfig)
+        assertEquals(config.anr, dependencies.anrConfig)
+        assertTrue(!dependencies.lastSession!!.okHttpClient.dispatcher.executorService.isShutdown)
+        sdk.close()
+    }
+
     /** 验证峰值配置完整透传，flush/close 不改变共享运行身份或其他能力配置。 */
     @Test
     fun memoryPeakConfigurationSurvivesCloseAndReinitialize() {
@@ -183,6 +202,13 @@ class PerformanceSdkIntegrationTest {
         var crashConfig: CrashConfig? = null
             private set
 
+        /** 最近一次收到的 ANR 配置。 */
+        var anrConfig: AnrConfig? = null
+            private set
+
+        /** 是否模拟 ANR 组件创建异常。 */
+        var failAnr: Boolean = false
+
         /** 最近一次收到的 Jank 配置。 */
         var jankConfig: JankConfig? = null
             private set
@@ -237,6 +263,18 @@ class PerformanceSdkIntegrationTest {
             schemaVersion: Int,
         ): CrashHandle? {
             crashConfig = config
+            return null
+        }
+
+        /** 记录 ANR 配置与共享身份，不加载任何采集引擎。 */
+        override fun createAnr(
+            application: Application,
+            config: AnrConfig,
+            context: PerformanceEventContext,
+        ): AnrHandle? {
+            anrConfig = config
+            assertSame(this.context, context)
+            if (failAnr) throw IllegalStateException("模拟 ANR 启动失败")
             return null
         }
 

@@ -2,6 +2,11 @@ package com.shanshui.performance
 
 import android.app.Activity
 import android.app.Application
+import android.util.Log
+import com.shanshui.performance.anr.AnrComponent
+import com.shanshui.performance.anr.AnrHandle
+import com.shanshui.performance.anr.AnrInitResult
+import com.shanshui.performance.anr.AnrInitStatus
 import com.shanshui.performance.core.PerformanceComponent
 import com.shanshui.performance.core.PerformanceEventContext
 import com.shanshui.performance.core.PerformanceEventContextFactory
@@ -74,6 +79,13 @@ internal interface PerformanceSdkDependencies {
         schemaVersion: Int,
     ): CrashHandle?
 
+    /** 创建独立于传输会话的 Matrix ANR 组件。 */
+    fun createAnr(
+        application: Application,
+        config: AnrConfig,
+        context: PerformanceEventContext,
+    ): AnrHandle?
+
     /** 创建 Jank 组件。 */
     fun createJank(
         application: Application,
@@ -122,6 +134,13 @@ private object DefaultPerformanceSdkDependencies : PerformanceSdkDependencies {
         schemaVersion: Int,
     ): CrashHandle? = CrashComponent.start(application, config, context, session, schemaVersion)
 
+    /** 创建 ANR 组件，共用身份但不依赖传输会话。 */
+    override fun createAnr(
+        application: Application,
+        config: AnrConfig,
+        context: PerformanceEventContext,
+    ): AnrHandle = AnrComponent.start(application, config, context)
+
     /** 创建 Jank 组件。 */
     override fun createJank(
         application: Application,
@@ -158,6 +177,8 @@ class PerformanceSdk private constructor(
     private val context: PerformanceEventContext,
     /** Crash 组件持有者。 */
     private val crashComponent: FeatureComponent<CrashHandle>,
+    /** Matrix ANR 组件持有者。 */
+    private val anrComponent: FeatureComponent<AnrHandle>,
     /** Jank 组件持有者。 */
     private val jankComponent: FeatureComponent<JankHandle>,
     /** Metrics 组件持有者。 */
@@ -171,6 +192,16 @@ class PerformanceSdk private constructor(
 ) : Closeable {
     /** 防止重复关闭。 */
     private val closed = AtomicBoolean(false)
+
+    /** Matrix ANR 句柄；采集关闭时仍可通过句柄读取历史报告。 */
+    val anr: AnrHandle?
+        get() = anrComponent.value
+
+    /** Matrix ANR 的初始化状态；初始化异常时不影响其他能力。 */
+    val anrInitResult: AnrInitResult
+        get() = anrComponent.value?.initResult
+            ?: if (config.anr.enabled) AnrInitResult(AnrInitStatus.FAILED, "component_start_failed")
+            else AnrInitResult(AnrInitStatus.DISABLED)
 
     /** Jank 是否已经可用。 */
     val isJankAvailable: Boolean
@@ -324,6 +355,14 @@ class PerformanceSdk private constructor(
                         config.service.schemaVersion,
                     )
                 }
+                val anr = FeatureComponent("anr") {
+                    try {
+                        dependencies.createAnr(application, config.anr, eventContext)
+                    } catch (failure: Throwable) {
+                        runCatching { Log.w("PerformanceSdk", "ANR 组件初始化失败：${failure.javaClass.simpleName}") }
+                        null
+                    }
+                }
                 val jank = FeatureComponent("jank") {
                     dependencies.createJank(application, config.jank, eventContext, session)
                 }
@@ -346,7 +385,7 @@ class PerformanceSdk private constructor(
                     override fun close() = session.close()
                 }
                 val runtime = PerformanceRuntimeRegistry.initialize(
-                    components = listOf(transport, leak, crash, jank, metrics),
+                    components = listOf(transport, leak, crash, jank, metrics, anr),
                     descriptor = descriptor(normalizedAppKey, config),
                 )
                 val sdk = PerformanceSdk(
@@ -354,6 +393,7 @@ class PerformanceSdk private constructor(
                     session = session,
                     context = eventContext,
                     crashComponent = crash,
+                    anrComponent = anr,
                     jankComponent = jank,
                     metricsComponent = metrics,
                     leakComponent = leak,

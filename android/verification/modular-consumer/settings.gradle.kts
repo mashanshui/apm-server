@@ -33,5 +33,6 @@ dependencyResolutionManagement {
 
 rootProject.name = "modular-consumer"
 include(":crash-consumer")
+include(":anr-consumer")
 include(":metrics-consumer")
 include(":full-consumer")

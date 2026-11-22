@@ -1,5 +1,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <application android:name=".FullConsumerApplication">
+        <!-- 仅在独立验证消费者中暴露联合烟测入口。 -->
+        <activity android:name=".JointSmokeActivity" android:exported="true" />
         <activity
             android:name=".SmokeActivity"
             android:exported="true">
