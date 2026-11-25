@@ -54,6 +54,18 @@ const router = createRouter({
       component: () => import('../views/CrashEventDetailView.vue'),
     },
     {
+      path: '/apps/:appId/anrs',
+      name: 'anr-list',
+      meta: { requiresAuth: true, appContext: true },
+      component: () => import('../views/AnrListView.vue'),
+    },
+    {
+      path: '/apps/:appId/anrs/events/:eventId',
+      name: 'anr-event-detail',
+      meta: { requiresAuth: true, appContext: true },
+      component: () => import('../views/AnrEventDetailView.vue'),
+    },
+    {
       path: '/apps/:appId/jank-metrics',
       name: 'jank-metrics',
       meta: { requiresAuth: true, appContext: true },

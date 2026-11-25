@@ -1,4 +1,4 @@
-package com.shanshui.performance.crash
+package com.shanshui.performance.diagnostics
 
 import com.google.gson.Gson
 import com.google.gson.GsonBuilder
@@ -15,11 +15,11 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 
 /** 启动固定参数的 logcat，并合并错误流以避免子进程阻塞。 */
-internal fun startLogcatProcess(command: List<String>): Process =
+fun startLogcatProcess(command: List<String>): Process =
     ProcessBuilder(command).redirectErrorStream(true).start()
 
 /** 仅通过固定参数读取本进程日志，超时任务负责销毁子进程和关闭流。 */
-internal class LogcatDiagnosticsCollector(
+class LogcatDiagnosticsCollector(
     /** 启动器必须合并标准输出和标准错误，避免错误流填满导致死锁。 */
     private val starter: (List<String>) -> Process = ::startLogcatProcess,
     /** 唯一的超时清理线程，不为每个缓冲区创建等待线程。 */
@@ -119,7 +119,7 @@ internal class LogcatDiagnosticsCollector(
                 lineTruncated = false
                 return
             }
-            val redacted = CrashSanitizer.sanitize(raw, MAX_RAW_LINE_BYTES)
+            val redacted = DiagnosticSanitizer.sanitize(raw, MAX_RAW_LINE_BYTES)
             val sanitized = fitLine(redacted)
             val encoded = encodedBytes(sanitized) + 1
             if (lineTruncated || sanitized != redacted) truncated = true

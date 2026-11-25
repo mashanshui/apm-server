@@ -1,5 +1,7 @@
 package com.shanshui.performance.crash
 
+import com.shanshui.performance.diagnostics.EnvironmentDiagnosticsCollector
+
 import com.google.gson.Gson
 import com.google.gson.GsonBuilder
 import com.shanshui.performance.core.AtomicFileWriter

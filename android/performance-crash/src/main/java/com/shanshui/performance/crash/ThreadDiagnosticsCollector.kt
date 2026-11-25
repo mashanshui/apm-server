@@ -1,5 +1,7 @@
 package com.shanshui.performance.crash
 
+import com.shanshui.performance.diagnostics.DiagnosticSanitizer
+
 import android.os.Looper
 import com.google.gson.Gson
 import com.google.gson.GsonBuilder
@@ -91,7 +93,7 @@ internal class ThreadDiagnosticsCollector(
     private fun crashedInfo(crashed: Thread, systemTid: Int?, capturedAt: Long, main: Thread?): CrashedThread = try {
             CrashedThread(
                 status = "ok", capturedAt = capturedAt, javaId = crashed.id.toString(),
-                name = CrashSanitizer.sanitize(crashed.name, MAX_TEXT), state = crashed.state.name,
+                name = DiagnosticSanitizer.sanitize(crashed.name, MAX_TEXT), state = crashed.state.name,
                 priority = crashed.priority, daemon = crashed.isDaemon,
                 mainThread = main?.let { it === crashed }, systemTid = systemTid?.takeIf { it > 0 },
             )
@@ -133,7 +135,7 @@ internal class ThreadDiagnosticsCollector(
             val mapped = frames.take(MAX_FRAMES).map(::frame)
             var current = try {
                 OtherThread(
-                    javaId = thread.id.toString(), name = CrashSanitizer.sanitize(thread.name, MAX_TEXT),
+                    javaId = thread.id.toString(), name = DiagnosticSanitizer.sanitize(thread.name, MAX_TEXT),
                     state = thread.state.name, priority = thread.priority, daemon = thread.isDaemon,
                     mainThread = thread === main, truncated = frames.size > MAX_FRAMES, frames = mapped,
                     systemTid = if (native && thread === main) nativePid?.takeIf { it > 0 } else null,
@@ -168,11 +170,11 @@ internal class ThreadDiagnosticsCollector(
 
     /** 将 JVM 栈元素映射为安全有界的结构化 Java 帧。 */
     private fun frame(value: StackTraceElement): StackFrame {
-        val className = CrashSanitizer.sanitize(value.className.ifBlank { "<unknown>" }, MAX_TEXT)
+        val className = DiagnosticSanitizer.sanitize(value.className.ifBlank { "<unknown>" }, MAX_TEXT)
         return StackFrame(
             className = className,
-            methodName = CrashSanitizer.sanitize(value.methodName.ifBlank { "<unknown>" }, MAX_TEXT),
-            fileName = value.fileName?.let { CrashSanitizer.sanitize(it, MAX_TEXT) },
+            methodName = DiagnosticSanitizer.sanitize(value.methodName.ifBlank { "<unknown>" }, MAX_TEXT),
+            fileName = value.fileName?.let { DiagnosticSanitizer.sanitize(it, MAX_TEXT) },
             lineNumber = value.lineNumber.takeIf { it in 0..MAX_LINE_NUMBER } ?: -1,
             applicationFrame = className == applicationPackage || className.startsWith("$applicationPackage."),
         )

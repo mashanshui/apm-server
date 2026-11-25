@@ -99,6 +99,21 @@ describe('AppLayout', () => {
     }))
   })
 
+  /** ANR 详情切换应用后返回目标列表，不携带旧筛选、事件或游标。 */
+  it('从 ANR 详情切换应用并清除旧筛选', async () => {
+    routeMock.name = 'anr-event-detail'
+    routeMock.query = { from: '2026-11-20T00:00:00Z', to: '2026-11-21T00:00:00Z', source: 'message_timeout', cursor: 'old' }
+    mockedAppApi.list.mockResolvedValue(appFixtures)
+    const wrapper = mount(AppLayout, { props: { appId: 'mobile-apm' },
+      global: { stubs: { RouterLink: { template: '<a><slot /></a>' } } } })
+    await flushPromises()
+    await wrapper.get('.app-switcher select').setValue('other-apm')
+    const target = routerMock.push.mock.calls[0][0]
+    expect(target.name).toBe('anr-list')
+    expect(target.params).toEqual({ appId: 'other-apm' })
+    expect(target.query).toBeUndefined()
+  })
+
   it('从卡顿事件详情切换应用时回到问题列表并删除详情标识', async () => {
     routeMock.name = 'jank-event-detail'
     routeMock.query = { from: '2026-08-15T00:00:00Z', to: '2026-08-16T00:00:00Z', fingerprint: 'old-fingerprint', cursor: 'old-cursor', scene: 'feed' }

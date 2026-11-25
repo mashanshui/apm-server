@@ -1,5 +1,7 @@
 package com.shanshui.performance.crash
 
+import com.shanshui.performance.diagnostics.DiagnosticSanitizer
+
 import com.shanshui.performance.network.NativeBacktrace
 import com.shanshui.performance.network.NativeFrame
 import com.shanshui.performance.network.NativeModule
@@ -110,7 +112,7 @@ internal object NativeTraceCodec {
     }
 
     /** 与已有脱敏规则交叉检查，不能将不安全的可选文本写入最终队列。 */
-    private fun safeText(value: String): Boolean = value == CrashSanitizer.sanitize(value, value.length)
+    private fun safeText(value: String): Boolean = value == DiagnosticSanitizer.sanitize(value, value.length)
 
     /** 32 位设备不能接收超过其位宽的地址。 */
     private fun fitsAbi(value: Long, abi: String): Boolean = abi == "arm64-v8a" || abi == "x86_64" || value ushr 32 == 0L

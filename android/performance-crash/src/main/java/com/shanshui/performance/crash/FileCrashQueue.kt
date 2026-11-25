@@ -1,5 +1,7 @@
 package com.shanshui.performance.crash
 
+import com.shanshui.performance.diagnostics.DiagnosticSanitizer
+
 import com.shanshui.performance.network.CrashEvent
 import com.shanshui.performance.network.CrashDiagnostics
 import com.shanshui.performance.network.CrashedThread
@@ -221,7 +223,7 @@ internal class FileCrashQueue(
         )
         val payload = DeadLetterRecord(
             movedAtMillis = System.currentTimeMillis(),
-            reason = CrashSanitizer.sanitize(reason, MAX_REASON_LENGTH),
+            reason = DiagnosticSanitizer.sanitize(reason, MAX_REASON_LENGTH),
             records = items.map { it.record },
         )
         AtomicFileWriter.write(deadLetter, gson.toJson(payload))

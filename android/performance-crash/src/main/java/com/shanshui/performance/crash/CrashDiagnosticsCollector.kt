@@ -1,5 +1,9 @@
 package com.shanshui.performance.crash
 
+import com.shanshui.performance.diagnostics.EnvironmentDiagnostics
+import com.shanshui.performance.diagnostics.EnvironmentDiagnosticsCollector
+import com.shanshui.performance.diagnostics.LogcatDiagnosticsCollector
+
 import com.shanshui.performance.network.CrashDevice
 import com.shanshui.performance.network.CrashDiagnostics
 import com.shanshui.performance.network.CrashLogcat

@@ -51,8 +51,6 @@ static bool sNativeBacktraceHandlerInstalled = false;
 static std::vector<SignalHandler*>* sHandlerStack = nullptr;
 /** 保护 SIGQUIT 处理器栈的 Matrix 锁。 */
 static std::mutex sHandlerStackMutex;
-/** debugger 信号处理路径使用的 Matrix 锁。 */
-static std::mutex sNativeBacktraceHandlerStackMutex;
 /** 备用信号栈安装标志。 */
 static bool sStackInstalled = false;
 /** Matrix 保存的原信号栈。 */
@@ -163,6 +161,18 @@ void SignalHandler::restoreNativeBacktraceHandlersLocked() {
     sNativeBacktraceHandlerInstalled = false;
 }
 
+/** 同步暂停 debugger 处理器，避免与关闭时的恢复操作竞争。 */
+void SignalHandler::suspendNativeBacktraceHandler() {
+    std::lock_guard<std::mutex> lock(sHandlerStackMutex);
+    restoreNativeBacktraceHandlersLocked();
+}
+
+/** 工作线程结束时仅为仍存在的采集器恢复 debugger 处理器。 */
+void SignalHandler::resumeNativeBacktraceHandlerIfActive() {
+    std::lock_guard<std::mutex> lock(sHandlerStackMutex);
+    if (sHandlerStack != nullptr && !sHandlerStack->empty()) installNativeBacktraceHandlersLocked();
+}
+
 /** 按 Matrix 原逻辑恢复备用信号栈。 */
 static void restoreAlternateStackLocked() {
     if (!sStackInstalled)
@@ -195,6 +205,7 @@ void SignalHandler::signalHandler(int sig, siginfo_t* info, void* uc) {
     /** Matrix 原有信号分发锁。 */
     std::unique_lock<std::mutex> lock(sHandlerStackMutex);
 
+    if (sHandlerStack == nullptr) return;
     for (auto it = sHandlerStack->rbegin(); it != sHandlerStack->rend(); ++it) {
         (*it)->handleSignal(sig, info, uc);
     }
@@ -205,8 +216,9 @@ void SignalHandler::signalHandler(int sig, siginfo_t* info, void* uc) {
 /** 按 Matrix 原顺序向处理器栈分发 debugger 信号。 */
 void SignalHandler::debuggerSignalHandler(int sig, siginfo_t* info, void* uc) {
     /** Matrix 原有信号分发锁。 */
-    std::unique_lock<std::mutex> lock(sNativeBacktraceHandlerStackMutex);
+    std::unique_lock<std::mutex> lock(sHandlerStackMutex);
 
+    if (sHandlerStack == nullptr) return;
     for (auto it = sHandlerStack->rbegin(); it != sHandlerStack->rend(); ++it) {
         (*it)->handleDebuggerSignal(sig, info, uc);
     }

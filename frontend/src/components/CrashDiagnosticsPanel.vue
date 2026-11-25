@@ -8,7 +8,7 @@ import NativeFrameList from './NativeFrameList.vue'
 
 /** 当前事件已经授权返回的诊断现场。 */
 const props = defineProps<{ diagnostics: CrashDiagnostics | null; nativeCrash?: NativeCurrent | null;
-  appId?: string; appVersion?: string; buildId?: string; canManage?: boolean }>()
+  appId?: string; appVersion?: string; buildId?: string; canManage?: boolean; variant?: 'crash' | 'anr' }>()
 /** 当前展开的 Java 线程身份。 */
 const selectedThreadId = ref<string | null>(null)
 /** Native 线程按系统 TID 选择，不能与 Java ID 或线程名混同。 */
@@ -100,13 +100,13 @@ function frameText(frame: StackFrame): string {
 </script>
 
 <template>
-  <section class="panel detail-card diagnostics" aria-label="崩溃诊断现场">
+  <section class="panel detail-card diagnostics" :aria-label="variant === 'anr' ? 'ANR 诊断现场' : '崩溃诊断现场'">
     <div class="panel-header diagnostics-header">
-      <div><h2>崩溃诊断现场</h2><p>线程为崩溃处理期间的近似快照；日志和资源信息受设备与权限影响。</p></div>
+      <div><h2>{{ variant === 'anr' ? 'ANR 诊断现场' : '崩溃诊断现场' }}</h2><p>{{ variant === 'anr' ? '日志和资源信息受设备与权限影响。' : '线程为崩溃处理期间的近似快照；日志和资源信息受设备与权限影响。' }}</p></div>
     </div>
     <p v-if="!diagnostics" class="diagnostic-empty">此事件未采集诊断上下文。</p>
     <template v-else>
-      <div class="diagnostic-section">
+      <div v-if="variant !== 'anr'" class="diagnostic-section">
         <div class="diagnostic-heading"><h3>崩溃线程</h3><span>{{ partitionText(diagnostics.crashedThread) }}</span></div>
         <dl v-if="diagnostics.crashedThread" class="diagnostic-grid">
           <div><dt>线程名</dt><dd>{{ diagnostics.crashedThread.name ?? '—' }}</dd></div>
@@ -118,7 +118,7 @@ function frameText(frame: StackFrame): string {
         </dl>
       </div>
 
-      <div class="diagnostic-section">
+      <div v-if="variant !== 'anr'" class="diagnostic-section">
         <div class="diagnostic-heading"><h3>{{ nativeCrash ? 'Java 线程快照' : '其他线程' }}</h3><span>{{ partitionText(diagnostics.otherThreads) }}</span></div>
         <p v-if="diagnostics.otherThreads" class="diagnostic-hint">观测总数 {{ diagnostics.otherThreads.observedCount ?? '未知' }} · 已保存 {{ threads.length }} · 遗漏 {{ diagnostics.otherThreads.omittedCount ?? '未知' }}</p>
         <p v-if="!threads.length" class="diagnostic-empty">{{ diagnostics.otherThreads?.status === 'ok' ? '采集成功，没有其他线程快照。' : '没有可展示的其他线程快照。' }}</p>

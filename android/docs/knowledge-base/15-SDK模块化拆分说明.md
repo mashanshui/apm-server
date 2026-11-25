@@ -9,7 +9,7 @@
 | `performance-core` | 应用元数据、运行身份、匿名设备 ID、共享事件上下文、原子文件和组件生命周期 | Android、Kotlin |
 | `performance-transport` | OkHttp/Retrofit 会话、App-Key 认证、超时和通用网络结果 | `performance-core` |
 | `performance-crash` | JVM/Native Crash 配置、原生捕获、事件映射、文件队列和上传 | Core、Transport；自带原生回溯实现 |
-| `performance-anr` | Matrix 系统信号采集、私有目录报告、恢复与清理 | Core、ByteHook、ShadowHook |
+| `performance-anr` | Matrix 系统信号采集、私有报告、冻结与可选上传 | Core、Transport、ByteHook、ShadowHook |
 | `performance-jank` | Rhea 适配、卡顿事件、ZIP 队列和导出 | Core、Transport、Rhea |
 | `performance-metrics` | FPS、PSS/VSS/Java heap、Looper 监控及指标队列 | Core、Transport |
 | `performance-leak` | Activity 泄漏检测、KOOM 准备/dump、report 队列和上传 | Core、Transport、KOOM |
@@ -28,7 +28,7 @@
 
 全量接入使用 `com.shanshui.nativelib:performance-sdk:1.0.0`，示例配置和初始化入口见 [SDK 配置指南](16-SDK配置指南.md) 与 [PerformanceSdk](../../performance-sdk/src/main/java/com/shanshui/performance/PerformanceSdk.kt)。需要精简依赖时可直接使用 `performance-crash`、`performance-metrics`、`performance-jank` 或 `performance-leak`；网络能力通过 `performance-transport` 传入。Native Crash 自带四 ABI 原生库，不要求 `performance-native-tools`；后者只用于独立线程和 Hook 工具。九个模块统一发布 Release AAR、sources JAR、POM 和 Gradle module metadata，版本由 `performance.version` 统一控制，默认 group 为 `com.shanshui.nativelib`。旧 `nativelib.*` 发布属性和单体坐标已移除。
 
-仅做 ANR 本地采集可独立接入 `performance-anr`，无需网络配置，见 [ANR 接入](../../../docs/client-integration/anr-local-collection.md)。
+ANR 可独立接入 `performance-anr`；本地采集无需网络配置，上传须单独启用，见 [ANR 接入](../../../docs/client-integration/anr-local-collection.md)。
 
 宿主接入 Native Crash 时需解压原生库，保证 `libapm_crash_dumper.so` 可从安装目录执行；未满足解压和执行条件时 Native 初始化失败。来源与许可证随 Crash AAR 分发，见 [Crash 专题](03-Crash采集与上报.md#native-信号与原始现场)。
 

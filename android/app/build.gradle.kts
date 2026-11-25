@@ -134,6 +134,8 @@ if (performanceAppKey == "local-demo-app-key") {
 val performanceBaseUrl = providers.gradleProperty("performance.baseUrl").getOrElse("")
 /** 显式 Debug 联调时关闭无关组件，并允许测试专用启动故障探针。 */
 val performanceMemoryJointTest = providers.gradleProperty("performance.memoryJointTest").map(String::toBoolean).getOrElse(false)
+/** 显式联调构建使用独立应用 ID，并关闭其他监控能力。 */
+val performanceAnrAcceptance = providers.gradleProperty("performance.anrAcceptance").map(String::toBoolean).getOrElse(false)
 
 android {
     namespace = "com.shanshui.performance"
@@ -164,6 +166,7 @@ android {
         buildConfigField("String", "PERFORMANCE_BUILD_ID", buildConfigString(performanceBuildId))
         buildConfigField("String", "PERFORMANCE_BASE_URL", buildConfigString(performanceBaseUrl))
         buildConfigField("boolean", "PERFORMANCE_MEMORY_JOINT_TEST", performanceMemoryJointTest.toString())
+        buildConfigField("boolean", "PERFORMANCE_ANR_ACCEPTANCE", performanceAnrAcceptance.toString())
     }
 
     externalNativeBuild {
@@ -184,7 +187,16 @@ android {
     }
 
     buildTypes {
+        debug {
+            // 联调包使用独立应用 ID，避免覆盖设备中已有的示例应用。
+            if (performanceAnrAcceptance) applicationIdSuffix = ".anraccept"
+        }
         release {
+            if (performanceAnrAcceptance) {
+                // 联调 Release 使用独立包名与可混淆的受控阻塞探针。
+                applicationIdSuffix = ".anrrelease"
+                proguardFile("proguard-anr-acceptance.pro")
+            }
             // 保持既有 Release 证书身份，由未跟踪配置指定。
             signingConfig = signingConfigs.getByName("release")
             isMinifyEnabled = true

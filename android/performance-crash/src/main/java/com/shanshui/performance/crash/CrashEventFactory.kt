@@ -1,5 +1,7 @@
 package com.shanshui.performance.crash
 
+import com.shanshui.performance.diagnostics.DiagnosticSanitizer
+
 import com.shanshui.performance.network.CrashEvent
 import com.shanshui.performance.network.CrashPayload
 import com.shanshui.performance.network.StackFrame
@@ -39,12 +41,12 @@ internal class CrashEventFactory(
         occurredAt = clock(),
     ).let { event ->
         // 标识字段保持精确；其余可由设备或应用提供的文本在首次暂存前脱敏。
-        event.copy(appVersion = CrashSanitizer.sanitize(event.appVersion, MAX_TEXT_LENGTH),
-            environment = CrashSanitizer.sanitize(event.environment, MAX_TEXT_LENGTH),
-            channel = CrashSanitizer.sanitize(event.channel, MAX_CHANNEL_LENGTH),
-            osVersion = CrashSanitizer.sanitize(event.osVersion, MAX_TEXT_LENGTH),
-            deviceModel = CrashSanitizer.sanitize(event.deviceModel, MAX_DEVICE_MODEL_LENGTH),
-            networkType = event.networkType?.let { CrashSanitizer.sanitize(it, MAX_NETWORK_TYPE_LENGTH) })
+        event.copy(appVersion = DiagnosticSanitizer.sanitize(event.appVersion, MAX_TEXT_LENGTH),
+            environment = DiagnosticSanitizer.sanitize(event.environment, MAX_TEXT_LENGTH),
+            channel = DiagnosticSanitizer.sanitize(event.channel, MAX_CHANNEL_LENGTH),
+            osVersion = DiagnosticSanitizer.sanitize(event.osVersion, MAX_TEXT_LENGTH),
+            deviceModel = DiagnosticSanitizer.sanitize(event.deviceModel, MAX_DEVICE_MODEL_LENGTH),
+            networkType = event.networkType?.let { DiagnosticSanitizer.sanitize(it, MAX_NETWORK_TYPE_LENGTH) })
     }
 
     fun crash(throwable: Throwable): CrashEvent {
@@ -129,7 +131,7 @@ internal class ThrowableMapper(
             nodes += ThrowableNode(
                 type = throwable.javaClass.name.take(MAX_TYPE_LENGTH),
                 message = throwable.message
-                    ?.let { CrashSanitizer.sanitize(it, MAX_MESSAGE_LENGTH) }
+                    ?.let { DiagnosticSanitizer.sanitize(it, MAX_MESSAGE_LENGTH) }
                     ?.takeIf { it.isNotBlank() },
                 frames = frames,
             )
@@ -140,7 +142,7 @@ internal class ThrowableMapper(
             listOf(
                 ThrowableNode(
                     type = root.javaClass.name.take(MAX_TYPE_LENGTH),
-                    message = root.message?.let { CrashSanitizer.sanitize(it, MAX_MESSAGE_LENGTH) },
+                    message = root.message?.let { DiagnosticSanitizer.sanitize(it, MAX_MESSAGE_LENGTH) },
                     frames = listOf(syntheticFrame(root)),
                 ),
             )
@@ -153,7 +155,7 @@ internal class ThrowableMapper(
             className = className,
             methodName = frame.methodName.ifBlank { "<unknown>" }.take(MAX_FRAME_TEXT_LENGTH),
             fileName = frame.fileName?.let {
-                CrashSanitizer.sanitize(it, MAX_FRAME_TEXT_LENGTH)
+                DiagnosticSanitizer.sanitize(it, MAX_FRAME_TEXT_LENGTH)
             },
             lineNumber = frame.lineNumber.takeIf { it in 0..MAX_LINE_NUMBER } ?: -1,
             applicationFrame = isApplicationFrame(className),
@@ -180,42 +182,5 @@ internal class ThrowableMapper(
         const val MAX_MESSAGE_LENGTH = 4096
         const val MAX_FRAME_TEXT_LENGTH = 512
         const val MAX_LINE_NUMBER = 1_000_000_000
-    }
-}
-
-internal object CrashSanitizer {
-    /** 覆盖 Android 私有目录、共享存储和开发机用户目录；整行尾部可能含空格或私有文件名。 */
-    private val privatePathPattern = Regex(
-        "(?i)(?:[A-Z]:\\\\Users\\\\|/data/(?:user(?:_de)?/\\d+|data)/|/storage/emulated/\\d+/|/sdcard/|/mnt/user/\\d+/|/Users/|/home/)[^\\r\\n]*",
-    )
-    /** 请求头可能包含多个以分号或空格分隔的凭据，应整体移除。 */
-    private val sensitiveHeaderPattern = Regex("(?i)\\b(?:authorization|cookie|set-cookie|x[-_]?app[-_]?key|app[-_]?key)\\s*[:=]\\s*[^\\r\\n]*")
-    private val emailPattern = Regex("(?i)\\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\\.[A-Z]{2,}\\b")
-    private val phonePattern = Regex("(?<!\\d)\\+?\\d[\\d ()-]{7,}\\d(?!\\d)")
-    private val urlPattern = Regex("(?i)\\bhttps?://[^\\s]+")
-    private val uuidPattern = Regex("(?i)\\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\\b")
-    private val bearerPattern = Regex("(?i)\\bBearer\\s+[A-Za-z0-9._~+/=-]+")
-    private val secretAssignmentPattern = Regex(
-        "(?i)\\b(cookie|set-cookie|authorization|token|password|secret|api[-_]?key|app[-_]?key)\\s*[:=]\\s*[^\\s,;]+",
-    )
-    /** 已知上报和查询凭据即使脱离请求头也不能保存。 */
-    private val apmCredentialPattern = Regex("(?i)\\bapm_(?:ak|qt)_[A-Za-z0-9_-]+")
-
-    fun sanitize(value: String, maxLength: Int): String {
-        // 先限制参与规则匹配的输入，避免恶意长线程名或异常消息在核心落盘前无界分配。
-        val input = value.take((maxLength.toLong() * 4).coerceIn(0, Int.MAX_VALUE.toLong()).toInt())
-        return input
-            .replace(privatePathPattern, "<redacted-private-path>")
-            .replace(sensitiveHeaderPattern, "<redacted-header>")
-            .replace(emailPattern, "<redacted-email>")
-            .replace(phonePattern, "<redacted-phone>")
-            .replace(urlPattern, "<redacted-url>")
-            .replace(uuidPattern, "<redacted-uuid>")
-            .replace(bearerPattern, "Bearer <redacted>")
-            .replace(apmCredentialPattern, "<redacted-credential>")
-            .replace(secretAssignmentPattern) { match ->
-                "${match.groupValues[1]}=<redacted>"
-            }
-            .take(maxLength)
     }
 }

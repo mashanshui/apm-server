@@ -52,8 +52,9 @@ class AnrJavaSamplingTest {
             assertEquals(20_000L, originalTimeout)
             tracer.setSignalAnrDetectedListener(object : SignalAnrTracer.SignalAnrDetectedListener {
                 /** 保存 Matrix 实际字段并保持回调阻塞，供超时测试使用。 */
-                override fun onAnrDetected(stack: String, message: String, whenMillis: Long, fromError: Boolean, cgroup: String) {
-                    captured.set(Sample(stack, message, whenMillis, fromError, cgroup, Thread.currentThread().name))
+                override fun onAnrDetected(captureId: String, occurredAt: Long, stack: String, message: String?,
+                    whenMillis: Long?, foreground: Boolean, fromError: Boolean, cgroup: String, anrInfo: String?) {
+                    captured.set(Sample(stack, message.orEmpty(), whenMillis ?: 0, fromError, cgroup, Thread.currentThread().name))
                     callbackEntered.countDown()
                     releaseCallback.await(5, TimeUnit.SECONDS)
                     callbackExited.countDown()

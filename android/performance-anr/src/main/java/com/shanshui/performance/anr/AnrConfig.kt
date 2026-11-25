@@ -10,12 +10,17 @@ data class AnrConfig(
     val maxStorageBytes: Long = 20L * 1024 * 1024,
     /** 已完成报告的最长保留时间。 */
     val maxReportAgeMillis: Long = 7L * 24 * 60 * 60 * 1000,
+    /** 上传必须由宿主单独显式启用。 */
+    val uploadEnabled: Boolean = false,
+    /** 后台上传检查间隔，单位毫秒。 */
+    val uploadIntervalMillis: Long = 30_000L,
 ) {
     /** 校验本地报告容量，避免错误配置影响其他功能目录。 */
     init {
         require(maxReportCount in 1..200) { "maxReportCount must be between 1 and 200" }
         require(maxStorageBytes > 0) { "maxStorageBytes must be positive" }
         require(maxReportAgeMillis > 0) { "maxReportAgeMillis must be positive" }
+        require(uploadIntervalMillis > 0) { "uploadIntervalMillis must be positive" }
     }
 }
 

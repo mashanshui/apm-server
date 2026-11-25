@@ -29,6 +29,9 @@
 
 namespace MatrixTracer {
 
+/** 查询已分发但尚未结束的信号工作线程。 */
+bool hasSignalCallbacks();
+
 class AnrDumper : public SignalHandler {
  public:
     AnrDumper(const char* anrTraceFile, const char* printTraceFile);

@@ -12,6 +12,8 @@ GET /api/v1/apps/{appId}/crashes/issues/{fingerprint}/events
 GET /api/v1/apps/{appId}/crashes/events/{eventId}
 ```
 
+ANR 独立提供概览、事件分页与详情；概览统计已接收事件和去重设备，详情保留原始诊断及可用的 Java 还原视图，不计算 ANR 率。筛选、权限与时间范围见 [ANR API](../api/anr-api.md)。
+
 当前已实现的服务端卡顿 Issue MVP 查询接口如下：
 
 ```http
@@ -75,7 +77,7 @@ PATCH /api/v1/apps/{appId}
 
 ## Dashboard 当前与目标清单
 
-当前 Vue 提供 Crash、卡顿、内存指标和 SDK 内存异常页面，Grafana 提供 JVM Crash JSON；下表中的全局总览、启动、网络和数据质量页面仍是目标范围。Grafana JSON 的版本对比不代表已有 Vue 版本对比页面。
+当前 Vue 提供 Crash、ANR、卡顿、内存指标和 SDK 内存异常页面，Grafana 提供 JVM Crash JSON；下表中的全局总览、启动、网络和数据质量页面仍是目标范围。Grafana JSON 的版本对比不代表已有 Vue 版本对比页面。
 
 | Dashboard | 核心内容 | 主要筛选 |
 |---|---|---|

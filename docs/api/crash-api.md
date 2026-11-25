@@ -204,4 +204,4 @@ crashFreeSessionRate = 1 - crashedSessions / startedSessions
 - `buildId` 是同应用版本构建专用 mapping 的精确匹配键，专用登记不存在时才使用该版本默认 mapping；事件构建仍必填。按结构化标识清理和限长，不套用面向自然语言的电话号码脱敏，避免合法构建标识被改写后无法匹配 mapping。
 - 后台成功仅改变原发生日期的问题归属，不增加事件、设备、崩溃会话或启动分母。格式合法但不匹配 APK 的 mapping 可能造成不可纠正的首次成功结果；业务当前材料只有一份，不承诺旧物理版本和备份立即擦除。上传、删除及后台进度见[Android 符号表管理 API](symbol-api.md)。
 
-服务端接收 `schemaVersion=2`、`eventType=crash`、`crash.kind=jvm|native`、`crash.fatal=true`。旧 schema v1、正文旧字段 `appId`、ANR、非致命异常、Protobuf 和完整 Issue 生命周期均不兼容；Native SO 文件管理与结构化状态已在工作树实现，真实设备和生产环境端到端验收尚未完成。
+服务端接收 `schemaVersion=2`、`eventType=crash`、`crash.kind=jvm|native`、`crash.fatal=true`。旧 schema v1、正文旧字段 `appId`、将 ANR 包装成 Crash、非致命异常、Protobuf 和完整 Issue 生命周期均不兼容；ANR 使用[独立事件契约](anr-api.md)。Native SO 文件管理与结构化状态已在工作树实现，真实设备和生产环境端到端验收尚未完成。

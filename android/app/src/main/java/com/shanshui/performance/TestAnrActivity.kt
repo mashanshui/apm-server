@@ -59,7 +59,8 @@ class TestAnrActivity : AppCompatActivity() {
         }.apply { isEnabled = handle?.isAvailable == true })
         content.addView(button("触发输入 ANR（主线程阻塞 15 秒）") {
             Log.i(TAG, "开始受控输入 ANR 测试")
-            Thread.sleep(15_000)
+            if (BuildConfig.PERFORMANCE_ANR_ACCEPTANCE) AnrSymbolicationProbe.blockMainThread()
+            else Thread.sleep(15_000)
             Log.i(TAG, "受控输入 ANR 测试结束")
         })
         content.addView(button("触发主线程死锁（需重启应用）") {

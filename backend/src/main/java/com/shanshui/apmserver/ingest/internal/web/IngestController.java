@@ -4,6 +4,7 @@ import com.shanshui.apmserver.platform.api.LimitedInputStream;
 
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.core.JacksonException;
+import tools.jackson.core.JsonToken;
 import com.shanshui.apmserver.ingest.api.IngestConfiguration;
 import com.shanshui.apmserver.ingest.api.BatchIngestResponse;
 import com.shanshui.apmserver.identity.api.AuthenticatedApp;
@@ -99,7 +100,10 @@ public class IngestController {
             log.debug("batch decoded: gzip={} decodedBytes={}", compressed, decoded.length);
             var root = objectMapper.readTree(decoded);
             schemaValidator.validateBatch(root);
-            return objectMapper.readValue(objectMapper.writeValueAsString(root), EventBatchRequest.class);
+            EventBatchRequest batch = objectMapper.readValue(objectMapper.writeValueAsString(root), EventBatchRequest.class);
+            var eventBytes = eventByteLengths(decoded);
+            if (eventBytes.size() != batch.events().size()) throw new InvalidBatchException("事件计量结果与批次不一致");
+            return new EventBatchRequest(batch.requestId(), batch.events(), eventBytes);
         } catch (PayloadTooLargeException | UnsupportedMediaTypeException ex) {
             log.debug("batch decode rejected: type={}", ex.getClass().getSimpleName());
             throw ex;
@@ -107,6 +111,33 @@ public class IngestController {
             log.debug("batch decode failed: type={}", ex.getClass().getSimpleName());
             throw new InvalidBatchException("请求体不是有效的 JSON 或 gzip 数据");
         }
+    }
+
+    /** 按原始 UTF-8 token 位置计量事件，保留转义和空白的实际线上开销。 */
+    private java.util.List<Long> eventByteLengths(byte[] decoded) {
+        var sizes = new java.util.ArrayList<Long>();
+        boolean foundEvents = false;
+        try (var parser = objectMapper.createParser(decoded)) {
+            if (parser.nextToken() != JsonToken.START_OBJECT) throw new InvalidBatchException("批次必须是对象");
+            while (parser.nextToken() != JsonToken.END_OBJECT) {
+                String name = parser.currentName();
+                JsonToken value = parser.nextToken();
+                if ("events".equals(name) && value == JsonToken.START_ARRAY) {
+                    if (foundEvents) throw new InvalidBatchException("events 不能重复");
+                    foundEvents = true;
+                    while (parser.nextToken() != JsonToken.END_ARRAY) {
+                        long start = parser.currentTokenLocation().getByteOffset();
+                        parser.skipChildren();
+                        long end = parser.currentLocation().getByteOffset();
+                        if (start < 0 || end < start) throw new InvalidBatchException("无法计量事件大小");
+                        sizes.add(end - start);
+                    }
+                } else {
+                    parser.skipChildren();
+                }
+            }
+        }
+        return java.util.List.copyOf(sizes);
     }
 
     /** 识别唯一内容编码，普通 JSON 的既有形式继续接受。 */

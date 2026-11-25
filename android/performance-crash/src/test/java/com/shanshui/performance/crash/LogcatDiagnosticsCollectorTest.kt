@@ -1,5 +1,8 @@
 package com.shanshui.performance.crash
 
+import com.shanshui.performance.diagnostics.startLogcatProcess
+import com.shanshui.performance.diagnostics.LogcatDiagnosticsCollector
+
 import com.google.gson.GsonBuilder
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream

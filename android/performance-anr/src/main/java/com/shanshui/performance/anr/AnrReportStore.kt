@@ -77,12 +77,14 @@ internal class AnrReportStore(
     private val gson: Gson = GsonBuilder().disableHtmlEscaping().create(),
     /** 删除已提交报告正文的文件操作，供失败场景验证使用。 */
     private val deleteReportFile: (File) -> Boolean = { it.delete() },
+    /** 本地诊断副本与报告共用清理生命周期。 */
+    private val captures: AnrCaptureStore = AnrCaptureStore(root),
 ) {
     /** 仅存放已完成报告正文，不包括 Matrix 活动采集文件。 */
     private val reportsDir = File(root, "reports")
 
     /** 按稳定顺序读取摘要，整个操作不读取 trace 正文。 */
-    fun list(pageSize: Int, afterId: String? = null): AnrReportResult<AnrReportPage> = synchronized(LOCK) {
+    fun list(pageSize: Int, afterId: String? = null): AnrReportResult<AnrReportPage> = synchronized(AnrStorageLock) {
         if (pageSize !in 1..20 || (afterId != null && !validId(afterId))) {
             return@synchronized AnrReportResult.Failure(AnrReportError.INVALID_PAGE)
         }
@@ -110,11 +112,12 @@ internal class AnrReportStore(
     }
 
     /** 按安全 ID 读取正文，区分缺失、损坏和 I/O 失败。 */
-    fun read(id: String): AnrReportResult<AnrReport> = synchronized(LOCK) {
+    fun read(id: String): AnrReportResult<AnrReport> = synchronized(AnrStorageLock) {
         if (!validId(id)) return@synchronized AnrReportResult.Failure(AnrReportError.INVALID_ID)
         try {
             /** 先确认目标属于已提交索引。 */
-            val entry = readIndex().entries.firstOrNull { it.id == id }
+            val entries = readIndex().entries
+            val entry = entries.firstOrNull { it.id == id }
                 ?: return@synchronized AnrReportResult.Failure(AnrReportError.NOT_FOUND)
             /** 只允许访问报告目录内由 ID 派生的文件。 */
             val file = reportFile(id)
@@ -130,7 +133,7 @@ internal class AnrReportStore(
                 return@synchronized AnrReportResult.Failure(AnrReportError.CORRUPT)
             }
             logger.record(true, "ANR 报告正文读取完成")
-            AnrReportResult.Success(report)
+            AnrReportResult.Success(withAssociatedTrace(report, entries))
         } catch (failure: CorruptIndexException) {
             logger.record(false, "ANR 报告索引损坏")
             AnrReportResult.Failure(AnrReportError.CORRUPT)
@@ -144,7 +147,7 @@ internal class AnrReportStore(
     }
 
     /** 从索引删除指定报告后清理正文，不触碰 Matrix 活动采集文件。 */
-    fun delete(id: String): AnrReportResult<Unit> = synchronized(LOCK) {
+    fun delete(id: String): AnrReportResult<Unit> = synchronized(AnrStorageLock) {
         if (!validId(id)) return@synchronized AnrReportResult.Failure(AnrReportError.INVALID_ID)
         try {
             /** 重试此前已经移出索引但尚未清理成功的目标文件。 */
@@ -181,8 +184,12 @@ internal class AnrReportStore(
     }
 
     /** 保存实际回调结果，只有正文和索引均提交后才返回成功。 */
-    fun save(report: AnrReport): AnrReportResult<AnrReportSummary> = synchronized(LOCK) {
+    fun save(report: AnrReport): AnrReportResult<AnrReportSummary> = synchronized(AnrStorageLock) {
         if (!validId(report.id)) return@synchronized AnrReportResult.Failure(AnrReportError.INVALID_ID)
+        if (report.captureId != null && (!validId(report.captureId) ||
+                report.type !in setOf(AnrReportType.SIGNAL_ANR, AnrReportType.ANR_TRACE) ||
+                report.type == AnrReportType.SIGNAL_ANR && report.id != report.captureId)
+        ) return@synchronized AnrReportResult.Failure(AnrReportError.INVALID_ID)
         /** 新正文路径；失败时仅清理本次新建的文件。 */
         var created: File? = null
         try {
@@ -200,7 +207,7 @@ internal class AnrReportStore(
             AtomicFileWriter.write(target, content)
             created = target
             /** 新索引只保留容量和有效期内的报告。 */
-            val summary = AnrReportSummary(report.id, report.createdAtMillis, report.type, size)
+            val summary = AnrReportSummary(report.id, report.createdAtMillis, report.type, size, report.captureId)
             val all = (index.entries + summary).sortedWith(ORDER)
             val kept = retained(all, report.createdAtMillis, config.maxStorageBytes)
             if (kept.none { it.id == report.id }) throw IOException("new report not retained")
@@ -231,7 +238,7 @@ internal class AnrReportStore(
     }
 
     /** 按容量和过期时间清理已完成报告，不修改活动 trace。 */
-    fun clean(nowMillis: Long): AnrReportResult<Int> = synchronized(LOCK) {
+    fun clean(nowMillis: Long): AnrReportResult<Int> = synchronized(AnrStorageLock) {
         try {
             /** 以已提交索引为清理范围，并先重试之前未删除的文件。 */
             val index = clearPending(readIndex())
@@ -244,6 +251,7 @@ internal class AnrReportStore(
                 writeIndex(updated)
             }
             if (clearPending(updated).pendingDeletion.isNotEmpty()) throw IOException("cannot delete pending reports")
+            discardUnlistedEvidence(updated)
             logger.record(true, "ANR 报告清理完成：${removed.size} 条")
             AnrReportResult.Success(removed.size)
         } catch (failure: CorruptIndexException) {
@@ -256,6 +264,34 @@ internal class AnrReportStore(
             logger.record(false, "ANR 报告清理失败")
             AnrReportResult.Failure(AnrReportError.IO_ERROR)
         }
+    }
+
+    /** 恢复时清除历史遗留或未提交报告对应的本地诊断副本。 */
+    fun reconcileEvidence(): AnrReportResult<Unit> = synchronized(AnrStorageLock) {
+        try {
+            /** 待删除报告先沿用索引中的重试记录。 */
+            val index = clearPending(readIndex())
+            if (index.pendingDeletion.isNotEmpty()) throw IOException("pending report cleanup failed")
+            discardUnlistedEvidence(index)
+            logger.record(true, "ANR 本地诊断副本核对完成")
+            AnrReportResult.Success(Unit)
+        } catch (failure: CorruptIndexException) {
+            logger.record(false, "ANR 报告索引损坏，未清理诊断副本")
+            AnrReportResult.Failure(AnrReportError.CORRUPT)
+        } catch (failure: IOException) {
+            logger.record(false, "ANR 本地诊断副本核对失败")
+            AnrReportResult.Failure(AnrReportError.IO_ERROR)
+        } catch (failure: SecurityException) {
+            logger.record(false, "ANR 本地诊断副本核对失败")
+            AnrReportResult.Failure(AnrReportError.IO_ERROR)
+        }
+    }
+
+    /** 仅保留已登记报告对应的采集副本。 */
+    private fun discardUnlistedEvidence(index: Index) {
+        /** 发生删除失败时，保留索引中的待删除条目供重试。 */
+        val reportIds = (index.entries + index.pendingDeletion).mapTo(mutableSetOf()) { it.id }
+        if (!captures.discardUnlistedEvidence(reportIds)) throw IOException("cannot delete unlisted evidence")
     }
 
     /** 根据容量和过期时间选择从新到旧保留的摘要。 */
@@ -280,7 +316,7 @@ internal class AnrReportStore(
         val remaining = index.pendingDeletion.filter { entry ->
             val deleted = try {
                 val file = reportFile(entry.id)
-                !file.exists() || deleteReportFile(file)
+                (!file.exists() || deleteReportFile(file)) && captures.discardLocalEvidence(entry.id)
             } catch (failure: IOException) {
                 false
             } catch (failure: SecurityException) {
@@ -308,7 +344,8 @@ internal class AnrReportStore(
         } ?: throw CorruptIndexException()
         try {
             val all = index.entries + index.pendingDeletion
-            if (index.version != 1 || all.any { !validId(it.id) || it.sizeBytes < 0 || (it.type as AnrReportType?) == null } ||
+            if (index.version != 1 || all.any { !validId(it.id) || it.sizeBytes < 0 || (it.type as AnrReportType?) == null ||
+                    (it.captureId != null && !validId(it.captureId)) } ||
                 all.map { it.id }.distinct().size != all.size
             ) throw CorruptIndexException()
         } catch (failure: NullPointerException) {
@@ -350,9 +387,32 @@ internal class AnrReportStore(
             identity.environment,
             identity.channel,
         )
-        return report.id == entry.id && report.type == entry.type &&
+        return report.id == entry.id && report.type == entry.type && report.captureId == entry.captureId &&
             report.createdAtMillis == entry.createdAtMillis && identity.versionCode >= 0 &&
             fields.none { it.isNullOrBlank() }
+    }
+
+    /** 仅在唯一采集身份与原进程身份一致时，将独立 trace 投影到判定报告。 */
+    private fun withAssociatedTrace(report: AnrReport, entries: List<AnrReportSummary>): AnrReport {
+        /** 只有携带相同采集身份的判定报告参与关联。 */
+        val captureId = report.captureId ?: return report
+        if (report.type != AnrReportType.SIGNAL_ANR || report.id != captureId) return report
+        /** 多个候选无法确认归属，保留原有判定报告。 */
+        val matches = entries.filter { it.type == AnrReportType.ANR_TRACE && it.captureId == captureId }
+        if (matches.size != 1) return report
+        return try {
+            /** 只读取已提交且字节数完整的候选。 */
+            val entry = matches.single()
+            val file = reportFile(entry.id)
+            if (!file.isFile || file.length() != entry.sizeBytes) return report
+            /** 进程身份不一致时不得合并正文。 */
+            val trace = gson.fromJson(file.readText(Charsets.UTF_8), AnrReport::class.java) ?: return report
+            if (!validReport(trace, entry) || trace.identity != report.identity) return report
+            report.copy(trace = trace.trace, traceBase64 = trace.traceBase64, traceTruncated = trace.traceTruncated)
+        } catch (failure: Exception) {
+            logger.record(false, "关联的 ANR trace 不可读取")
+            report
+        }
     }
 
     /** 验证规范小写 UUID v4。 */
@@ -377,10 +437,8 @@ internal class AnrReportStore(
     /** 表示已存在但无法解析或验证的索引。 */
     private class CorruptIndexException : IOException()
 
-    /** 同一进程内所有报告访问共享锁与排序规则。 */
+    /** 报告摘要的稳定排序规则。 */
     private companion object {
-        /** 避免不同句柄同时覆盖同一索引。 */
-        val LOCK = Any()
         /** 最新报告优先，时间相同时按 ID 稳定排序。 */
         val ORDER = compareByDescending<AnrReportSummary> { it.createdAtMillis }.thenByDescending { it.id }
     }

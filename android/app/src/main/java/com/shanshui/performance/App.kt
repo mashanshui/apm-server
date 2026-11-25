@@ -18,6 +18,8 @@ class App : Application() {
         runCatching {
             /** 仅显式 Debug 测试构建启用，正常示例保持原组件配置。 */
             val joint = BuildConfig.DEBUG && BuildConfig.PERFORMANCE_MEMORY_JOINT_TEST
+            /** 隔离联调构建会关闭其他监控能力。 */
+            val anrAcceptance = BuildConfig.PERFORMANCE_ANR_ACCEPTANCE
             if (joint) {
                 // 故障类只存在于 debug 源集；生产构建不会暴露故障入口。
                 Class.forName("com.shanshui.performance.MemoryJointStartupFault")
@@ -30,14 +32,15 @@ class App : Application() {
                 appKey = BuildConfig.PERFORMANCE_APP_KEY,
                 config = PerformanceConfig(
                     service = if (BuildConfig.PERFORMANCE_BASE_URL.isBlank()) service else service.copy(baseUrl = BuildConfig.PERFORMANCE_BASE_URL),
-                    crash = CrashConfig(enabled = !joint),
-                    // 示例显式开启 Matrix ANR；SDK 配置默认仍为关闭。
-                    anr = AnrConfig(enabled = !joint),
+                    crash = CrashConfig(enabled = !joint && !anrAcceptance),
+                    // 示例显式开启 Matrix ANR 及上传；SDK 配置默认仍为关闭。
+                    anr = AnrConfig(enabled = !joint, uploadEnabled = !joint),
                     // 使用 app 模块在本次 Gradle 命令中生成的 buildId。
-                    jank = if (joint) JankConfig(enabled = false) else JANK_TEST_CONFIG,
-                    fps = FpsConfig(enabled = !joint, logLevel = FpsLogLevel.SUMMARY),
+                    jank = if (joint || anrAcceptance) JankConfig(enabled = false) else JANK_TEST_CONFIG,
+                    fps = FpsConfig(enabled = !joint && !anrAcceptance, logLevel = FpsLogLevel.SUMMARY),
+                    memory = if (anrAcceptance) MemoryConfig(enabled = false) else MemoryConfig(),
                     memoryLeak = MemoryLeakConfig(
-                        enabled = !joint,
+                        enabled = !joint && !anrAcceptance,
                         foregroundScanIntervalMillis = 5_000L,
                         backgroundScanIntervalMillis = 5_000L,
                         maxRecheckCount = 1,

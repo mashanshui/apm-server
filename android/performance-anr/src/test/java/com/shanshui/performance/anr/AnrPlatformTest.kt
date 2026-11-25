@@ -1,6 +1,7 @@
 package com.shanshui.performance.anr
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Test
 
@@ -9,6 +10,7 @@ class AnrPlatformTest {
     /** 默认配置及其他条件不足时不会进入支持状态。 */
     @Test
     fun rejectsDisabledAndUnsupportedProcesses() {
+        assertFalse("即使启用采集也不能默认启用上传", AnrConfig(enabled = true).uploadEnabled)
         assertEquals(AnrInitStatus.DISABLED, AnrPlatform.check(AnrConfig(), 35, true, true, "arm64-v8a")?.status)
         assertEquals(AnrInitStatus.UNSUPPORTED_API, AnrPlatform.check(AnrConfig(true), 22, true, true, "arm64-v8a")?.status)
         assertEquals(AnrInitStatus.NOT_MAIN_PROCESS, AnrPlatform.check(AnrConfig(true), 35, false, true, "arm64-v8a")?.status)

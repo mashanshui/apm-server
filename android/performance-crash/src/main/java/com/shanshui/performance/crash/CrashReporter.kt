@@ -1,5 +1,9 @@
 package com.shanshui.performance.crash
 
+import com.shanshui.performance.diagnostics.AndroidCrashEnvironmentSource
+import com.shanshui.performance.diagnostics.EnvironmentDiagnosticsCollector
+import com.shanshui.performance.diagnostics.LogcatDiagnosticsCollector
+
 import android.content.Context
 import android.app.Application
 import android.net.ConnectivityManager

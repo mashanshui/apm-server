@@ -4,7 +4,7 @@
 
 本目录及配套示例通过 [knowledge-sync skill](../../.agents/skills/knowledge-sync/SKILL.md) 手动核对与更新，普通开发不自动同步文档；调用方式及 OpenSpec 归档同步规则见[平台维护约定](../knowledge-base/README.md#内容归属与维护约定)。必要实现测试仍随代码变更执行。
 
-仅需要 ANR 本地采集时，直接按 [ANR 本地接入](anr-local-collection.md) 操作。以下初始化和 App Key 步骤适用于上报能力。
+ANR 支持仅本地采集及显式启用上传，按 [ANR 接入](anr-local-collection.md) 操作。以下初始化和 App Key 步骤适用于上报能力。
 
 ## 使用现有 SDK
 
@@ -17,7 +17,7 @@
 
 | 需要接入什么 | 客户端流程 | 正式契约 |
 |---|---|---|
-| ANR 客户端本地采集 | [ANR 本地接入](anr-local-collection.md) | [Android ANR 规格](../../openspec/specs/android-anr-collection/spec.md) |
+| ANR 采集与上传 | [ANR 接入](anr-local-collection.md) | [ANR API](../api/anr-api.md) |
 | JVM/Native 致命 Crash 与启动事件 | [Crash 接入](crash-client-integration.md) | [Crash API](../api/crash-api.md)、[上报错误码](../api/crash-error-codes.md) |
 | 卡顿个例、场景 FPS 与前台挂起 | [卡顿接入](jank-monitoring.md)、[ZIP manifest 构造](jank-artifact-manifest.md) | [卡顿压缩包 API](../api/stack-artifact-api.md)、[卡顿指标 API](../api/jank-server-api.md) |
 | PSS、VSS 与 Java 堆运行峰值 | [内存峰值接入](memory-metrics.md) | [内存指标 API](../api/memory-metrics-api.md) |
@@ -45,17 +45,17 @@
 
 ## 批量响应与队列确认
 
-本节适用于 Crash、启动、场景 FPS、前台挂起和内存峰值的 `POST /ingest/v1/batches`。JSON 使用 v2 信封；Android SDK 自建网络会话的所有 JSON 批次统一使用 gzip，包括小批次和压缩后变大的批次，不设阈值、不回退普通 JSON。宿主完整提供的外部 OkHttp/Retrofit 会话由宿主管理传输策略。原始事件仍以 JSON 持久化并按未压缩大小分批，压缩仅发生于后台发送前；准备失败保留原事件，继续原有重试。服务端仍接受普通 JSON，精确编码与资源限制见[公共批次传输契约](../api/crash-api.md#内容编码与大小限制)。ZIP 和 multipart 使用各自的确认规则。
+本节适用于 Crash、启动、场景 FPS、前台挂起、内存峰值和 ANR 的 `POST /ingest/v1/batches`。JSON 使用 v2 信封；Android SDK 自建网络会话的所有 JSON 批次统一使用 gzip，包括小批次和压缩后变大的批次，不设阈值、不回退普通 JSON。宿主完整提供的外部 OkHttp/Retrofit 会话由宿主管理传输策略。原始事件仍以 JSON 持久化并按未压缩大小分批，压缩仅发生于后台发送前；准备失败保留原事件，继续原有重试。服务端仍接受普通 JSON，精确编码与资源限制见[公共批次传输契约](../api/crash-api.md#内容编码与大小限制)。ZIP 和 multipart 使用各自的确认规则。
 
 前台挂起汇总是服务端支持的批次类型，当前 Android SDK 没有对应采集上传实现；该类型的 gzip 以合成协议验证，不代表已增加客户端采集能力。
 
 1. 先可靠落盘，再发送；设置单批数量、字节、队列配额、保留期和重试上限。`requestId` 用于关联本次发送，`eventId` 用于事件幂等，重试不能重新生成事件。
-2. HTTP 200 且正文可解析后，先核对响应的 `requestId`、非负的 `accepted`/`rejected`/`duplicate`、三者之和与批次事件数，以及拒绝计数与错误定位的对应关系。当前 Crash 和内存峰值要求 `requestId` 完全相同；FPS 在响应返回非空 `requestId` 时核对。
-3. `errors[].index` 必须在本批范围内；使用 `eventId` 定位时必须能匹配本批事件，二者同时出现时必须一致。Crash 允许同一拒绝事件对应多条字段错误，按事件归并；FPS 与内存峰值当前要求错误定位唯一。不能用一套错误条数规则替代各信号的检查。
+2. HTTP 200 且正文可解析后，先核对响应的 `requestId`、非负的 `accepted`/`rejected`/`duplicate`、三者之和与批次事件数，以及拒绝计数与错误定位的对应关系。当前 Crash、ANR 和内存峰值要求 `requestId` 完全相同；FPS 在响应返回非空 `requestId` 时核对。
+3. `errors[].index` 必须在本批范围内；使用 `eventId` 定位时必须能匹配本批事件，二者同时出现时必须一致。Crash 允许同一拒绝事件对应多条字段错误，按事件归并；ANR、FPS 与内存峰值当前要求错误定位唯一。不能用一套错误条数规则替代各信号的检查。
 4. 只有完整校验通过后，才能确认未被拒绝的 accepted/duplicate 事件。事件级永久错误移入有数量限制的隔离区，可重试错误保留原事件；响应缺失、标识或计数不匹配、错误无法定位、非预期成功响应均不得确认删除，应保留整批进入有上限的重试。
 5. 网络中断、超时和可重试服务端错误保留原内容，使用 `Retry-After` 与退避策略。批次级永久错误停止原样重试并隔离受影响批次，不能清空其他正常队列。具体状态和错误码按各 API 判断。
 
-当前确认实现见 [CrashUploader](../../android/performance-crash/src/main/java/com/shanshui/performance/crash/CrashUploader.kt)、[FpsUploader](../../android/performance-metrics/src/main/java/com/shanshui/performance/fps/FpsUploader.kt)和 [MemoryUploader](../../android/performance-metrics/src/main/java/com/shanshui/performance/memory/MemoryUploader.kt)。各信号的历史过期规则见各接入页，不能统一套用同一保留天数。
+当前确认实现见 [CrashUploader](../../android/performance-crash/src/main/java/com/shanshui/performance/crash/CrashUploader.kt)、[AnrUploader](../../android/performance-anr/src/main/java/com/shanshui/performance/anr/AnrUploader.kt)、[FpsUploader](../../android/performance-metrics/src/main/java/com/shanshui/performance/fps/FpsUploader.kt)和 [MemoryUploader](../../android/performance-metrics/src/main/java/com/shanshui/performance/memory/MemoryUploader.kt)。各信号的历史过期规则见各接入页，不能统一套用同一保留天数。
 
 ## 联调与验收
 

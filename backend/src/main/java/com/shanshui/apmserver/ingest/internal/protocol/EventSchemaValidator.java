@@ -22,7 +22,12 @@ public class EventSchemaValidator {
             "schemaVersion", "eventId", "eventType", "occurredAt", "sessionId", "processId", "anonymousDeviceId",
             "packageName", "appVersion", "versionCode", "buildId", "environment", "channel", "osVersion",
             "deviceModel", "networkType", "measurements", "attributes", "crash", "jank",
-            "frameSceneSummary", "foregroundSuspensionSummary", "memoryPeakSummary");
+            "frameSceneSummary", "foregroundSuspensionSummary", "memoryPeakSummary", "anr");
+    /** ANR 核心信息及其独立诊断分区。 */
+    private static final Set<String> ANR_FIELDS = Set.of("source", "mainThreadStack", "mainThreadStackTruncated",
+            "message", "messageWhenMillis", "foreground", "cgroup", "anrInfo", "trace", "diagnostics");
+    /** ANR 文本分区的字段。 */
+    private static final Set<String> ANR_TEXT_FIELDS = Set.of("status", "reason", "truncated", "capturedAt", "text", "source");
     private static final Set<String> CRASH_FIELDS = Set.of("kind", "fatal", "throwableChain", "diagnostics", "nativeCrash");
     /** Native 数据仅接受明确字段，不能携带完整 tombstone 或内存转储。 */
     private static final Set<String> NATIVE_CRASH_FIELDS = Set.of("abi", "systemTid", "threadName", "mainThread", "signal", "registers", "modules", "backtrace", "javaStack");
@@ -102,6 +107,26 @@ public class EventSchemaValidator {
         validateFrameScene(event.get("frameSceneSummary"));
         validateSuspension(event.get("foregroundSuspensionSummary"));
         validateMemory(event.get("memoryPeakSummary"));
+        validateAnr(event.get("anr"));
+    }
+
+    /** 检查 ANR 字段的 JSON 类型和白名单，具体语义按事件处理。 */
+    private void validateAnr(JsonNode payload) {
+        if (payload == null || payload.isNull()) return;
+        requireObject(payload, "anr");
+        rejectUnknown(payload, ANR_FIELDS, "anr");
+        for (String field : List.of("source", "mainThreadStack", "message", "cgroup")) requireText(payload, field);
+        requireBoolean(payload, "mainThreadStackTruncated");
+        requireBoolean(payload, "foreground");
+        requireInteger(payload, "messageWhenMillis");
+        for (String name : List.of("anrInfo", "trace")) {
+            JsonNode part = optionalPartition(payload, name, ANR_TEXT_FIELDS);
+            if (part != null) {
+                requireText(part, "text");
+                requireText(part, "source");
+            }
+        }
+        validateCrashDiagnostics(payload.get("diagnostics"));
     }
 
     private void validateCrash(JsonNode payload) {

@@ -40,6 +40,10 @@ class SignalHandler {
     static bool installNativeBacktraceHandlersLocked();
     static void restoreHandlersLocked();
     static void restoreNativeBacktraceHandlersLocked();
+    /** 暂停 debugger 处理器并与采集器关闭同步。 */
+    static void suspendNativeBacktraceHandler();
+    /** 仅在仍有活动采集器时恢复 debugger 处理器。 */
+    static void resumeNativeBacktraceHandlerIfActive();
     static void installDefaultHandler(int sig);
 
  private:

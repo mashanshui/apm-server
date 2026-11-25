@@ -1,5 +1,12 @@
 package com.shanshui.performance.crash
 
+import com.shanshui.performance.diagnostics.RuntimeHeapSnapshot
+import com.shanshui.performance.diagnostics.DebugMemorySnapshot
+import com.shanshui.performance.diagnostics.BoundedProcText
+import com.shanshui.performance.diagnostics.CachedCrashEnvironment
+import com.shanshui.performance.diagnostics.CrashEnvironmentSource
+import com.shanshui.performance.diagnostics.EnvironmentDiagnosticsCollector
+
 import java.io.IOException
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse

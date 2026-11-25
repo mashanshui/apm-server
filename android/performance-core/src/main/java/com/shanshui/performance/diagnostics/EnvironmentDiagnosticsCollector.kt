@@ -1,4 +1,4 @@
-package com.shanshui.performance.crash
+package com.shanshui.performance.diagnostics
 
 import android.os.Build
 import android.os.Debug
@@ -16,13 +16,13 @@ import java.io.IOException
 import java.nio.charset.StandardCharsets
 
 /** Runtime 堆值与 Debug PSS 使用不同口径。 */
-internal data class RuntimeHeapSnapshot(
+data class RuntimeHeapSnapshot(
     /** Java 堆已使用字节数。 */ val usedBytes: Long?,
     /** Java 堆最大字节数。 */ val maxBytes: Long?,
 )
 
 /** Debug 读取的 PSS 为 KiB，Native 分配量为字节。 */
-internal data class DebugMemorySnapshot(
+data class DebugMemorySnapshot(
     /** Java 堆 PSS，KiB。 */ val javaPssKib: Long?,
     /** Native 堆 PSS，KiB。 */ val nativePssKib: Long?,
     /** 总 PSS，KiB。 */ val totalPssKib: Long?,
@@ -30,13 +30,13 @@ internal data class DebugMemorySnapshot(
 )
 
 /** 文件读取结果保留是否因字节上限截断。 */
-internal data class BoundedProcText(
+data class BoundedProcText(
     /** 受限 UTF-8 文本。 */ val text: String,
     /** 是否有更多原始字节。 */ val truncated: Boolean,
 )
 
 /** 启动时可安全缓存且不依赖设备进程下一次启动的环境。 */
-internal data class CachedCrashEnvironment(
+data class CachedCrashEnvironment(
     /** Android 数值进程号。 */ val pid: Int?,
     /** 已脱敏进程名。 */ val processName: String?,
     /** SDK 初始化时间，Unix 毫秒。 */ val sdkInitializedAt: Long,
@@ -49,7 +49,7 @@ internal data class CachedCrashEnvironment(
 )
 
 /** 可注入的当前进程读取接口，避免 Crash 模块依赖其他性能模块。 */
-internal interface CrashEnvironmentSource {
+interface CrashEnvironmentSource {
     /** 获取 Runtime Java 堆信息。 */
     fun runtimeHeap(): RuntimeHeapSnapshot
     /** 获取 Debug 内存信息。 */
@@ -63,7 +63,7 @@ internal interface CrashEnvironmentSource {
 }
 
 /** 通过公开 Android API 与当前进程 proc 文件读取环境。 */
-internal class AndroidCrashEnvironmentSource : CrashEnvironmentSource {
+class AndroidCrashEnvironmentSource : CrashEnvironmentSource {
     /** Runtime 堆使用量和上限均以字节表示。 */
     override fun runtimeHeap(): RuntimeHeapSnapshot {
         val runtime = Runtime.getRuntime()
@@ -110,7 +110,7 @@ internal class AndroidCrashEnvironmentSource : CrashEnvironmentSource {
         fun cache(sdkInitializedAt: Long): CachedCrashEnvironment {
             val source = AndroidCrashEnvironmentSource()
             val processName = runCatching { source.readProc("/proc/self/cmdline", 512).text.substringBefore('\u0000') }
-                .getOrNull()?.let { CrashSanitizer.sanitize(it, 512) }
+                .getOrNull()?.let { DiagnosticSanitizer.sanitize(it, 512) }
             return CachedCrashEnvironment(
                 pid = android.os.Process.myPid().takeIf { it > 0 }, processName = processName,
                 sdkInitializedAt = sdkInitializedAt,
@@ -124,7 +124,7 @@ internal class AndroidCrashEnvironmentSource : CrashEnvironmentSource {
 }
 
 /** 四个环境分区可分别成功、失败或因资源不足跳过。 */
-internal data class EnvironmentDiagnostics(
+data class EnvironmentDiagnostics(
     /** 当前进程内存。 */ val memory: CrashMemory,
     /** 当前进程文件描述符。 */ val openFiles: OpenFiles,
     /** 进程身份与前后台状态。 */ val process: CrashProcess,
@@ -132,14 +132,14 @@ internal data class EnvironmentDiagnostics(
 )
 
 /** Native 回调中只能由原进程 Java 运行时提供的环境。 */
-internal data class NativeJavaEnvironment(
+data class NativeJavaEnvironment(
     /** Java 与 Native 堆数值。 */ val memory: CrashMemory,
     /** 原进程信息。 */ val process: CrashProcess,
     /** 原设备信息。 */ val device: CrashDevice,
 )
 
 /** 采集内存、FD 和缓存环境，未知值保持为空。 */
-internal class EnvironmentDiagnosticsCollector(
+class EnvironmentDiagnosticsCollector(
     /** 当前进程读取器。 */ private val source: CrashEnvironmentSource,
     /** 初始化时缓存的进程与设备环境。 */ private val environment: CachedCrashEnvironment,
     /** 可知时的前后台状态；没有观察到生命周期时返回 null。 */ private val foreground: () -> Boolean?,
@@ -148,12 +148,24 @@ internal class EnvironmentDiagnosticsCollector(
     /** 与上传器一致的 JSON 编码。 */ private val gson: Gson = GsonBuilder().disableHtmlEscaping().create(),
 ) {
     /** 分区独立降级，内存压力下只尽力读取廉价 Runtime 堆。 */
-    fun collect(deadlineNanos: Long, skipExpensive: Boolean): EnvironmentDiagnostics {
+    fun collect(
+        deadlineNanos: Long,
+        skipExpensive: Boolean,
+        onMemory: (CrashMemory) -> Unit = {},
+        onOpenFiles: (OpenFiles) -> Unit = {},
+        onProcess: (CrashProcess) -> Unit = {},
+        onDevice: (CrashDevice) -> Unit = {},
+    ): EnvironmentDiagnostics {
         val capturedAt = clock()
         val memory = memory(capturedAt, deadlineNanos, skipExpensive)
+        onMemory(memory)
         val files = openFiles(capturedAt, deadlineNanos, skipExpensive)
+        onOpenFiles(files)
         val process = process(capturedAt)
-        return EnvironmentDiagnostics(memory, files, process, device(capturedAt))
+        onProcess(process)
+        val device = device(capturedAt)
+        onDevice(device)
+        return EnvironmentDiagnostics(memory, files, process, device)
     }
 
     /** 在处理器入口冻结缓存的进程身份，采集中断后仍可恢复。 */
@@ -182,10 +194,10 @@ internal class EnvironmentDiagnosticsCollector(
 
     /** 从初始化缓存构造已脱敏设备分区。 */
     private fun device(capturedAt: Long): CrashDevice = CrashDevice(status = "ok", capturedAt = capturedAt,
-        apiLevel = environment.apiLevel, abis = environment.abis.map { CrashSanitizer.sanitize(it, 128) },
-        manufacturer = environment.manufacturer?.let { CrashSanitizer.sanitize(it, 256) },
-        brand = environment.brand?.let { CrashSanitizer.sanitize(it, 256) },
-        buildFingerprint = environment.buildFingerprint?.let { CrashSanitizer.sanitize(it, 1024) })
+        apiLevel = environment.apiLevel, abis = environment.abis.map { DiagnosticSanitizer.sanitize(it, 128) },
+        manufacturer = environment.manufacturer?.let { DiagnosticSanitizer.sanitize(it, 256) },
+        brand = environment.brand?.let { DiagnosticSanitizer.sanitize(it, 256) },
+        buildFingerprint = environment.buildFingerprint?.let { DiagnosticSanitizer.sanitize(it, 1024) })
 
     /** 使用缓存环境和已观察到的生命周期快照构造进程分区。 */
     private fun process(capturedAt: Long): CrashProcess {
@@ -225,7 +237,7 @@ internal class EnvironmentDiagnosticsCollector(
                     vssBytes = statusMetric(result.text, "VmSize")
                     swapBytes = statusMetric(result.text, "VmSwap")
                 }
-                val cleaned = result.text.lineSequence().joinToString("\n") { CrashSanitizer.sanitize(it, PROC_RAW_BYTES) }
+                val cleaned = result.text.lineSequence().joinToString("\n") { DiagnosticSanitizer.sanitize(it, PROC_RAW_BYTES) }
                 val bounded = fitText(cleaned, PROC_JSON_BYTES)
                 if (result.truncated || bounded != cleaned) { truncated = true; reason = reason ?: "size_limit" }
                 bounded

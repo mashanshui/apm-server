@@ -36,7 +36,7 @@
 |---|---|
 | [事件模型与数据存储](03-事件模型与数据存储.md) | PostgreSQL、ClickHouse、对象存储如何分工，事件如何建模 |
 | [上报协议与可靠性](04-上报协议与可靠性.md) | 批量、gzip、校验、错误、重试和去重语义是什么 |
-| [查询与 Dashboard](05-查询与Dashboard.md) | Crash、卡顿和内存查询 API、Grafana 与 Vue 如何分工，统计口径是什么 |
+| [查询与 Dashboard](05-查询与Dashboard.md) | Crash、ANR、卡顿和内存查询 API、Grafana 与 Vue 如何分工，统计口径是什么 |
 | [安全与隐私](06-安全与隐私.md) | 登录、应用授权、上报 Key、脱敏和多租户边界是什么 |
 
 ### 交付与治理
@@ -67,6 +67,7 @@
 | 数据与验收 | [固定数据集](../datasets/README.md)、[跨端验收资料](../validation/README.md)、[后端测试与专项基线](../../backend/docs/knowledge-base/06-测试与质量保障.md) |
 | 部署与运维 | [平台部署步骤](07-部署与运维.md)、[SSH/ClickHouse/Grafana/灰度资料](../operations/README.md) |
 | 工程开发 | [后端知识库](../../backend/docs/knowledge-base/README.md)、[前端知识库](../../frontend/docs/knowledge-base/README.md)、[Android 知识库](../../android/docs/knowledge-base/README.md) |
+| ANR 接入与查询 | [客户端接入](../client-integration/anr-local-collection.md)、[ANR API](../api/anr-api.md)、[Android 专题](../../android/docs/knowledge-base/18-ANR客户端采集与本地报告.md) |
 | Android 符号表 | [符号表管理 API](../api/symbol-api.md)、[网页上传与生效语义](../client-integration/symbol-mapping.md) |
 | Agent 只读查询 | [查询 Token 管理 API](../api/query-token-api.md)、[Agent HTTP API](../api/agent-query-api.md)、[MCP API](../api/mcp-api.md)、[MCP 运行说明](../../mcp-server/README.md) |
 | 本地 Crash 分析 | [Worker 运行](../../agent-skills/apm-crash-analyze/worker/README.md)、[Skill 安装与调用](../../agent-skills/apm-crash-analyze/README.md)、[分阶段验收索引](../validation/analysis/README.md)、[当前代码正式规范](../../openspec/specs/current-code-crash-fix/spec.md) |

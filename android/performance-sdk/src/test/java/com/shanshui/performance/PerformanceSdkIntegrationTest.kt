@@ -271,9 +271,11 @@ class PerformanceSdkIntegrationTest {
             application: Application,
             config: AnrConfig,
             context: PerformanceEventContext,
+            session: TransportSession,
         ): AnrHandle? {
             anrConfig = config
             assertSame(this.context, context)
+            assertSame(lastSession, session)
             if (failAnr) throw IllegalStateException("模拟 ANR 启动失败")
             return null
         }

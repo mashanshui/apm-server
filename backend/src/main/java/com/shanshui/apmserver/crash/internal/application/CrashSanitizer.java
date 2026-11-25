@@ -210,6 +210,16 @@ public class CrashSanitizer {
         return sha256(properties.getDeviceHashSalt() + ":" + value.trim());
     }
 
+    /** 为其他诊断信号复用公共数值字段清理规则。 */
+    public Map<String, Object> sanitizeMeasurements(Map<String, Object> values) {
+        return sanitizeMap(values, false, true);
+    }
+
+    /** 为其他诊断信号复用公共扩展字段脱敏规则。 */
+    public Map<String, Object> sanitizeAttributes(Map<String, Object> values) {
+        return sanitizeMap(values, true, false);
+    }
+
     private StackFrame sanitizeFrame(StackFrame frame) {
         return new StackFrame(
                 sanitizeText(frame.className(), 512),

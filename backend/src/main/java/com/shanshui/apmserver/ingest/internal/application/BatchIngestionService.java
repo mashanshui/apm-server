@@ -9,6 +9,8 @@ import com.shanshui.apmserver.jank.api.JankMetricIngestCommand;
 import com.shanshui.apmserver.jank.api.JankMetrics;
 import com.shanshui.apmserver.memory.api.MemoryEventProcessing;
 import com.shanshui.apmserver.memory.api.MemoryIngestCommand;
+import com.shanshui.apmserver.anr.api.AnrEventProcessing;
+import com.shanshui.apmserver.anr.api.AnrIngestCommand;
 import com.shanshui.apmserver.ingest.api.EventIngestionService;
 import com.shanshui.apmserver.telemetry.api.EventValidationException;
 import com.shanshui.apmserver.ingest.api.InvalidBatchException;
@@ -39,6 +41,8 @@ public class BatchIngestionService implements EventIngestionService {
     private final CrashEventProcessing crashProcessor;
     private final JankMetricEventProcessing jankMetricProcessor;
     private final MemoryEventProcessing memoryProcessor;
+    /** ANR 独立事件处理器。 */
+    private final AnrEventProcessing anrProcessor;
     private final IngestMetrics ingestMetrics;
     private final CrashMetrics crashMetrics;
     private final JankMetrics jankMetrics;
@@ -48,15 +52,29 @@ public class BatchIngestionService implements EventIngestionService {
     public BatchIngestionService(CrashEventProcessing crashProcessor,
                                  JankMetricEventProcessing jankMetricProcessor,
                                  MemoryEventProcessing memoryProcessor,
+                                 AnrEventProcessing anrProcessor,
                                  IngestMetrics ingestMetrics,
                                  CrashMetrics crashMetrics,
                                  JankMetrics jankMetrics) {
         this.crashProcessor = crashProcessor;
         this.jankMetricProcessor = jankMetricProcessor;
         this.memoryProcessor = memoryProcessor;
+        this.anrProcessor = anrProcessor;
         this.ingestMetrics = ingestMetrics;
         this.crashMetrics = crashMetrics;
         this.jankMetrics = jankMetrics;
+    }
+
+    /** 保留已有领域测试的构造方式。 */
+    public BatchIngestionService(CrashEventProcessing crashProcessor,
+                                 JankMetricEventProcessing jankMetricProcessor,
+                                 MemoryEventProcessing memoryProcessor,
+                                 IngestMetrics ingestMetrics,
+                                 CrashMetrics crashMetrics,
+                                 JankMetrics jankMetrics) {
+        this(crashProcessor, jankMetricProcessor, memoryProcessor, (appId, command, receivedAt) -> {
+            throw new EventValidationException(List.of(new ValidationIssue("ANR_PROCESSOR_UNAVAILABLE", "ANR 事件处理器未装配")));
+        }, ingestMetrics, crashMetrics, jankMetrics);
     }
 
     /** 兼容仅装配 Crash/Jank 处理器的领域级测试和旧内部调用。 */
@@ -92,6 +110,11 @@ public class BatchIngestionService implements EventIngestionService {
                 jankMetrics.jankReceived();
             }
             try {
+                // 以原始解压字节为准，避免 JSON 转义在绑定后缩短而绕过单事件上限。
+                if (event != null && "anr".equals(event.eventType()) && request.eventBytes() != null
+                        && request.eventBytes().get(index) > 256L * 1024) {
+                    throw new EventValidationException(List.of(new ValidationIssue("EVENT_TOO_LARGE", "单事件超过大小上限")));
+                }
                 SignalIngestResult processed = processEvent(appId, event, receivedAt);
                 acceptedEvents += processed.appendResult().accepted();
                 duplicateEvents += processed.appendResult().duplicate();
@@ -165,6 +188,21 @@ public class BatchIngestionService implements EventIngestionService {
 
     /** 按事件类型分派，互斥载荷错误只拒绝对应事件。 */
     private SignalIngestResult processEvent(java.util.UUID appId, EventEnvelope event, Instant receivedAt) {
+        // ANR 载荷与其他事件载荷互斥，不能静默丢弃。
+        if (event != null && event.anr() != null && !"anr".equals(event.eventType())) {
+            throw new EventValidationException(List.of(new ValidationIssue("INVALID_ANR_PAYLOAD", "ANR 载荷必须匹配事件类型")));
+        }
+        if (event != null && "anr".equals(event.eventType())) {
+            if (event.anr() == null || event.crash() != null || event.jank() != null || event.memoryPeakSummary() != null
+                    || event.frameSceneSummary() != null || event.foregroundSuspensionSummary() != null) {
+                throw new EventValidationException(List.of(new ValidationIssue("INVALID_ANR_PAYLOAD", "anr 事件必须且只能携带 anr 载荷")));
+            }
+            return anrProcessor.ingest(appId, new AnrIngestCommand(event.schemaVersion(), event.eventId(),
+                    event.eventType(), event.occurredAt(), event.sessionId(), event.processId(), event.anonymousDeviceId(),
+                    event.packageName(), event.appVersion(), event.versionCode(), event.buildId(), event.environment(),
+                    event.channel(), event.osVersion(), event.deviceModel(), event.networkType(), event.measurements(),
+                    event.attributes(), event.anr()), receivedAt);
+        }
         // 其他领域不能在分派时悄悄忽略 Crash 及其诊断载荷。
         if (event != null && event.crash() != null && !"crash".equals(event.eventType())
                 && !"app_start".equals(event.eventType()) && !"memory_peak_summary".equals(event.eventType())) {

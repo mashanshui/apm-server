@@ -62,7 +62,8 @@ class AnrSignalTimeoutTest {
         try {
             tracer.setSignalAnrDetectedListener(object : SignalAnrTracer.SignalAnrDetectedListener {
                 /** 故意阻塞 Matrix 的 Java 采样线程，不改变生产采集代码。 */
-                override fun onAnrDetected(stack: String, message: String, whenMillis: Long, fromError: Boolean, cgroup: String) {
+                override fun onAnrDetected(captureId: String, occurredAt: Long, stack: String, message: String?,
+                    whenMillis: Long?, foreground: Boolean, fromError: Boolean, cgroup: String, anrInfo: String?) {
                     callbackEntered.countDown()
                     releaseCallback.await(30, TimeUnit.SECONDS)
                     callbackExited.countDown()

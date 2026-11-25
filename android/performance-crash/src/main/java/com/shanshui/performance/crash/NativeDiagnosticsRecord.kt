@@ -1,5 +1,7 @@
 package com.shanshui.performance.crash
 
+import com.shanshui.performance.diagnostics.DiagnosticSanitizer
+
 import com.shanshui.performance.network.CrashLogcat
 import com.shanshui.performance.network.CrashMemory
 import com.shanshui.performance.network.LogcatBuffer
@@ -51,7 +53,7 @@ internal object NativeDiagnosticsCodec {
             val lines = List(count) {
                 val line = readText(input, 2000)
                 require(!containsForbiddenDump(line))
-                CrashSanitizer.sanitize(line, 2000)
+                DiagnosticSanitizer.sanitize(line, 2000)
             }
             LogcatBuffer(partition.status, partition.reason, partition.truncated, partition.capturedAt, lines)
         }

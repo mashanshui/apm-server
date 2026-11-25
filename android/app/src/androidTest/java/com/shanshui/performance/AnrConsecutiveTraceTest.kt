@@ -29,7 +29,7 @@ class AnrConsecutiveTraceTest {
     /** 归档线程被回调阻塞时，后续报告仍应保留各自原始 trace。 */
     @Test
     fun eachReportRetainsItsOwnTrace() {
-        /** 此诊断只在显式传参时运行，不隐藏当前尚未解决的对应关系问题。 */
+        /** 此诊断只在显式传参时运行，避免常规设备回归多次触发系统 trace。 */
         assumeTrue(InstrumentationRegistry.getArguments().getString("verifyTraceRace") == "true")
         val application = ApplicationProvider.getApplicationContext<Application>()
         assumeTrue(application.javaClass == Application::class.java)
@@ -43,7 +43,7 @@ class AnrConsecutiveTraceTest {
         val tracer = tracerField.get(handle) as SignalAnrTracer
         val listenerField = SignalAnrTracer::class.java.getDeclaredField("sTraceFileListener").apply { isAccessible = true }
         val original = listenerField.get(null) as SignalAnrTracer.TraceFileListener
-        val queued = LinkedBlockingQueue<Unit>()
+        val queued = LinkedBlockingQueue<String>()
         val saved = LinkedBlockingQueue<AnrReportSummary>()
         val callbacks = AtomicInteger()
         val releaseFirstCallback = CountDownLatch(1)
@@ -57,12 +57,13 @@ class AnrConsecutiveTraceTest {
         try {
             tracer.setTraceFileListener(object : SignalAnrTracer.TraceFileListener {
                 /** 保持 SDK 原有 ANR trace 回调。 */
-                override fun onAnrTraceFile(path: String) = original.onAnrTraceFile(path)
+                override fun onAnrTraceFile(captureId: String, path: String, truncated: Boolean) =
+                    original.onAnrTraceFile(captureId, path, truncated)
 
                 /** 原回调完成入队后通知测试线程。 */
-                override fun onPrintTraceFile(path: String) {
-                    original.onPrintTraceFile(path)
-                    queued.offer(Unit)
+                override fun onPrintTraceFile(path: String, truncated: Boolean) {
+                    original.onPrintTraceFile(path, truncated)
+                    queued.offer(path)
                 }
             })
             handle.setReportListener { summary ->
@@ -79,17 +80,18 @@ class AnrConsecutiveTraceTest {
             markerOne.start()
             assertTrue(markerOneReady.await(5, TimeUnit.SECONDS))
             instrumentation.runOnMainSync { assertTrue(handle.printTrace()) }
-            assertNotNull("第二次 Matrix 回调未入队", queued.poll(20, TimeUnit.SECONDS))
-            val active = File(application.noBackupFilesDir, "performance-anr/active/manual.trace")
-            assertTrue("第二次活动 trace 缺少对应线程", active.readText().contains(MARKER_ONE))
+            val secondPath = queued.poll(20, TimeUnit.SECONDS)
+            assertNotNull("第二次 Matrix 回调未入队", secondPath)
+            assertTrue("第二次封存 trace 缺少对应线程", File(secondPath!!).readText().contains(MARKER_ONE))
             releaseFirstMarker.countDown()
             markerOne.join(5_000)
 
             markerTwo.start()
             assertTrue(markerTwoReady.await(5, TimeUnit.SECONDS))
             instrumentation.runOnMainSync { assertTrue(handle.printTrace()) }
-            assertNotNull("第三次 Matrix 回调未入队", queued.poll(20, TimeUnit.SECONDS))
-            assertTrue("第三次活动 trace 缺少对应线程", active.readText().contains(MARKER_TWO))
+            val thirdPath = queued.poll(20, TimeUnit.SECONDS)
+            assertNotNull("第三次 Matrix 回调未入队", thirdPath)
+            assertTrue("第三次封存 trace 缺少对应线程", File(thirdPath!!).readText().contains(MARKER_TWO))
             releaseFirstCallback.countDown()
             /** 分别读取已保存的第二和第三份报告，不输出 trace 内容。 */
             val second = saved.poll(20, TimeUnit.SECONDS)

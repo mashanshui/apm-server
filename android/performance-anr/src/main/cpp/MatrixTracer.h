@@ -21,12 +21,16 @@
 #ifndef LAGDETECTOR_LAG_DETECTOR_MAIN_CPP_MatrixTracer_H_
 #define LAGDETECTOR_LAG_DETECTOR_MAIN_CPP_MatrixTracer_H_
 
-bool anrDumpCallback();
-bool anrDumpTraceCallback();
+#include <cstdint>
+#include <string>
+
+std::string anrDumpCallback();
+bool anrDumpTraceCallback(const std::string& captureId, const std::string& path, bool truncated);
 bool nativeBacktraceDumpCallback();
-bool printTraceCallback();
-void hookAnrTraceWrite(bool isSigUser);
-void unHookAnrTraceWrite();
+bool printTraceCallback(const std::string& path, bool truncated);
+uint64_t beginTraceCapture();
+bool takePrintTraceRequest();
+void hookAnrTraceWrite(bool isSigUser, uint64_t ticket, const std::string& captureId);
 void onTouchEventLag(int fd);
 void onTouchEventLagDumpTrace(int fd);
 #endif  // LAGDETECTOR_LAG_DETECTOR_MAIN_CPP_MatrixTracer_H_

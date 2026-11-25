@@ -1,5 +1,7 @@
 package com.shanshui.performance.crash
 
+import com.shanshui.performance.diagnostics.DiagnosticSanitizer
+
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -16,7 +18,7 @@ class CrashEventFactoryTest {
             "X-App-Key: apm_ak_AbCdefGHijkLmnoPQRstuVwXYZ\n" +
             "standalone apm_qt_AbCdefGHijkLmnoPQRstuVwXYZ\n" +
             "reference https://example.invalid/#secret-fragment"
-        val sanitized = CrashSanitizer.sanitize(input, 4096)
+        val sanitized = DiagnosticSanitizer.sanitize(input, 4096)
         assertFalse(sanitized.contains("sentinel"))
         assertFalse(sanitized.contains("secret-one"))
         assertFalse(sanitized.contains("secret-two"))

@@ -13,6 +13,8 @@ const session = useSessionStore()
 
 const currentApp = computed(() => apps.apps.find((app) => app.appId === props.appId))
 const crashActive = computed(() => String(route.name ?? '').startsWith('crash-'))
+/** 详情页也保持 ANR 导航高亮。 */
+const anrActive = computed(() => String(route.name ?? '').startsWith('anr-'))
 const jankMetricsActive = computed(() => route.name === 'jank-metrics')
 const memoryMetricsActive = computed(() => route.name === 'memory-metrics')
 const memoryLeaksActive = computed(() => route.name === 'memory-leaks')
@@ -53,7 +55,9 @@ function switchApp(event: Event) {
   if (!nextAppId || nextAppId === props.appId) return
   apps.clearCurrent()
   const jankTarget = jankAppSwitchTarget(route.name, nextAppId, route.query)
-  const target = route.name === 'app-symbols'
+  const target = anrActive.value
+    ? { name: 'anr-list', params: { appId: nextAppId } }
+    : route.name === 'app-symbols'
     ? { name: 'app-symbols', params: { appId: nextAppId } }
     : (jankTarget ?? { name: 'crash-overview', params: { appId: nextAppId } })
   void router.push(target)
@@ -101,6 +105,14 @@ async function logout() {
           >
             <span class="nav-icon">⌁</span>
             <span>Crash</span>
+          </RouterLink>
+          <RouterLink
+            class="nav-link"
+            :class="{ 'router-link-active': anrActive }"
+            :to="{ name: 'anr-list', params: { appId: props.appId } }"
+          >
+            <span class="nav-icon">◷</span>
+            <span>ANR</span>
           </RouterLink>
           <button
             type="button"

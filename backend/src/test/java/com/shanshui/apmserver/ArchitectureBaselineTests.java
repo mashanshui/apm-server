@@ -23,16 +23,17 @@ class ArchitectureBaselineTests {
 
     private static final String ROOT = "com.shanshui.apmserver.";
     private static final Set<String> MODULES = Set.of(
-            "bootstrap", "identity", "telemetry", "ingest", "crash", "jank", "memory", "symbol", "platform", "agentquery", "agent");
+            "bootstrap", "identity", "telemetry", "ingest", "crash", "jank", "memory", "anr", "symbol", "platform", "agentquery", "agent");
     /** 新增 agent 域后超过 Map.of 的十项上限，使用等价的条目构造。 */
     private static final Map<String, Set<String>> ALLOWED_DEPENDENCIES = Map.ofEntries(
             Map.entry("bootstrap", Set.of("identity", "telemetry", "ingest", "crash", "jank", "memory", "symbol", "platform")),
             Map.entry("identity", Set.of("platform")),
             Map.entry("telemetry", Set.of("platform")),
-            Map.entry("ingest", Set.of("identity", "telemetry", "crash", "jank", "memory", "platform")),
+            Map.entry("ingest", Set.of("identity", "telemetry", "crash", "jank", "memory", "anr", "platform")),
             Map.entry("crash", Set.of("identity", "telemetry", "symbol", "platform")),
             Map.entry("jank", Set.of("identity", "telemetry", "symbol", "platform")),
             Map.entry("memory", Set.of("identity", "telemetry", "platform")),
+            Map.entry("anr", Set.of("identity", "telemetry", "crash", "symbol", "platform")),
             Map.entry("symbol", Set.of("identity", "platform", "crash", "telemetry")),
             Map.entry("agentquery", Set.of("identity", "crash", "jank", "memory", "platform")),
             Map.entry("agent", Set.of("identity", "crash", "symbol", "telemetry", "platform")),

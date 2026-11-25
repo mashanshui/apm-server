@@ -4,12 +4,14 @@ import java.io.File
 import java.io.IOException
 import java.nio.file.Files
 import java.util.UUID
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import com.google.gson.JsonParser
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Assume.assumeNoException
@@ -42,7 +44,12 @@ class AnrReportStoreTest {
     @Test
     fun savesAndReadsAcrossStoreInstances() {
         /** 首个进程保存的报告。 */
-        val first = report(100, "first trace")
+        val first = report(100, "first trace").copy(
+            javaStack = "main stack",
+            javaStackTruncated = true,
+            anrInfo = "system message",
+            anrInfoTruncated = true,
+        )
         /** 第二个报告具有不同时间和来源。 */
         val second = report(200, "manual trace", AnrReportType.MANUAL_TRACE)
         assertTrue(store().save(first) is AnrReportResult.Success)
@@ -59,6 +66,67 @@ class AnrReportStoreTest {
         assertEquals(listOf(first.id), next.reports.map { it.id })
         assertEquals(first, (restarted.read(first.id) as AnrReportResult.Success).value)
         assertFalse(index.file.readText().contains("first trace"))
+    }
+
+    /** 判定与 trace 回调无论先后均按同一采集身份关联。 */
+    @Test
+    fun associatesTraceInEitherCallbackOrder() {
+        val store = store()
+        val firstId = UUID.randomUUID().toString()
+        val firstSignal = report(100, "", AnrReportType.SIGNAL_ANR).copy(id = firstId, captureId = firstId, trace = null)
+        val firstTrace = report(101, "trace-first").copy(captureId = firstId, traceTruncated = true)
+        assertTrue(store.save(firstTrace) is AnrReportResult.Success)
+        assertTrue(store.save(firstSignal) is AnrReportResult.Success)
+        val linkedFirst = (store.read(firstId) as AnrReportResult.Success).value
+        assertEquals("trace-first", linkedFirst.trace)
+        assertEquals(true, linkedFirst.traceTruncated)
+
+        val secondId = UUID.randomUUID().toString()
+        val secondSignal = report(200, "", AnrReportType.SIGNAL_ANR).copy(id = secondId, captureId = secondId, trace = null)
+        assertTrue(store.save(secondSignal) is AnrReportResult.Success)
+        assertNull((store.read(secondId) as AnrReportResult.Success).value.trace)
+        val secondTrace = report(201, "trace-second").copy(captureId = secondId)
+        assertTrue(store.save(secondTrace) is AnrReportResult.Success)
+        assertEquals("trace-second", (store.read(secondId) as AnrReportResult.Success).value.trace)
+        assertEquals("trace-first", (store.read(firstId) as AnrReportResult.Success).value.trace)
+    }
+
+    /** 身份不一致、重复候选或手动 trace 均不能关联到 ANR。 */
+    @Test
+    fun rejectsAmbiguousAndUnrelatedTrace() {
+        val store = store()
+        val captureId = UUID.randomUUID().toString()
+        val signal = report(100, "", AnrReportType.SIGNAL_ANR).copy(id = captureId, captureId = captureId, trace = null)
+        val unrelated = report(101, "other").copy(captureId = UUID.randomUUID().toString())
+        val manual = report(102, "manual", AnrReportType.MANUAL_TRACE)
+        val wrongProcess = report(103, "wrong-process").copy(captureId = captureId,
+            identity = signal.identity.copy(processId = "different-process"))
+        listOf(signal, unrelated, manual, wrongProcess).forEach { assertTrue(store.save(it) is AnrReportResult.Success) }
+        assertNull((store.read(captureId) as AnrReportResult.Success).value.trace)
+        val matching = report(104, "matching").copy(captureId = captureId)
+        assertTrue(store.save(matching) is AnrReportResult.Success)
+        assertNull((store.read(captureId) as AnrReportResult.Success).value.trace)
+    }
+
+    /** 单独 trace 只形成本地 trace 报告，不会生成 SIGNAL_ANR 判定报告。 */
+    @Test
+    fun keepsTraceOnlyAsLocalReport() {
+        val store = store()
+        val trace = report(100, "trace-only").copy(captureId = UUID.randomUUID().toString())
+        assertTrue(store.save(trace) is AnrReportResult.Success)
+        val page = (store.list(20) as AnrReportResult.Success).value
+        assertEquals(listOf(AnrReportType.ANR_TRACE), page.reports.map { it.type })
+    }
+
+    /** 历史仅本地报告不会因启动新上传器而自动进入待上传队列。 */
+    @Test
+    fun doesNotBackfillHistoricalLocalAnr() {
+        val historical = report(100, "", AnrReportType.SIGNAL_ANR).copy(captureId = null)
+        assertTrue(store().save(historical) is AnrReportResult.Success)
+        val captures = AnrCaptureStore(root)
+        assertEquals(0, captures.recover())
+        assertTrue(captures.eligible("new-target", Long.MAX_VALUE, 20).isEmpty())
+        assertEquals(historical, (store().read(historical.id) as AnrReportResult.Success).value)
     }
 
     /** 注入空间不足的索引写入错误，不能丢失旧报告或伪称新报告成功。 */
@@ -119,6 +187,215 @@ class AnrReportStoreTest {
         assertEquals(2, (configured.list(20) as AnrReportResult.Success).value.reports.size)
         assertEquals(2, (configured.clean(1_301) as AnrReportResult.Success).value)
         assertEquals("active", active.readText())
+    }
+
+    /** 删除已冻结和采集中报告时，诊断副本均被清理，待确认事件仍可恢复。 */
+    @Test
+    fun deletingReportRemovesEvidenceWithoutCancellingUpload() {
+        /** 共用测试目录的现场与报告存储。 */
+        val captures = AnrCaptureStore(root)
+        /** 报告删除会调用同一现场存储。 */
+        val configured = AnrReportStore(root, AnrConfig(), index, logger, captures = captures)
+        /** 已经冻结的报告及待确认事件。 */
+        val frozen = saveCaptured(configured, captures, 100, freeze = true)
+        assertTrue(File(root, "evidence/${frozen.id}.json").isFile)
+        assertTrue(configured.delete(frozen.id) is AnrReportResult.Success)
+        assertNull(captures.readEvidence(frozen.id))
+        assertEquals(frozen.id, captures.eligible("target", 0, 1).single().event.eventId)
+
+        /** 先删除报告，再模拟进程退出并恢复尚未冻结的采集。 */
+        val collecting = saveCaptured(configured, captures, 200, freeze = false)
+        assertTrue(configured.delete(collecting.id) is AnrReportResult.Success)
+        assertFalse(captures.update(collecting.id) { it.copy(discardEvidence = false) })
+        assertTrue(captures.update(collecting.id) { it.copy(info = AnrTextPartition("ok", text = "captured")) })
+        /** 模拟下一进程恢复。 */
+        val restarted = AnrCaptureStore(root)
+        assertEquals(1, restarted.recover())
+        assertNull(restarted.readEvidence(collecting.id))
+        /** 核对两次事件仍以原身份待确认。 */
+        val pending = restarted.eligible("target", 0, 20).associateBy { it.event.eventId }
+        assertEquals(setOf(frozen.id, collecting.id), pending.keys)
+        assertEquals("captured", pending.getValue(collecting.id).event.anr.anrInfo.text)
+    }
+
+    /** 冻结和删除并发时，最终只保留待确认事件。 */
+    @Test
+    fun concurrentFreezeAndDeleteDoNotRestoreEvidence() {
+        /** 两个操作访问同一份测试报告及其采集记录。 */
+        val captures = AnrCaptureStore(root)
+        /** 使用共享现场存储的报告入口。 */
+        val configured = AnrReportStore(root, AnrConfig(), index, logger, captures = captures)
+        /** 已提交但尚未冻结的报告。 */
+        val report = saveCaptured(configured, captures, 100, freeze = false)
+        /** 并发释放两个任务，覆盖删除与冻结的不同先后顺序。 */
+        val start = CountDownLatch(1)
+        /** 专用于本次并发测试的线程池。 */
+        val pool = Executors.newFixedThreadPool(2)
+        try {
+            /** 冻结任务与删除任务由同一门闩启动。 */
+            val freeze = pool.submit<Boolean> {
+                start.await()
+                captures.freeze(report.id)
+            }
+            /** 另一任务从报告索引中删除同一事件。 */
+            val delete = pool.submit<Boolean> {
+                start.await()
+                configured.delete(report.id) is AnrReportResult.Success
+            }
+            start.countDown()
+            assertTrue(freeze.get(5, TimeUnit.SECONDS))
+            assertTrue(delete.get(5, TimeUnit.SECONDS))
+            assertNull(captures.readEvidence(report.id))
+            assertEquals(report.id, captures.eligible("target", 0, 1).single().event.eventId)
+        } finally {
+            pool.shutdownNow()
+        }
+    }
+
+    /** 按数量和期限移除报告时，其本地副本同步删除，上传队列独立保留。 */
+    @Test
+    fun retentionRemovesEvidenceForEvictedAndExpiredReports() {
+        /** 本地报告与诊断共用的现场存储。 */
+        val captures = AnrCaptureStore(root)
+        /** 最多保留一份报告，并设置有限期限。 */
+        val configured = AnrReportStore(root, AnrConfig(maxReportCount = 1, maxReportAgeMillis = 1_000),
+            index, logger, captures = captures)
+        /** 旧报告应在新报告保存时被淘汰。 */
+        val older = saveCaptured(configured, captures, 100, freeze = true)
+        /** 新报告随后因超过期限被清理。 */
+        val newer = saveCaptured(configured, captures, 200, freeze = true)
+        assertNull(captures.readEvidence(older.id))
+        assertTrue(File(root, "evidence/${newer.id}.json").isFile)
+        assertEquals(1, (configured.clean(1_201) as AnrReportResult.Success).value)
+        assertNull(captures.readEvidence(newer.id))
+        assertEquals(setOf(older.id, newer.id), captures.eligible("target", 0, 20).map { it.event.eventId }.toSet())
+    }
+
+    /** 报告正文按字节容量淘汰时，已冻结的现场也不再残留。 */
+    @Test
+    fun byteCapacityEvictionRemovesEvidence() {
+        /** 与报告共用的现场存储。 */
+        val captures = AnrCaptureStore(root)
+        /** 先保存一份报告以取得其实际正文大小。 */
+        val initial = AnrReportStore(root, AnrConfig(), index, logger, captures = captures)
+        /** 将被字节容量淘汰的报告。 */
+        val older = saveCaptured(initial, captures, 100, freeze = true)
+        /** 报告正文的真实 UTF-8 字节数。 */
+        val bytes = (initial.list(20) as AnrReportResult.Success).value.reports.single().sizeBytes
+        /** 容量只允许保留一份正文。 */
+        val limited = AnrReportStore(root, AnrConfig(maxStorageBytes = bytes), index, logger, captures = captures)
+        /** 保存后会淘汰旧报告的新报告。 */
+        val newer = saveCaptured(limited, captures, 200, freeze = true)
+        assertNull(captures.readEvidence(older.id))
+        assertTrue(File(root, "evidence/${newer.id}.json").isFile)
+        assertEquals(setOf(older.id, newer.id), captures.eligible("target", 0, 20).map { it.event.eventId }.toSet())
+    }
+
+    /** 副本删除失败时保留待清理索引，调用同一删除操作可重试。 */
+    @Test
+    fun retriesEvidenceDeletionAfterFailure() {
+        /** 首次删除诊断文件时注入失败。 */
+        var failDelete = true
+        /** 可恢复的诊断删除函数。 */
+        val captures = AnrCaptureStore(root, deleteEvidenceFile = { file -> !failDelete && file.delete() })
+        /** 与诊断存储关联的报告入口。 */
+        val configured = AnrReportStore(root, AnrConfig(), index, logger, captures = captures)
+        /** 已冻结的测试报告。 */
+        val saved = saveCaptured(configured, captures, 100, freeze = true)
+        assertEquals(AnrReportError.IO_ERROR, (configured.delete(saved.id) as AnrReportResult.Failure).error)
+        assertTrue(File(root, "evidence/${saved.id}.json").isFile)
+        assertEquals(saved.id, captures.eligible("target", 0, 1).single().event.eventId)
+        failDelete = false
+        assertTrue(configured.delete(saved.id) is AnrReportResult.Success)
+        assertNull(captures.readEvidence(saved.id))
+    }
+
+    /** 清理历史孤立副本及未提交报告的采集，同时保留已登记上传任务。 */
+    @Test
+    fun cleansOrphanEvidenceAndPreservesPendingEvents() {
+        /** 本次使用独立的报告与现场存储。 */
+        val captures = AnrCaptureStore(root)
+        /** 索引中没有测试事件的报告入口。 */
+        val configured = AnrReportStore(root, AnrConfig(), index, logger, captures = captures)
+        /** 模拟历史遗留的已冻结孤立副本。 */
+        val frozen = signalReport(100)
+        assertTrue(captures.begin(AnrCaptureRecord(frozen, "target", "35", "model")))
+        assertTrue(captures.freeze(frozen.id))
+        /** 模拟报告提交前中断的进行中采集。 */
+        val collecting = signalReport(200)
+        assertTrue(captures.begin(AnrCaptureRecord(collecting, "target", "35", "model")))
+        assertTrue(configured.clean(200) is AnrReportResult.Success)
+        assertNull(captures.readEvidence(frozen.id))
+        /** 新进程恢复前次采集。 */
+        val restarted = AnrCaptureStore(root)
+        assertEquals(1, restarted.recover())
+        assertNull(restarted.readEvidence(collecting.id))
+        assertEquals(setOf(frozen.id, collecting.id), restarted.eligible("target", 0, 20).map { it.event.eventId }.toSet())
+    }
+
+    /** 报告索引损坏时不能把有效诊断副本误判为孤立数据。 */
+    @Test
+    fun damagedIndexDoesNotDeleteEvidence() {
+        /** 与报告存储共用的现场存储。 */
+        val captures = AnrCaptureStore(root)
+        /** 带有可注入损坏的测试索引。 */
+        val configured = AnrReportStore(root, AnrConfig(), index, logger, captures = captures)
+        /** 索引损坏前已提交的现场。 */
+        val saved = saveCaptured(configured, captures, 100, freeze = true)
+        index.file.writeText("{")
+        assertEquals(AnrReportError.CORRUPT, (configured.reconcileEvidence() as AnrReportResult.Failure).error)
+        assertTrue(File(root, "evidence/${saved.id}.json").isFile)
+    }
+
+    /** 诊断目录不可读取时返回失败，恢复目录后允许重试。 */
+    @Test
+    fun retriesWhenEvidenceDirectoryCannotBeListed() {
+        /** 用普通文件模拟不可读取的诊断目录。 */
+        val directory = File(root, "evidence")
+        directory.writeText("not a directory")
+        /** 核对过程会将目录访问失败传递给调用方。 */
+        val configured = store()
+        assertEquals(AnrReportError.IO_ERROR, (configured.reconcileEvidence() as AnrReportResult.Failure).error)
+        assertTrue(directory.delete())
+        assertTrue(configured.reconcileEvidence() is AnrReportResult.Success)
+    }
+
+    /** 诊断目录指向外部时拒绝删除，并保留待重试的索引。 */
+    @Test
+    fun rejectsEvidenceDirectoryOutsidePrivateRoot() {
+        /** 与报告存储共用的现场存储。 */
+        val captures = AnrCaptureStore(root)
+        /** 指向测试目录的报告存储。 */
+        val configured = AnrReportStore(root, AnrConfig(), index, logger, captures = captures)
+        /** 需要清理的已冻结报告。 */
+        val saved = saveCaptured(configured, captures, 100, freeze = true)
+        /** 本模块之外的测试目录。 */
+        val outside = Files.createTempDirectory("anr-evidence-outside").toFile()
+        /** 原诊断目录和临时备份。 */
+        val directory = File(root, "evidence")
+        val backup = File(root, "evidence-backup")
+        /** 将诊断目录替换为符号链接。 */
+        val link = directory.toPath()
+        try {
+            assertTrue(directory.renameTo(backup))
+            try {
+                Files.createSymbolicLink(link, outside.toPath())
+            } catch (failure: Exception) {
+                assumeNoException(failure)
+            }
+            /** 不属于本模块的同名文件必须保留。 */
+            val foreign = File(outside, "${saved.id}.json")
+            foreign.writeText("other data")
+            assertEquals(AnrReportError.IO_ERROR, (configured.delete(saved.id) as AnrReportResult.Failure).error)
+            assertEquals("other data", foreign.readText())
+            Files.deleteIfExists(link)
+            assertTrue(backup.renameTo(directory))
+            assertTrue(configured.delete(saved.id) is AnrReportResult.Success)
+        } finally {
+            if (Files.isSymbolicLink(link)) Files.deleteIfExists(link)
+            if (backup.exists()) backup.renameTo(directory)
+            outside.deleteRecursively()
+        }
     }
 
     /** 区分非法路径、缺失、损坏索引及损坏正文。 */
@@ -361,6 +638,23 @@ class AnrReportStoreTest {
     /** 构造使用 JVM 测试索引的报告存储。 */
     private fun store(config: AnrConfig = AnrConfig()): AnrReportStore =
         AnrReportStore(root, config, index, logger)
+
+    /** 构造可形成待上传事件的系统判定报告。 */
+    private fun signalReport(time: Long): AnrReport {
+        /** 为测试生成带原进程身份的基础报告。 */
+        val report = report(time, "", AnrReportType.SIGNAL_ANR)
+        return report.copy(captureId = report.id, trace = null, javaStack = "main", fromProcessErrorState = false)
+    }
+
+    /** 模拟核心提交、报告提交及按需冻结。 */
+    private fun saveCaptured(store: AnrReportStore, captures: AnrCaptureStore, time: Long, freeze: Boolean): AnrReport {
+        /** 使用同一个事件身份提交核心及报告。 */
+        val report = signalReport(time)
+        assertTrue(captures.begin(AnrCaptureRecord(report, "target", "35", "model")))
+        assertTrue(store.save(report) is AnrReportResult.Success)
+        if (freeze) assertTrue(captures.freeze(report.id))
+        return report
+    }
 
     /** 使用固定身份生成可区分的测试报告。 */
     private fun report(time: Long, trace: String, type: AnrReportType = AnrReportType.ANR_TRACE): AnrReport =

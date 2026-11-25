@@ -16,7 +16,7 @@ APM_BOOTSTRAP_ADMIN_DISPLAY_NAME=平台管理员
 APM_APP_KEY_ENCRYPTION_KEY=<Base64 编码的 32 字节随机值>
 ```
 
-Flyway 按顺序执行当前工作树 V1～V21。V3 在移除旧项目表并创建应用表前，会要求 `project`、`project_member`、`project_ingest_credential` 为空；非空时明确失败，不做兼容迁移或静默删除。V4 新增应用级符号表当前版本和审计，V5 新增[应用查询 Token](query-token-api.md)；V6～V14 维护[单事件本地分析](analysis-api.md)的历史结构及当前契约。V15 新增 Crash 后台任务和首次成功发布，V16 将单条发布载荷上限调整为 4 MiB；V17～V19 增加版本化 mapping、SO 元数据、版本工作及分页索引，V20 增加 Native 工作类型与发布约束，V21 固定待确认快照的失败单元计数。切换前须排空未确认发布和有效租约，详见[符号表 API](symbol-api.md)和[迁移说明](../../backend/docs/knowledge-base/03-持久化与数据库迁移.md)。已发布迁移文件不改写。
+Flyway 按顺序执行当前工作树 V1～V22。V3 在移除旧项目表并创建应用表前，会要求 `project`、`project_member`、`project_ingest_credential` 为空；非空时明确失败，不做兼容迁移或静默删除。V4 新增应用级符号表当前版本和审计，V5 新增[应用查询 Token](query-token-api.md)；V6～V14 维护[单事件本地分析](analysis-api.md)的历史结构及当前契约。V15 新增 Crash 后台任务和首次成功发布，V16 将单条发布载荷上限调整为 4 MiB；V17～V19 增加版本化 mapping、SO 元数据、版本工作及分页索引，V20 增加 Native 工作类型与发布约束，V21 固定待确认快照的失败单元计数，V22 增加 ANR 还原发布与扫描状态。切换前须排空未确认发布和有效租约，详见[符号表 API](symbol-api.md)和[迁移说明](../../backend/docs/knowledge-base/03-持久化与数据库迁移.md)。已发布迁移文件不改写。
 
 `APM_APP_KEY_ENCRYPTION_KEY` 没有旧变量回退，必须稳定注入并备份；丢失后已保存的 appKey 无法解密查看。生产环境不得使用仓库示例值，应通过密钥服务或受保护的环境变量注入，并将 `APM_SESSION_COOKIE_SECURE=true`。
 

@@ -2,11 +2,13 @@ package com.shanshui.performance.anr
 
 import android.app.Application
 import android.os.Build
-import android.os.SystemClock
 import android.util.Base64
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import com.shanshui.performance.anr.internal.SignalAnrTracer
+import com.shanshui.performance.network.NetworkConfig
+import com.shanshui.performance.network.TransportSession
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
@@ -74,40 +76,62 @@ class MatrixSignalHandlerTest {
             assertEquals(AnrReportType.MANUAL_TRACE, summary.type)
             val report = (handle.reports.read(summary.id) as AnrReportResult.Success).value
             assertTrue(!report.trace.isNullOrEmpty())
-            /** 已保存的 Base64 内容必须与 Matrix 原文件逐字节一致。 */
-            val matrixTrace = File(application.noBackupFilesDir, "performance-anr/active/manual.trace").readBytes()
-            assertArrayEquals(matrixTrace, Base64.decode(report.traceBase64, Base64.NO_WRAP))
+            /** 已保存的 Base64 与脱敏后的 trace 文本一致，独立文件已被消费。 */
+            assertArrayEquals(report.trace!!.toByteArray(Charsets.UTF_8), Base64.decode(report.traceBase64, Base64.NO_WRAP))
+            val activeDir = File(application.noBackupFilesDir, "performance-anr/active")
+            assertFalse(activeDir.listFiles().orEmpty().any { it.name.startsWith("manual.trace.") })
             assertEquals(application.packageName, report.identity.packageName)
 
             /** 损坏测试索引后再次触发采集，保存失败时不能发出成功回调。 */
             val index = File(application.noBackupFilesDir, "performance-anr/index.json")
             val previousIndex = index.readBytes()
-            val activeTrace = File(application.noBackupFilesDir, "performance-anr/active/manual.trace")
-            val previousWriteTime = activeTrace.lastModified()
             val unexpectedCallback = CountDownLatch(1)
+            val traceCallback = CountDownLatch(1)
+            /** 包装真实 trace 监听器，确认第二次回调已到达后再检查保存失败。 */
+            val traceField = SignalAnrTracer::class.java.getDeclaredField("sTraceFileListener").apply { isAccessible = true }
+            val originalTraceListener = traceField.get(null) as SignalAnrTracer.TraceFileListener
             try {
                 index.writeText("{")
                 handle.setReportListener { unexpectedCallback.countDown() }
-                Thread.sleep(1_100)
+                traceField.set(null, object : SignalAnrTracer.TraceFileListener {
+                    /** 转交外部信号 trace。 */
+                    override fun onAnrTraceFile(captureId: String, path: String, truncated: Boolean) {
+                        originalTraceListener.onAnrTraceFile(captureId, path, truncated)
+                    }
+                    /** 转交手动 trace，并记录回调已到达。 */
+                    override fun onPrintTraceFile(path: String, truncated: Boolean) {
+                        originalTraceListener.onPrintTraceFile(path, truncated)
+                        traceCallback.countDown()
+                    }
+                })
                 instrumentation.runOnMainSync { assertTrue(handle.printTrace()) }
-                val deadline = SystemClock.elapsedRealtime() + 10_000
-                while (activeTrace.lastModified() <= previousWriteTime && SystemClock.elapsedRealtime() < deadline) {
-                    Thread.sleep(100)
-                }
-                assertTrue("第二次 Matrix trace 未触发", activeTrace.lastModified() > previousWriteTime)
+                assertTrue("第二次 Matrix trace 未触发", traceCallback.await(10, TimeUnit.SECONDS))
                 assertFalse("保存失败不应发出成功回调", unexpectedCallback.await(2, TimeUnit.SECONDS))
             } finally {
+                traceField.set(null, originalTraceListener)
                 index.writeBytes(previousIndex)
             }
         } finally {
             instrumentation.runOnMainSync { handle.close() }
         }
         assertEquals(previousSignalHandlers, caughtSignals() and MATRIX_SIGNAL_MASK)
-        /** Matrix 原有 hasInit 在关闭后不复位，重启不能伪称已启动。 */
-        val restarted = AnrComponent.start(application, AnrConfig(enabled = true))
-        assertEquals(AnrInitStatus.FAILED, restarted.initResult.status)
-        assertEquals("matrix_restart_not_supported", restarted.initResult.reason)
-        restarted.close()
+        /** 旧信号与 trace 已结束时可以在同一进程重新装配。 */
+        val restartedRef = AtomicReference<AnrHandle>()
+        /** 新会话借用共享网络资源，关闭 ANR 时不得关闭该资源。 */
+        val borrowedSession = TransportSession.create(NetworkConfig("http://127.0.0.1:43111/", "test-only"))
+        instrumentation.runOnMainSync { restartedRef.set(AnrComponent.start(application,
+            AnrConfig(enabled = true, uploadEnabled = true), session = borrowedSession)) }
+        val restarted = restartedRef.get()
+        try {
+            assertTrue(restarted.isAvailable)
+            assertEquals(MATRIX_SIGNAL_MASK, caughtSignals() and MATRIX_SIGNAL_MASK)
+            instrumentation.runOnMainSync { restarted.close() }
+            assertEquals(previousSignalHandlers, caughtSignals() and MATRIX_SIGNAL_MASK)
+            assertFalse(borrowedSession.okHttpClient.dispatcher.executorService.isShutdown)
+        } finally {
+            instrumentation.runOnMainSync { restarted.close() }
+            borrowedSession.close()
+        }
         /** 关闭采集器后仍可通过无需 JNI 的入口读取并删除报告。 */
         val id = summaryRef.get().id
         val reopened = AnrComponent.reports(application)

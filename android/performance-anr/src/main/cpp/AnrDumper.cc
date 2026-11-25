@@ -34,6 +34,7 @@
 #include <iostream>
 #include <iosfwd>
 #include <string>
+#include <atomic>
 #include <fcntl.h>
 
 #include "MatrixTracer.h"
@@ -54,6 +55,29 @@ static sigset_t old_sigSet;
 const char* mAnrTraceFile;
 /** Matrix 手动 trace 文件路径。 */
 const char* mPrintTraceFile;
+/** 关闭后仍运行的信号工作线程数量。 */
+static std::atomic<unsigned> activeSignalCallbacks{0};
+
+/** 工作线程退出时释放本次回调计数。 */
+struct SignalCallbackCompletion {
+    /** 保证所有返回路径均释放计数。 */
+    ~SignalCallbackCompletion() { activeSignalCallbacks.fetch_sub(1); }
+};
+
+/** 只有全部旧回调结束后才允许新的采集会话接收信号。 */
+bool hasSignalCallbacks() { return activeSignalCallbacks.load() != 0; }
+
+/** 创建可独立结束的 Matrix 工作线程并跟踪其生命周期。 */
+static void startSignalCallback(void* (*callback)(void*)) {
+    /** 创建前登记，关闭采集器时不会漏掉尚未调度的工作线程。 */
+    activeSignalCallbacks.fetch_add(1);
+    pthread_t thread;
+    if (pthread_create(&thread, nullptr, callback, nullptr) != 0) {
+        activeSignalCallbacks.fetch_sub(1);
+        return;
+    }
+    pthread_detach(thread);
+}
 
 /** 保存 Matrix trace 路径并解除当前线程对 SIGQUIT 的屏蔽。 */
 AnrDumper::AnrDumper(const char* anrTraceFile, const char* printTraceFile) {
@@ -152,9 +176,14 @@ static void sendSigToSignalCatcher() {
 
 /** 先执行 Matrix Java 采样，再安装 hook 并转交信号。 */
 static void *anrCallback(void* arg) {
-    anrDumpCallback();
+    /** 跟踪采集工作线程，避免关闭后与新会话混用。 */
+    SignalCallbackCompletion completion;
+    /** 在 Java 采样前登记，重叠信号不能共享 trace 归属。 */
+    uint64_t ticket = beginTraceCapture();
+    /** 与本次 Java 判定共用的随机事件身份。 */
+    std::string captureId = anrDumpCallback();
     if (strlen(mAnrTraceFile) > 0) {
-        hookAnrTraceWrite(false);
+        hookAnrTraceWrite(false, ticket, captureId);
     }
     sendSigToSignalCatcher();
     return nullptr;
@@ -162,8 +191,12 @@ static void *anrCallback(void* arg) {
 
 /** 按 Matrix 原手动 trace 路径安装 hook 并转交信号。 */
 static void *siUserCallback(void* arg) {
-    if (strlen(mPrintTraceFile) > 0) {
-        hookAnrTraceWrite(true);
+    /** 手动转储也需要完成后才能重新装配。 */
+    SignalCallbackCompletion completion;
+    if (takePrintTraceRequest() && strlen(mPrintTraceFile) > 0) {
+        /** 手动转储和外部信号共用归属门禁，但不产生 ANR 事件。 */
+        uint64_t ticket = beginTraceCapture();
+        hookAnrTraceWrite(true, ticket, "");
     }
 
     sendSigToSignalCatcher();
@@ -172,8 +205,10 @@ static void *siUserCallback(void* arg) {
 
 /** 按 Matrix 原顺序回调、恢复并重新排队 debugger 信号。 */
 void* AnrDumper::nativeBacktraceCallback(void* arg) {
+    /** debugger 分支同样参与关闭和重新装配的等待。 */
+    SignalCallbackCompletion completion;
     nativeBacktraceDumpCallback();
-    restoreNativeBacktraceHandlersLocked();
+    suspendNativeBacktraceHandler();
     /** Matrix 转交 debugger 信号附带的值。 */
     sigval val;
     val.sival_int = 1;
@@ -188,7 +223,7 @@ void* AnrDumper::nativeBacktraceCallback(void* arg) {
     info.si_value = val;
     syscall(SYS_rt_sigqueueinfo, getpid(), BIONIC_SIGNAL_DEBUGGER, &info);
     sleep(NATIVE_DUMP_TIMEOUT);
-    installNativeBacktraceHandlersLocked();
+    resumeNativeBacktraceHandlerIfActive();
     return nullptr;
 }
 
@@ -203,14 +238,11 @@ void AnrDumper::handleSignal(int sig, const siginfo_t *info, void *uc) {
     /** Matrix 原有的自身信号判断结果。 */
     bool fromMySelf = fromPid1 == myPid || fromPid2 == myPid;
     if (sig == SIGQUIT) {
-        /** Matrix 原有的信号处理工作线程。 */
-        pthread_t thd;
         if (!fromMySelf) {
-            pthread_create(&thd, nullptr, anrCallback, nullptr);
+            startSignalCallback(anrCallback);
         } else {
-            pthread_create(&thd, nullptr, siUserCallback, nullptr);
+            startSignalCallback(siUserCallback);
         }
-        pthread_detach(thd);
     }
 }
 
@@ -227,26 +259,10 @@ void AnrDumper::handleDebuggerSignal(int sig, const siginfo_t *info, void *uc) {
         /** Matrix 原有的自身信号判断结果。 */
         bool fromMySelf = fromPid1 == myPid || fromPid2 == myPid;
         if (!fromMySelf) {
-            /** Matrix 原有的信号处理工作线程。 */
-            pthread_t thd;
-            pthread_create(&thd, nullptr, nativeBacktraceCallback, nullptr);
-            pthread_detach(thd);
+            startSignalCallback(nativeBacktraceCallback);
         }
     }
 }
-
-/** 转发 Matrix ANR trace 回调。 */
-static void *anr_trace_callback(void* args) {
-    anrDumpTraceCallback();
-    return nullptr;
-}
-
-/** 转发 Matrix 手动 trace 回调。 */
-static void *print_trace_callback(void* args) {
-    printTraceCallback();
-    return nullptr;
-}
-
 
 /** 按 Matrix 原逻辑恢复线程信号掩码。 */
 AnrDumper::~AnrDumper() {

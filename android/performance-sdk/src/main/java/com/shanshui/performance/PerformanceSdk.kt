@@ -79,11 +79,12 @@ internal interface PerformanceSdkDependencies {
         schemaVersion: Int,
     ): CrashHandle?
 
-    /** 创建独立于传输会话的 Matrix ANR 组件。 */
+    /** 创建可借用公共传输会话的 Matrix ANR 组件。 */
     fun createAnr(
         application: Application,
         config: AnrConfig,
         context: PerformanceEventContext,
+        session: TransportSession,
     ): AnrHandle?
 
     /** 创建 Jank 组件。 */
@@ -134,12 +135,13 @@ private object DefaultPerformanceSdkDependencies : PerformanceSdkDependencies {
         schemaVersion: Int,
     ): CrashHandle? = CrashComponent.start(application, config, context, session, schemaVersion)
 
-    /** 创建 ANR 组件，共用身份但不依赖传输会话。 */
+    /** 创建 ANR 组件，共用身份并按配置借用传输会话。 */
     override fun createAnr(
         application: Application,
         config: AnrConfig,
         context: PerformanceEventContext,
-    ): AnrHandle = AnrComponent.start(application, config, context)
+        session: TransportSession,
+    ): AnrHandle = AnrComponent.start(application, config, context, session)
 
     /** 创建 Jank 组件。 */
     override fun createJank(
@@ -252,6 +254,7 @@ class PerformanceSdk private constructor(
     fun flushAsync() {
         if (closed.get()) return
         crashComponent.value?.flushAsync()
+        anrComponent.value?.flushAsync()
         jankComponent.value?.flushAsync()
         metricsComponent.value?.flushAsync()
     }
@@ -357,7 +360,7 @@ class PerformanceSdk private constructor(
                 }
                 val anr = FeatureComponent("anr") {
                     try {
-                        dependencies.createAnr(application, config.anr, eventContext)
+                        dependencies.createAnr(application, config.anr, eventContext, session)
                     } catch (failure: Throwable) {
                         runCatching { Log.w("PerformanceSdk", "ANR 组件初始化失败：${failure.javaClass.simpleName}") }
                         null

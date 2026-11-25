@@ -298,7 +298,7 @@ PerformanceSdk.current()?.setFpsScene(this, null)
 
 ### 3.7 `AnrConfig`
 
-`PerformanceConfig.anr` 默认关闭。显式传入 `AnrConfig(enabled = true)` 后按平台条件尝试启动，状态由 `PerformanceSdk.anrInitResult` 提供。默认保留至多 20 份已完成报告，正文总计 20 MiB，有效期 7 天，分别可用 `maxReportCount`、`maxStorageBytes`、`maxReportAgeMillis` 调整。数量须为 1–200，字节数与保留时间须大于零。独立接入示例见 [ANR 接入](../../../docs/client-integration/anr-local-collection.md)。
+`PerformanceConfig.anr` 的 `enabled` 和 `uploadEnabled` 均默认为 `false`。显式传入 `AnrConfig(enabled = true)` 可仅本地采集；再设置 `uploadEnabled = true` 才通过配置好的共享会话上报。状态由 `PerformanceSdk.anrInitResult` 提供。`uploadIntervalMillis` 默认 30000 毫秒且必须为正。默认保留至多 20 份已完成报告，正文总计 20 MiB，有效期 7 天，分别可用 `maxReportCount`、`maxStorageBytes`、`maxReportAgeMillis` 调整。数量须为 1–200，字节数与保留时间须大于零。独立接入示例见 [ANR 接入](../../../docs/client-integration/anr-local-collection.md)。
 
 ## 4. 元数据和跨模块共享规则
 

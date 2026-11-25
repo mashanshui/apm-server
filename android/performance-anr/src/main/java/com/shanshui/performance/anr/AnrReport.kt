@@ -50,20 +50,38 @@ data class AnrReport(
     @SerializedName("type") val type: AnrReportType,
     /** 原进程身份快照。 */
     @SerializedName("identity") val identity: AnrReportIdentity,
+    /** 外部信号的判定与 trace 共用的采集身份。 */
+    @SerializedName("captureId") val captureId: String? = null,
     /** Matrix 采集的主线程 Java 栈。 */
     @SerializedName("javaStack") val javaStack: String? = null,
+    /** 本地保存前主线程栈是否已裁剪。 */
+    @SerializedName("javaStackTruncated") val javaStackTruncated: Boolean? = null,
     /** Matrix 读取的主线程消息。 */
     @SerializedName("message") val message: String? = null,
     /** Matrix 计算的消息时间差，单位毫秒。 */
     @SerializedName("messageWhenMillis") val messageWhenMillis: Long? = null,
     /** Matrix 回调是否来自系统进程错误状态。 */
     @SerializedName("fromProcessErrorState") val fromProcessErrorState: Boolean? = null,
+    /** 判定时采集的前后台状态。 */
+    @SerializedName("foreground") val foreground: Boolean? = null,
+    /** 可归属同次采集的系统错误说明。 */
+    @SerializedName("anrInfo") val anrInfo: String? = null,
+    /** 本地保存前系统错误说明是否已裁剪。 */
+    @SerializedName("anrInfoTruncated") val anrInfoTruncated: Boolean? = null,
+    /** 冻结后的系统说明分区状态。 */
+    @SerializedName("anrInfoSection") val anrInfoSection: AnrTextPartition? = null,
     /** Matrix 采集的 cgroup 内容。 */
     @SerializedName("cgroup") val cgroup: String? = null,
-    /** Matrix 首次写入截取的原始 trace。 */
+    /** Matrix 首次写入截取并脱敏后的 trace。 */
     @SerializedName("trace") val trace: String? = null,
-    /** Matrix trace 文件的原始字节，以 Base64 保存以避免文本解码损失。 */
+    /** 已脱敏的 trace 文本按 UTF-8 编码后的 Base64 表示。 */
     @SerializedName("traceBase64") val traceBase64: String? = null,
+    /** Native 封存或本地脱敏时是否因长度上限裁剪。 */
+    @SerializedName("traceTruncated") val traceTruncated: Boolean? = null,
+    /** 冻结后的系统 trace 分区状态。 */
+    @SerializedName("traceSection") val traceSection: AnrTextPartition? = null,
+    /** 冻结后的内存、日志、文件和设备现场。 */
+    @SerializedName("diagnostics") val diagnostics: AnrDiagnostics? = null,
     /** Matrix 锁解析返回的主线程文本。 */
     @SerializedName("mainThread") val mainThread: String? = null,
     /** Matrix 锁解析返回的第一个线程文本。 */
@@ -86,6 +104,8 @@ data class AnrReportSummary(
     @SerializedName("type") val type: AnrReportType,
     /** 已保存正文的字节数。 */
     @SerializedName("sizeBytes") val sizeBytes: Long,
+    /** 外部信号的采集身份，历史报告或手动报告可为空。 */
+    @SerializedName("captureId") val captureId: String? = null,
 )
 
 /** 报告列表及下一页位置。 */
