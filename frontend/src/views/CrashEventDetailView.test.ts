@@ -271,7 +271,7 @@ describe('CrashEventDetailView', () => {
     await flushPromises()
     expect(wrapper.text()).toContain('登录状态已失效')
     expect(wrapper.text()).not.toContain('synthetic-late-crash')
-    expect(wrapper.find('.diagnostics').exists()).toBe(false)
+    expect(wrapper.find('.detail-tabs').exists()).toBe(false)
 
     // 同一组件仍挂载时重新建立会话，只接受新会话发出的请求结果。
     mockedCrashApi.event.mockResolvedValueOnce(eventResponse({ exceptionType: 'synthetic-new-session' }))
@@ -280,6 +280,85 @@ describe('CrashEventDetailView', () => {
     expect(mockedCrashApi.event).toHaveBeenCalledTimes(2)
     expect(wrapper.text()).toContain('synthetic-new-session')
     expect(wrapper.text()).not.toContain('synthetic-late-crash')
+    wrapper.unmount()
+  })
+
+  /** 分区按钮只展示对应卡片，事件切换后回到堆栈分区。 */
+  it('switches detail sections via tabs and resets on event change', async () => {
+    mockedCrashApi.event.mockResolvedValue(eventResponse({
+      diagnostics: { memory: { status: 'ok', truncated: false, totalPssBytes: 0 } },
+    }))
+    const wrapper = mount(CrashEventDetailView, { global: { stubs: {
+      AppLayout: { template: '<div><slot /></div>' },
+      RouterLink: { template: '<a><slot /></a>' },
+    } } })
+    await flushPromises()
+    const tabs = wrapper.findAll('.detail-tabs button')
+    expect(tabs.map(tab => tab.text())).toEqual(['崩溃堆栈', '线程快照', '日志', '内存快照', 'FD 信息', '进程信息', '本地分析'])
+    expect(tabs[0].attributes('aria-selected')).toBe('true')
+    // jsdom 的计算样式存在缓存，v-show 显隐直接断言内联 display。
+    expect((wrapper.find('.detail-tab-panel').element as HTMLElement).style.display).toBe('')
+    expect((wrapper.find('[aria-label="内存快照"]').element as HTMLElement).style.display).toBe('none')
+    await tabs[3].trigger('click')
+    expect(tabs[3].attributes('aria-selected')).toBe('true')
+    expect((wrapper.find('.detail-tab-panel').element as HTMLElement).style.display).toBe('none')
+    expect((wrapper.find('[aria-label="内存快照"]').element as HTMLElement).style.display).toBe('')
+    expect(wrapper.find('[aria-label="内存快照"]').text()).toContain('0 B')
+    routeMock.params.eventId = 'event-2'
+    routeMock.fullPath = '/apps/app-1/crashes/events/event-2'
+    await flushPromises()
+    expect(wrapper.findAll('.detail-tabs button')[0].attributes('aria-selected')).toBe('true')
+    expect((wrapper.find('.detail-tab-panel').element as HTMLElement).style.display).toBe('')
+    wrapper.unmount()
+  })
+
+  /** 每个 Crash 分区的标签和面板双向关联，方向键切换真实选中项与焦点。 */
+  it('connects crash tabs to panels and supports keyboard navigation', async () => {
+    /** 挂入文档后可验证活动元素。 */
+    const wrapper = mount(CrashEventDetailView, { attachTo: document.body, global: { stubs: {
+      AppLayout: { template: '<div><slot /></div>' },
+      RouterLink: { template: '<a><slot /></a>' },
+    } } })
+    await flushPromises()
+    /** 事件实际可用的标签，包括 JVM fatal 的本地分析。 */
+    const tabs = wrapper.findAll('.detail-tabs [role="tab"]')
+    for (const tab of tabs) {
+      /** 标签所控制的面板标识。 */
+      const panelId = tab.attributes('aria-controls')
+      expect(panelId).toBeTruthy()
+      /** 面板须反向引用标签并可通过键盘进入。 */
+      const panel = wrapper.get(`#${panelId}`)
+      expect(panel.attributes('role')).toBe('tabpanel')
+      expect(panel.attributes('aria-labelledby')).toBe(tab.attributes('id'))
+      expect(panel.attributes('tabindex')).toBe('0')
+    }
+    ;(tabs[0].element as HTMLButtonElement).focus()
+    await tabs[0].trigger('keydown', { key: 'ArrowRight' })
+    expect(document.activeElement).toBe(tabs[1].element)
+    expect(tabs[1].attributes('aria-selected')).toBe('true')
+    expect((wrapper.get('#crash-detail-panel-threads').element as HTMLElement).style.display).toBe('')
+    expect((wrapper.get('#crash-detail-panel-stack').element as HTMLElement).style.display).toBe('none')
+    wrapper.unmount()
+  })
+
+  /** Native 事件不提供本地分析分区，诊断分区仍可按按钮查看。 */
+  it('omits the analysis tab for native events', async () => {
+    mockedCrashApi.event.mockResolvedValue(eventResponse({
+      crashKind: 'native', symbolicationStatus: 'pending', groupingKind: 'temporary',
+      stack: { format: 'native_stack', content: { abi: 'arm64-v8a', systemTid: 7,
+        signal: { number: 11, name: 'SIGSEGV', code: 1 },
+        registers: { status: 'ok', truncated: false, values: {} }, modules: [],
+        backtrace: { status: 'ok', truncated: false, frames: [] } } },
+    }))
+    const wrapper = mount(CrashEventDetailView, { global: { stubs: {
+      AppLayout: { template: '<div><slot /></div>' },
+      RouterLink: { template: '<a><slot /></a>' },
+    } } })
+    await flushPromises()
+    expect(wrapper.findAll('.detail-tabs button').map(tab => tab.text())).not.toContain('本地分析')
+    await wrapper.findAll('.detail-tabs button')[1].trigger('click')
+    expect((wrapper.find('[aria-label="线程快照"]').element as HTMLElement).style.display).toBe('')
+    expect((wrapper.find('.detail-tab-panel').element as HTMLElement).style.display).toBe('none')
     wrapper.unmount()
   })
 

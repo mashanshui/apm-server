@@ -5,7 +5,11 @@ import { anrApi } from '../api/anrApi'
 import { errorMessage, isAbortError } from '../api/http'
 import AnrStackPanel from '../components/AnrStackPanel.vue'
 import AppLayout from '../components/AppLayout.vue'
-import CrashDiagnosticsPanel from '../components/CrashDiagnosticsPanel.vue'
+import DetailTabs from '../components/DetailTabs.vue'
+import DiagnosticLogcat from '../components/DiagnosticLogcat.vue'
+import DiagnosticMemory from '../components/DiagnosticMemory.vue'
+import DiagnosticOpenFiles from '../components/DiagnosticOpenFiles.vue'
+import DiagnosticProcess from '../components/DiagnosticProcess.vue'
 import EventIdentityFields from '../components/EventIdentityFields.vue'
 import StatusMessage from '../components/StatusMessage.vue'
 import { useSessionStore } from '../stores/session'
@@ -23,6 +27,20 @@ const loading = ref(false)
 const error = ref<string | null>(null)
 const authInvalidated = ref(false)
 const copyStatus = ref('')
+/** 当前选中的详情分区；事件切换后回到主线程 Java 栈。 */
+const activeTab = ref('main')
+/** ANR 详情分区按钮列表，顺序与采集现场一致。 */
+const detailTabs = [
+  { key: 'main', label: '主线程 Java 栈' },
+  { key: 'trace', label: '系统 trace' },
+  { key: 'anrInfo', label: 'ANR_INFO' },
+  { key: 'logcat', label: '日志' },
+  { key: 'memory', label: '内存快照' },
+  { key: 'openFiles', label: 'FD 信息' },
+  { key: 'process', label: '进程信息' },
+] as const
+// 更换事件后不沿用上一个事件的分区选择。
+watch(() => eventId.value, () => { activeTab.value = 'main' })
 let token = 0
 let controller: AbortController | null = null
 
@@ -113,10 +131,14 @@ onBeforeUnmount(() => {
         <dl class="meta-grid"><div class="meta-item"><dt>发生时间</dt><dd>{{ formatDateTime(event.metadata.occurredAt) }}</dd></div><div class="meta-item"><dt>应用版本 / 构建</dt><dd>{{ event.metadata.appVersion }} / {{ event.metadata.buildId }}</dd></div><div class="meta-item"><dt>设备 / 系统</dt><dd>{{ event.metadata.deviceModel }} / Android {{ event.metadata.osVersion }}</dd></div><div class="meta-item"><dt>前后台</dt><dd>{{ event.anr.foreground == null ? '未知' : event.anr.foreground ? '前台' : '后台' }}</dd></div><div class="meta-item"><dt>消息时间差</dt><dd>{{ event.anr.messageWhenMillis == null ? '—' : `${event.anr.messageWhenMillis} ms` }}</dd></div><div class="meta-item"><dt>队首消息</dt><dd>{{ event.anr.message ?? '—' }}</dd></div></dl>
         <EventIdentityFields :key="event.metadata.eventId" :anonymous-device-id="event.metadata.anonymousDeviceId" :session-id="event.metadata.sessionId" :process-id="event.metadata.processId" />
       </section>
-      <AnrStackPanel :key="`${event.metadata.eventId}-main`" title="主线程 Java 栈" :event-id="event.metadata.eventId" :raw="event.anr.mainThreadStack" :truncated="event.anr.mainThreadStackTruncated" :view="event.mainThreadJava" />
-      <AnrStackPanel :key="`${event.metadata.eventId}-trace`" title="系统 trace（采集片段）" :event-id="event.metadata.eventId" :raw="event.anr.trace?.text" :truncated="event.anr.trace?.truncated" :part="event.anr.trace" :view="event.traceJava" trace />
-      <section class="panel detail-card anr-info"><div class="panel-header"><div><h2>ANR_INFO</h2><p>系统进程错误状态提供的详细说明。<template v-if="event.anr.anrInfo?.capturedAt != null"> 采集于 {{ captureTime(event.anr.anrInfo.capturedAt) }}。</template></p></div><span class="badge">{{ partitionText(event.anr.anrInfo) }}</span></div><pre v-if="event.anr.anrInfo?.text" class="anr-pre">{{ event.anr.anrInfo.text }}</pre><p v-else class="subtitle">未取得可展示的系统说明。</p></section>
-      <CrashDiagnosticsPanel variant="anr" :diagnostics="event.anr.diagnostics ?? null" />
+      <DetailTabs v-model="activeTab" :tabs="detailTabs" id-prefix="anr-detail" />
+      <AnrStackPanel v-show="activeTab === 'main'" :key="`${event.metadata.eventId}-main`" id="anr-detail-panel-main" role="tabpanel" aria-labelledby="anr-detail-tab-main" tabindex="0" title="主线程 Java 栈" :event-id="event.metadata.eventId" :raw="event.anr.mainThreadStack" :truncated="event.anr.mainThreadStackTruncated" :view="event.mainThreadJava" />
+      <AnrStackPanel v-show="activeTab === 'trace'" :key="`${event.metadata.eventId}-trace`" id="anr-detail-panel-trace" role="tabpanel" aria-labelledby="anr-detail-tab-trace" tabindex="0" title="系统 trace（采集片段）" :event-id="event.metadata.eventId" :raw="event.anr.trace?.text" :truncated="event.anr.trace?.truncated" :part="event.anr.trace" :view="event.traceJava" trace />
+      <section v-show="activeTab === 'anrInfo'" id="anr-detail-panel-anrInfo" class="panel detail-card anr-info" role="tabpanel" aria-labelledby="anr-detail-tab-anrInfo" tabindex="0"><div class="panel-header"><div><h2>ANR_INFO</h2><p>系统进程错误状态提供的详细说明。<template v-if="event.anr.anrInfo?.capturedAt != null"> 采集于 {{ captureTime(event.anr.anrInfo.capturedAt) }}。</template></p></div><span class="badge">{{ partitionText(event.anr.anrInfo) }}</span></div><pre v-if="event.anr.anrInfo?.text" class="anr-pre">{{ event.anr.anrInfo.text }}</pre><p v-else class="subtitle">未取得可展示的系统说明。</p></section>
+      <DiagnosticLogcat v-show="activeTab === 'logcat'" id="anr-detail-panel-logcat" role="tabpanel" aria-labelledby="anr-detail-tab-logcat" tabindex="0" :logcat="event.anr.diagnostics?.logcat ?? null" />
+      <DiagnosticMemory v-show="activeTab === 'memory'" id="anr-detail-panel-memory" role="tabpanel" aria-labelledby="anr-detail-tab-memory" tabindex="0" :memory="event.anr.diagnostics?.memory ?? null" />
+      <DiagnosticOpenFiles v-show="activeTab === 'openFiles'" id="anr-detail-panel-openFiles" role="tabpanel" aria-labelledby="anr-detail-tab-openFiles" tabindex="0" :open-files="event.anr.diagnostics?.openFiles ?? null" />
+      <DiagnosticProcess v-show="activeTab === 'process'" id="anr-detail-panel-process" role="tabpanel" aria-labelledby="anr-detail-tab-process" tabindex="0" :process="event.anr.diagnostics?.process ?? null" :device="event.anr.diagnostics?.device ?? null" />
     </template>
   </AppLayout>
 </template>

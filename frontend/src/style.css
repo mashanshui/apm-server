@@ -347,6 +347,47 @@ h2 { margin-bottom: 5px; color: var(--text-strong); font-size: 17px; }
 .segmented-control button.active { color: var(--primary); background: #fff; box-shadow: var(--shadow-sm); }
 .segmented-control button:focus-visible, .timeline-slice:focus-visible, .tree-toggle:focus-visible, .flame-node:focus-visible { outline: 3px solid rgba(39, 104, 199, .22); outline-offset: 2px; }
 
+.detail-tabs { display: flex; flex-wrap: wrap; margin-top: 20px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); box-shadow: var(--shadow-sm); overflow: hidden; }
+.detail-tabs button { min-height: 44px; padding: 0 20px; border: 0; border-right: 1px solid var(--line); background: transparent; color: var(--text); font-size: 13px; font-weight: 650; white-space: nowrap; }
+.detail-tabs button:last-child { border-right: 0; }
+/* 首尾按钮圆角与容器内壁匹配，避免选中描边在圆角处露出方角。 */
+.detail-tabs button:first-child { border-radius: 9px 0 0 9px; }
+.detail-tabs button:last-child { border-radius: 0 9px 9px 0; }
+.detail-tabs button:hover { color: var(--primary); background: var(--surface-soft); }
+.detail-tabs button.active { color: var(--primary); background: var(--primary-soft); box-shadow: inset 0 0 0 2px var(--primary); }
+.detail-tabs button:focus-visible { outline: 3px solid rgba(39, 104, 199, .22); outline-offset: -3px; }
+.detail-tab-panel { margin-top: 20px; }
+
+.diagnostic-card { margin-top: 20px; }
+.diagnostic-card .panel-header { padding: 0 0 16px; }
+.diagnostic-section { padding: 20px 0; border-top: 1px solid var(--line); }
+.diagnostic-section:last-child { padding-bottom: 0; }
+.diagnostic-heading { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px 16px; margin-bottom: 12px; }
+.diagnostic-heading h3 { margin: 0; font-size: 14px; }
+.diagnostic-heading span, .diagnostic-hint, .diagnostic-empty { color: var(--muted); font-size: 12px; }
+.diagnostic-hint { margin: 8px 0; overflow-wrap: anywhere; }
+.diagnostic-empty { margin: 8px 0; }
+.diagnostic-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin: 0; }
+.diagnostic-grid dt { margin-bottom: 5px; color: var(--muted); font-size: 11px; }
+.diagnostic-grid dd { margin: 0; overflow-wrap: anywhere; font-size: 12px; }
+.diagnostic-wide { grid-column: span 2; }
+.thread-layout { display: grid; grid-template-columns: minmax(180px, 250px) minmax(0, 1fr); gap: 16px; }
+.thread-list { display: grid; align-content: start; gap: 6px; max-height: 370px; overflow: auto; }
+.thread-list button { display: grid; gap: 4px; padding: 10px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: inherit; text-align: left; overflow-wrap: anywhere; }
+.thread-list button.active { border-color: var(--primary); background: var(--surface-muted); }
+.thread-list button span, .thread-list button small, .thread-title span { color: var(--muted); font-size: 11px; }
+.thread-list button:focus-visible { outline: 3px solid rgba(39, 104, 199, .22); outline-offset: 2px; }
+.thread-detail { min-width: 0; }
+.thread-title { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; font-size: 13px; }
+.diagnostic-pre { max-height: 380px; overflow: auto; margin: 10px 0 0; padding: 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-muted); font: 12px/1.6 "SFMono-Regular", Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+.diagnostic-frames { max-height: 380px; overflow: auto; margin: 10px 0 0; padding: 10px 10px 10px 36px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-muted); font-size: 12px; }
+.diagnostic-frames li { padding: 4px; overflow-wrap: anywhere; }
+.diagnostic-details { display: grid; gap: 8px; margin-top: 16px; }
+.diagnostic-details summary { cursor: pointer; color: var(--primary); font-size: 12px; }
+.fd-list { display: grid; gap: 6px; max-height: 220px; overflow: auto; margin: 0; padding: 0; list-style: none; }
+.fd-list li { display: flex; gap: 14px; font-size: 12px; }
+@media (max-width: 800px) { .diagnostic-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .thread-layout { grid-template-columns: 1fr; } }
+
 .jank-timeline { min-width: 0; }
 .timeline-legend { display: flex; align-items: center; flex-wrap: wrap; gap: 16px; margin-bottom: 13px; color: var(--muted); font-size: 11px; }
 .timeline-legend span { display: inline-flex; align-items: center; gap: 6px; }

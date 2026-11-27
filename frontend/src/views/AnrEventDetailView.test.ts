@@ -78,4 +78,57 @@ describe('ANR 详情', () => {
     expect(writeText).toHaveBeenCalledWith('event-1')
     expect(wrapper.text()).toContain('已复制事件 ID')
   })
+
+  /** 分区按钮只展示对应卡片，事件切换后回到主线程 Java 栈。 */
+  it('通过按钮切换分区并在事件变化后重置', async () => {
+    const wrapper = mount(AnrEventDetailView, { global: { stubs: { AppLayout: { template: '<div><slot /></div>' }, RouterLink: { template: '<a><slot /></a>' } } } })
+    await flushPromises()
+    const tabs = wrapper.findAll('.detail-tabs button')
+    expect(tabs.map(tab => tab.text())).toEqual(['主线程 Java 栈', '系统 trace', 'ANR_INFO', '日志', '内存快照', 'FD 信息', '进程信息'])
+    expect(tabs[0].attributes('aria-selected')).toBe('true')
+    // jsdom 的计算样式存在缓存，v-show 显隐直接断言内联 display。
+    const displayOf = (selector: string) => (wrapper.find(selector).element as HTMLElement).style.display
+    const stackDisplay = (index: number) => (wrapper.findAll('.anr-stack')[index].element as HTMLElement).style.display
+    expect(displayOf('.anr-stack')).toBe('')
+    expect(stackDisplay(1)).toBe('none')
+    await tabs[1].trigger('click')
+    expect(stackDisplay(0)).toBe('none')
+    expect(stackDisplay(1)).toBe('')
+    await tabs[4].trigger('click')
+    expect(displayOf('[aria-label="内存快照"]')).toBe('')
+    expect(stackDisplay(1)).toBe('none')
+    vi.mocked(anrApi.event).mockResolvedValue(detail('event-2'))
+    route.params.eventId = 'event-2'; route.fullPath = '/apps/app-1/anrs/events/event-2'
+    await flushPromises()
+    expect(wrapper.findAll('.detail-tabs button')[0].attributes('aria-selected')).toBe('true')
+    expect(stackDisplay(0)).toBe('')
+  })
+
+  /** 每个 ANR 分区的标签和面板双向关联，方向键切换真实选中项与焦点。 */
+  it('通过键盘切换关联的详情面板', async () => {
+    /** 挂入文档后可验证活动元素。 */
+    const wrapper = mount(AnrEventDetailView, { attachTo: document.body, global: { stubs: {
+      AppLayout: { template: '<div><slot /></div>' }, RouterLink: { template: '<a><slot /></a>' },
+    } } })
+    await flushPromises()
+    /** 按页面顺序读取所有详情标签。 */
+    const tabs = wrapper.findAll('.detail-tabs [role="tab"]')
+    for (const tab of tabs) {
+      /** 标签所控制的面板标识。 */
+      const panelId = tab.attributes('aria-controls')
+      expect(panelId).toBeTruthy()
+      /** 面板须反向引用标签并可通过键盘进入。 */
+      const panel = wrapper.get(`#${panelId}`)
+      expect(panel.attributes('role')).toBe('tabpanel')
+      expect(panel.attributes('aria-labelledby')).toBe(tab.attributes('id'))
+      expect(panel.attributes('tabindex')).toBe('0')
+    }
+    ;(tabs[0].element as HTMLButtonElement).focus()
+    await tabs[0].trigger('keydown', { key: 'ArrowRight' })
+    expect(document.activeElement).toBe(tabs[1].element)
+    expect(tabs[1].attributes('aria-selected')).toBe('true')
+    expect((wrapper.get('#anr-detail-panel-trace').element as HTMLElement).style.display).toBe('')
+    expect((wrapper.get('#anr-detail-panel-main').element as HTMLElement).style.display).toBe('none')
+    wrapper.unmount()
+  })
 })

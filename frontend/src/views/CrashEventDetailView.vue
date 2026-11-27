@@ -2,7 +2,12 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import CrashAnalysisPanel from '../components/CrashAnalysisPanel.vue'
-import CrashDiagnosticsPanel from '../components/CrashDiagnosticsPanel.vue'
+import DetailTabs from '../components/DetailTabs.vue'
+import DiagnosticLogcat from '../components/DiagnosticLogcat.vue'
+import DiagnosticMemory from '../components/DiagnosticMemory.vue'
+import DiagnosticOpenFiles from '../components/DiagnosticOpenFiles.vue'
+import DiagnosticProcess from '../components/DiagnosticProcess.vue'
+import DiagnosticThreads from '../components/DiagnosticThreads.vue'
 import { useAppStore } from '../stores/apps'
 import { useSessionStore } from '../stores/session'
 import AppLayout from '../components/AppLayout.vue'
@@ -51,6 +56,23 @@ function symbolicationReason(reason: string | null): string {
 }
 
 const contextFilters = computed(() => parseFilters(route.query))
+/** 当前选中的详情分区；事件切换后回到堆栈。 */
+const activeTab = ref('stack')
+/** 详情分区按钮列表；本地分析仅 JVM fatal 事件提供。 */
+const detailTabs = computed(() => {
+  const tabs = [
+    { key: 'stack', label: '崩溃堆栈' },
+    { key: 'threads', label: '线程快照' },
+    { key: 'logcat', label: '日志' },
+    { key: 'memory', label: '内存快照' },
+    { key: 'openFiles', label: 'FD 信息' },
+    { key: 'process', label: '进程信息' },
+  ]
+  if (event.value?.crashKind === 'jvm' && event.value.fatal) tabs.push({ key: 'analysis', label: '本地分析' })
+  return tabs
+})
+// 更换事件后不沿用上一个事件的分区选择。
+watch(() => eventId.value, () => { activeTab.value = 'stack' })
 const backToIssue = computed(() => {
   if (!contextFilters.value.fingerprint) {
     return null
@@ -207,15 +229,22 @@ onBeforeUnmount(() => {
       </section>
 
       <div v-if="event.diagnostics?.coreTruncation?.truncated" class="notice notice-warning">{{ event.crashKind === 'native' ? '主崩溃信息' : '主异常' }}在设备端因大小限制被裁剪，以下堆栈可能不完整。</div>
-      <section v-if="event.stack.format === 'retrace_text'" class="panel detail-card symbolicated-panel">
-        <div class="panel-header" style="padding: 0 0 16px"><div><h2>还原堆栈</h2><p>首次成功结果已固定。完整保留内联与候选；成功不保证每一帧都准确。</p></div></div>
-        <pre class="symbolicated-stack">{{ event.stack.content }}</pre>
-      </section>
-      <NativeCrashPanel :app-id="appId" :app-version="event.appVersion" :build-id="event.buildId" :can-manage="canManageAnalysis" v-else-if="event.stack.format === 'native_stack'" :crash="event.stack.content" />
-      <StackTrace v-else :crash="event.stack.content" />
-      <CrashDiagnosticsPanel :key="`${appId}:${eventId}`" :diagnostics="event.diagnostics" :app-id="appId" :app-version="event.appVersion" :build-id="event.buildId" :can-manage="canManageAnalysis" :native-crash="event.stack.format === 'native_stack' ? event.stack.content : null" />
-      <CrashAnalysisPanel v-if="event.crashKind === 'jvm' && event.fatal" :app-id="appId" :event-id="eventId" :can-create="canAnalyze" :can-manage="canManageAnalysis" :user-id="session.user?.id ?? null" />
-      <div v-if="event.crashKind === 'jvm' && canManageAnalysis && event.symbolicationStatus !== 'symbolicated'" class="detail-actions"><RouterLink class="button" :to="{ name: 'app-symbols', params: { appId }, query: { type: 'MAPPING', appVersion: event.appVersion, buildId: event.buildId } }">上传此版本的 mapping</RouterLink></div>
+      <DetailTabs v-model="activeTab" :tabs="detailTabs" id-prefix="crash-detail" />
+      <div v-show="activeTab === 'stack'" id="crash-detail-panel-stack" class="detail-tab-panel" role="tabpanel" aria-labelledby="crash-detail-tab-stack" tabindex="0">
+        <section v-if="event.stack.format === 'retrace_text'" class="panel detail-card symbolicated-panel">
+          <div class="panel-header" style="padding: 0 0 16px"><div><h2>还原堆栈</h2><p>首次成功结果已固定。完整保留内联与候选；成功不保证每一帧都准确。</p></div></div>
+          <pre class="symbolicated-stack">{{ event.stack.content }}</pre>
+        </section>
+        <NativeCrashPanel :app-id="appId" :app-version="event.appVersion" :build-id="event.buildId" :can-manage="canManageAnalysis" v-else-if="event.stack.format === 'native_stack'" :crash="event.stack.content" />
+        <StackTrace v-else :crash="event.stack.content" />
+        <div v-if="event.crashKind === 'jvm' && canManageAnalysis && event.symbolicationStatus !== 'symbolicated'" class="detail-actions"><RouterLink class="button" :to="{ name: 'app-symbols', params: { appId }, query: { type: 'MAPPING', appVersion: event.appVersion, buildId: event.buildId } }">上传此版本的 mapping</RouterLink></div>
+      </div>
+      <DiagnosticThreads v-show="activeTab === 'threads'" :key="`${appId}:${eventId}`" id="crash-detail-panel-threads" role="tabpanel" aria-labelledby="crash-detail-tab-threads" tabindex="0" :diagnostics="event.diagnostics" :app-id="appId" :app-version="event.appVersion" :build-id="event.buildId" :can-manage="canManageAnalysis" :native-crash="event.stack.format === 'native_stack' ? event.stack.content : null" />
+      <DiagnosticLogcat v-show="activeTab === 'logcat'" id="crash-detail-panel-logcat" role="tabpanel" aria-labelledby="crash-detail-tab-logcat" tabindex="0" :logcat="event.diagnostics?.logcat ?? null" />
+      <DiagnosticMemory v-show="activeTab === 'memory'" id="crash-detail-panel-memory" role="tabpanel" aria-labelledby="crash-detail-tab-memory" tabindex="0" :memory="event.diagnostics?.memory ?? null" />
+      <DiagnosticOpenFiles v-show="activeTab === 'openFiles'" id="crash-detail-panel-openFiles" role="tabpanel" aria-labelledby="crash-detail-tab-openFiles" tabindex="0" :open-files="event.diagnostics?.openFiles ?? null" />
+      <DiagnosticProcess v-show="activeTab === 'process'" id="crash-detail-panel-process" role="tabpanel" aria-labelledby="crash-detail-tab-process" tabindex="0" :process="event.diagnostics?.process ?? null" :device="event.diagnostics?.device ?? null" />
+      <CrashAnalysisPanel v-if="event.crashKind === 'jvm' && event.fatal" v-show="activeTab === 'analysis'" id="crash-detail-panel-analysis" role="tabpanel" aria-labelledby="crash-detail-tab-analysis" tabindex="0" :app-id="appId" :event-id="eventId" :can-create="canAnalyze" :can-manage="canManageAnalysis" :user-id="session.user?.id ?? null" />
     </template>
   </AppLayout>
 </template>
